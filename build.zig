@@ -60,4 +60,25 @@ pub fn build(b: *std.Build) void {
 
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_unit_tests.step);
+
+    // Integration tests (BIP-322 signing with mock device)
+    const integration_mod = b.createModule(.{
+        .root_source_file = b.path("src/integration_test.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "hwi", .module = hwi_mod },
+        },
+    });
+
+    const integration_tests = b.addTest(.{
+        .root_module = integration_mod,
+    });
+    const run_integration_tests = b.addRunArtifact(integration_tests);
+
+    const integration_step = b.step("integration-test", "Run integration tests");
+    integration_step.dependOn(&run_integration_tests.step);
+
+    // 'test' also runs integration tests
+    test_step.dependOn(&run_integration_tests.step);
 }

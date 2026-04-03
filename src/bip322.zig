@@ -31,49 +31,65 @@ pub fn messageHash(message: []const u8) [32]u8 {
 /// nVersion=0, nLockTime=0
 /// vin[0]: prevout=00..00:FFFFFFFF, scriptSig=OP_0 PUSH32[msg_hash], seq=0
 /// vout[0]: value=0, scriptPubKey=<challenge_script>
-pub fn buildToSpend(msg_hash: [32]u8, script_pubkey: []const u8) bitcoin.Transaction {
-    // scriptSig: OP_0 (0x00) + OP_PUSHBYTES_32 (0x20) + 32-byte hash
-    const script_sig = &[2]u8{ 0x00, 0x20 } ++ &msg_hash;
-    return .{
-        .version = 0,
-        .inputs = &[_]bitcoin.TxInput{.{
-            .prevout = .{
-                .txid = [_]u8{0} ** 32,
-                .vout = 0xffffffff,
-            },
-            .script_sig = script_sig,
-            .sequence = 0,
-        }},
-        .outputs = &[_]bitcoin.TxOutput{.{
-            .value = 0,
-            .script_pubkey = script_pubkey,
-        }},
-        .locktime = 0,
+/// Stable storage for a BIP-322 to_spend transaction.
+/// All slices in the Transaction point into this struct's fields.
+pub const ToSpendTx = struct {
+    script_sig: [34]u8,
+    input: [1]bitcoin.TxInput,
+    output: [1]bitcoin.TxOutput,
+
+    pub fn tx(self: *ToSpendTx) bitcoin.Transaction {
+        return .{
+            .version = 0,
+            .inputs = &self.input,
+            .outputs = &self.output,
+            .locktime = 0,
+        };
+    }
+};
+
+/// Build the BIP-322 "to_spend" virtual transaction.
+pub fn buildToSpend(msg_hash: [32]u8, script_pubkey: []const u8) ToSpendTx {
+    var result: ToSpendTx = undefined;
+    result.script_sig[0] = 0x00; // OP_0
+    result.script_sig[1] = 0x20; // OP_PUSHBYTES_32
+    @memcpy(result.script_sig[2..34], &msg_hash);
+    result.input[0] = .{
+        .prevout = .{ .txid = [_]u8{0} ** 32, .vout = 0xffffffff },
+        .script_sig = &result.script_sig,
+        .sequence = 0,
     };
+    result.output[0] = .{ .value = 0, .script_pubkey = script_pubkey };
+    return result;
 }
 
+/// Stable storage for a BIP-322 to_sign transaction.
+pub const ToSignTx = struct {
+    input: [1]bitcoin.TxInput,
+    output: [1]bitcoin.TxOutput,
+    op_return: [1]u8,
+
+    pub fn tx(self: *ToSignTx) bitcoin.Transaction {
+        return .{
+            .version = 0,
+            .inputs = &self.input,
+            .outputs = &self.output,
+            .locktime = 0,
+        };
+    }
+};
+
 /// Build the BIP-322 "to_sign" transaction.
-///
-/// nVersion=0, nLockTime=0
-/// vin[0]: prevout=to_spend_txid:0, scriptSig=empty, seq=0
-/// vout[0]: value=0, scriptPubKey=OP_RETURN
-pub fn buildToSign(to_spend_txid: [32]u8) bitcoin.Transaction {
-    return .{
-        .version = 0,
-        .inputs = &[_]bitcoin.TxInput{.{
-            .prevout = .{
-                .txid = to_spend_txid,
-                .vout = 0,
-            },
-            .script_sig = &[_]u8{},
-            .sequence = 0,
-        }},
-        .outputs = &[_]bitcoin.TxOutput{.{
-            .value = 0,
-            .script_pubkey = &[_]u8{0x6a}, // OP_RETURN
-        }},
-        .locktime = 0,
+pub fn buildToSign(to_spend_txid: [32]u8) ToSignTx {
+    var result: ToSignTx = undefined;
+    result.op_return[0] = 0x6a; // OP_RETURN
+    result.input[0] = .{
+        .prevout = .{ .txid = to_spend_txid, .vout = 0 },
+        .script_sig = &[_]u8{},
+        .sequence = 0,
     };
+    result.output[0] = .{ .value = 0, .script_pubkey = &result.op_return };
+    return result;
 }
 
 // ── PSBT v0 Construction ─────────────────────────────────────────
@@ -293,14 +309,14 @@ test "messageHash Hello World" {
 test "buildPsbtV0 starts with magic" {
     const msg_hash = messageHash("test");
     const spk = [_]u8{ 0x00, 0x14 } ++ [_]u8{0xaa} ** 20;
-    const to_spend = buildToSpend(msg_hash, &spk);
-    const to_spend_id = try bitcoin.txid(std.testing.allocator, to_spend);
-    const to_sign = buildToSign(to_spend_id);
+    var to_spend_data = buildToSpend(msg_hash, &spk);
+    const to_spend_id = try bitcoin.txid(std.testing.allocator, to_spend_data.tx());
+    var to_sign_data = buildToSign(to_spend_id);
 
     const psbt = try buildPsbtV0(
         std.testing.allocator,
-        to_sign,
-        to_spend.outputs[0],
+        to_sign_data.tx(),
+        to_spend_data.output[0],
         &[_]u32{ 84 | 0x80000000, 0 | 0x80000000, 0 | 0x80000000, 0, 0 },
         [_]u8{ 0x01, 0x02, 0x03, 0x04 },
         [_]u8{0x02} ++ [_]u8{0xbb} ** 32,

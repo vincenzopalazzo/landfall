@@ -98,15 +98,15 @@ pub fn signBip322WithDevice(
     const msg_hash = bip322.messageHash(message);
 
     // Build the virtual transactions
-    const to_spend = bip322.buildToSpend(msg_hash, &spk);
-    const to_spend_txid = bitcoin.txid(allocator, to_spend) catch return error.OutOfMemory;
-    const to_sign = bip322.buildToSign(to_spend_txid);
+    var to_spend_data = bip322.buildToSpend(msg_hash, &spk);
+    const to_spend_txid = bitcoin.txid(allocator, to_spend_data.tx()) catch return error.OutOfMemory;
+    var to_sign_data = bip322.buildToSign(to_spend_txid);
 
     // Build PSBTv0
     const psbt = bip322.buildPsbtV0(
         allocator,
-        to_sign,
-        to_spend.outputs[0],
+        to_sign_data.tx(),
+        to_spend_data.output[0],
         path,
         master_fp,
         pubkey,
