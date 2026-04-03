@@ -19,8 +19,8 @@ const Command = union(enum) {
 const ConfigureArgs = struct {
     /// Bitcoin address registered with OCEAN (for signing context).
     address: ?[]const u8,
-    /// Block height or "latest".
-    height: []const u8,
+    /// The OCEAN configuration message to sign (provided by the user).
+    message: ?[]const u8,
     /// BOLT12 offer override — if null, fetched from Lexe node.
     offer: ?[]const u8,
 };
@@ -66,7 +66,7 @@ fn parseArgs(args: []const []const u8) ParseError!CliArgs {
 
     // Configure-specific flags
     var cfg_address: ?[]const u8 = null;
-    var cfg_height: []const u8 = "latest";
+    var cfg_message: ?[]const u8 = null;
     var cfg_offer: ?[]const u8 = null;
 
     var i: usize = 1; // skip argv[0]
@@ -86,10 +86,10 @@ fn parseArgs(args: []const []const u8) ParseError!CliArgs {
             i += 1;
             if (i >= args.len) return error.MissingFlagValue;
             cfg_address = args[i];
-        } else if (std.mem.eql(u8, arg, "--height")) {
+        } else if (std.mem.eql(u8, arg, "--message")) {
             i += 1;
             if (i >= args.len) return error.MissingFlagValue;
-            cfg_height = args[i];
+            cfg_message = args[i];
         } else if (std.mem.eql(u8, arg, "--offer")) {
             i += 1;
             if (i >= args.len) return error.MissingFlagValue;
@@ -116,7 +116,7 @@ fn parseArgs(args: []const []const u8) ParseError!CliArgs {
     else if (std.mem.eql(u8, cmd_str, "configure"))
         .{ .configure = .{
             .address = cfg_address,
-            .height = cfg_height,
+            .message = cfg_message,
             .offer = cfg_offer,
         } }
     else if (std.mem.eql(u8, cmd_str, "invoice")) blk: {
@@ -167,12 +167,12 @@ fn printUsage(w: *std.Io.Writer) !void {
         \\Configure options:
         \\  --offer <bolt12>            BOLT12 offer (fetched from Lexe if omitted)
         \\  --address <btc_addr>        Bitcoin address registered with OCEAN
-        \\  --height <height>           Block height or "latest" (default: latest)
+        \\  --message <msg>             OCEAN configuration message to sign
         \\
         \\Examples:
         \\  oceanln info
-        \\  oceanln configure --address bc1q... --height latest
-        \\  oceanln configure --offer lno1... --address bc1q... --height 840000
+        \\  oceanln configure --address bc1q... --message "Configure OCEAN payout to lno1... at block latest"
+        \\  oceanln configure --offer lno1... --address bc1q...
         \\  oceanln invoice 1000 "donation"
         \\  oceanln pay lnbc1...
         \\
@@ -243,7 +243,6 @@ fn cmdConfigure(allocator: Allocator, client: *lexe.LexeClient, args: ConfigureA
 
         switch (result) {
             .ok => |resp| {
-                // Copy offer string to our allocator before deinit
                 offer_buf = allocator.dupe(u8, resp.value.offer) catch
                     exitErr(ew, "error: out of memory\n", .{});
                 resp.deinit();
@@ -254,24 +253,19 @@ fn cmdConfigure(allocator: Allocator, client: *lexe.LexeClient, args: ConfigureA
         }
     };
 
-    // Validate inputs
+    // Validate offer
     if (!ocean.validateBolt12Offer(bolt12_offer)) {
         exitErr(ew, "error: invalid BOLT12 offer (must start with 'lno1')\n", .{});
     }
-    if (!ocean.validateBlockHeight(args.height)) {
-        exitErr(ew, "error: invalid block height (use 'latest' or a number)\n", .{});
-    }
 
-    // Build the message to sign
-    const message = ocean.buildConfigureMessage(allocator, bolt12_offer, args.height) catch
-        exitErr(ew, "error: out of memory\n", .{});
-    defer allocator.free(message);
+    // The message is provided by the user (from the OCEAN web interface).
+    const message = args.message orelse
+        exitErr(ew, "error: --message is required. Copy the message from the OCEAN configuration page.\n", .{});
 
     if (json) {
         const output = ConfigureOutput{
             .message = message,
             .offer = bolt12_offer,
-            .height = args.height,
             .address = args.address,
         };
         try writeJson(allocator, w, output);
@@ -279,7 +273,6 @@ fn cmdConfigure(allocator: Allocator, client: *lexe.LexeClient, args: ConfigureA
         try w.print("OCEAN Lightning Payout Configuration\n", .{});
         try w.print("====================================\n\n", .{});
         try w.print("BOLT12 Offer:  {s}\n", .{bolt12_offer});
-        try w.print("Block Height:  {s}\n", .{args.height});
         if (args.address) |addr| {
             try w.print("BTC Address:   {s}\n", .{addr});
         }
@@ -296,7 +289,6 @@ fn cmdConfigure(allocator: Allocator, client: *lexe.LexeClient, args: ConfigureA
 const ConfigureOutput = struct {
     message: []const u8,
     offer: []const u8,
-    height: []const u8,
     address: ?[]const u8,
 };
 
