@@ -1,12 +1,14 @@
 const std = @import("std");
 const lexe = @import("lexe");
 const ocean = @import("ocean.zig");
+const signer = @import("signer.zig");
 
 const Allocator = std.mem.Allocator;
 
 // ── CLI Types ────────────────────────────────────────────────────
 
 const Command = union(enum) {
+    sign: SignArgs,
     info,
     configure: ConfigureArgs,
     invoice: InvoiceArgs,
@@ -14,6 +16,12 @@ const Command = union(enum) {
     payment: PaymentArgs,
     health,
     help,
+};
+
+const SignArgs = struct {
+    message: []const u8,
+    address: ?[]const u8,
+    path: ?[]const u8,
 };
 
 const ConfigureArgs = struct {
@@ -64,10 +72,12 @@ fn parseArgs(args: []const []const u8) ParseError!CliArgs {
     var positional: [8][]const u8 = undefined;
     var pos_count: usize = 0;
 
-    // Configure-specific flags
+    // Shared flags
     var cfg_address: ?[]const u8 = null;
     var cfg_message: ?[]const u8 = null;
     var cfg_offer: ?[]const u8 = null;
+    var message_to_sign: ?[]const u8 = null;
+    var sign_path: ?[]const u8 = null;
 
     var i: usize = 1; // skip argv[0]
     while (i < args.len) : (i += 1) {
@@ -90,6 +100,14 @@ fn parseArgs(args: []const []const u8) ParseError!CliArgs {
             i += 1;
             if (i >= args.len) return error.MissingFlagValue;
             cfg_message = args[i];
+        } else if (std.mem.eql(u8, arg, "--message-to-sign")) {
+            i += 1;
+            if (i >= args.len) return error.MissingFlagValue;
+            message_to_sign = args[i];
+        } else if (std.mem.eql(u8, arg, "--path")) {
+            i += 1;
+            if (i >= args.len) return error.MissingFlagValue;
+            sign_path = args[i];
         } else if (std.mem.eql(u8, arg, "--offer")) {
             i += 1;
             if (i >= args.len) return error.MissingFlagValue;
@@ -104,6 +122,20 @@ fn parseArgs(args: []const []const u8) ParseError!CliArgs {
                 pos_count += 1;
             }
         }
+    }
+
+    // If --message-to-sign is provided, that's the sign command (no subcommand needed)
+    if (message_to_sign) |msg| {
+        return .{
+            .url = url,
+            .credentials = credentials,
+            .command = .{ .sign = .{
+                .message = msg,
+                .address = cfg_address,
+                .path = sign_path,
+            } },
+            .json = json,
+        };
     }
 
     if (pos_count == 0) return error.NoCommand;
@@ -149,8 +181,14 @@ fn parseArgs(args: []const []const u8) ParseError!CliArgs {
 fn printUsage(w: *std.Io.Writer) !void {
     try w.print(
         \\Usage: oceanln [options] <command> [args]
+        \\       oceanln --message-to-sign <msg> [--address <addr>] [--path <path>]
         \\
-        \\Commands:
+        \\BIP-322 Signing (via Coldcard):
+        \\  --message-to-sign <msg>     Sign a message with the connected Coldcard
+        \\  --address <btc_addr>        Bitcoin address (P2WPKH bc1q...) for signing
+        \\  --path <bip32_path>         Derivation path (default: m/84'/0'/0'/0/0)
+        \\
+        \\Wallet Commands:
         \\  configure                   Build OCEAN payout configuration message
         \\  info                        Show Lexe node info (balance, channels, keys)
         \\  invoice <amount> [desc]     Create a BOLT11 invoice (amount in sats)
@@ -166,15 +204,13 @@ fn printUsage(w: *std.Io.Writer) !void {
         \\
         \\Configure options:
         \\  --offer <bolt12>            BOLT12 offer (fetched from Lexe if omitted)
-        \\  --address <btc_addr>        Bitcoin address registered with OCEAN
-        \\  --message <msg>             OCEAN configuration message to sign
+        \\  --message <msg>             OCEAN configuration message (from web UI)
         \\
         \\Examples:
+        \\  oceanln --message-to-sign "Configure OCEAN payout to lno1... at block 840000" --address bc1q...
         \\  oceanln info
-        \\  oceanln configure --address bc1q... --message "Configure OCEAN payout to lno1... at block latest"
-        \\  oceanln configure --offer lno1... --address bc1q...
+        \\  oceanln configure --offer lno1... --address bc1q... --message "..."
         \\  oceanln invoice 1000 "donation"
-        \\  oceanln pay lnbc1...
         \\
     , .{});
 }
@@ -196,6 +232,66 @@ fn writeJson(allocator: Allocator, w: *std.Io.Writer, value: anytype) !void {
     try w.writeAll(json_str);
     try w.writeAll("\n");
 }
+
+fn cmdSign(allocator: Allocator, args: SignArgs, w: *std.Io.Writer, ew: *std.Io.Writer, json: bool) !void {
+    // Parse derivation path
+    var path_buf: [12]u32 = undefined;
+    var path_len: usize = undefined;
+    if (args.path) |p| {
+        path_len = signer.parseBip32Path(p, &path_buf) catch
+            exitErr(ew, "error: invalid BIP32 path format (expected m/84'/0'/0'/0/0)\n", .{});
+    } else {
+        const default = signer.defaultP2wpkhPath();
+        path_buf[0..5].* = default.path;
+        path_len = default.len;
+    }
+
+    const address = args.address orelse
+        exitErr(ew, "error: --address is required for BIP-322 signing\n", .{});
+
+    try w.print("Signing with Coldcard via BIP-322...\n", .{});
+    try w.print("Message: {s}\n", .{args.message});
+    try w.print("Address: {s}\n", .{address});
+    try w.flush();
+
+    const signature = signer.signBip322(
+        allocator,
+        args.message,
+        address,
+        path_buf[0..path_len],
+    ) catch |err| {
+        switch (err) {
+            signer.SignError.NoColdcardFound => exitErr(ew, "error: no Coldcard found. Connect your device via USB.\n", .{}),
+            signer.SignError.UserRefused => exitErr(ew, "error: signing refused on device.\n", .{}),
+            signer.SignError.Timeout => exitErr(ew, "error: signing timed out. Approve on the Coldcard.\n", .{}),
+            signer.SignError.AddressNotP2wpkh => exitErr(ew, "error: only P2WPKH (bc1q...) addresses are supported.\n", .{}),
+            signer.SignError.ConnectionFailed => exitErr(ew, "error: failed to communicate with Coldcard.\n", .{}),
+            signer.SignError.XpubDecodeFailed => exitErr(ew, "error: failed to decode xpub from Coldcard.\n", .{}),
+            signer.SignError.SigningFailed => exitErr(ew, "error: signing failed on device.\n", .{}),
+            signer.SignError.PsbtError => exitErr(ew, "error: invalid PSBT response from device.\n", .{}),
+            else => exitErr(ew, "error: signing failed\n", .{}),
+        }
+    };
+    defer allocator.free(signature);
+
+    if (json) {
+        const output = SignOutput{
+            .message = args.message,
+            .address = address,
+            .signature = signature,
+        };
+        try writeJson(allocator, w, output);
+    } else {
+        try w.print("\nBIP-322 Signature:\n{s}\n", .{signature});
+        try w.print("\nPaste this signature into the OCEAN web interface.\n", .{});
+    }
+}
+
+const SignOutput = struct {
+    message: []const u8,
+    address: []const u8,
+    signature: []const u8,
+};
 
 fn handleApiError(ew: *std.Io.Writer, resp: anytype) noreturn {
     defer resp.deinit();
@@ -504,6 +600,12 @@ pub fn main() !void {
             try stdout.flush();
             return;
         },
+        .sign => |a| {
+            // Sign command doesn't need Lexe client
+            try cmdSign(allocator, a, stdout, stderr, cli.json);
+            try stdout.flush();
+            return;
+        },
         else => {},
     }
 
@@ -524,6 +626,7 @@ pub fn main() !void {
         .pay => |a| try cmdPay(allocator, &client, a, stdout, stderr, cli.json),
         .payment => |a| try cmdPayment(allocator, &client, a, stdout, stderr, cli.json),
         .health => try cmdHealth(allocator, &client, stdout, stderr, cli.json),
+        .sign => unreachable, // handled above
         .help => unreachable,
     }
 

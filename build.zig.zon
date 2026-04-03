@@ -13,5 +13,8 @@
         .lexe = .{
             .path = "../lexe-zig-sdk",
         },
+        .hwi = .{
+            .path = "../unified-hwi",
+        },
     },
 }
