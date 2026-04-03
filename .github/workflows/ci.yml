@@ -17,12 +17,14 @@ jobs:
         with:
           repository: vincenzopalazzo/lexe-zig-sdk
           path: lexe-zig-sdk
+          token: ${{ secrets.REPO_TOKEN }}
 
       - name: Checkout unified-hwi
         uses: actions/checkout@v4
         with:
           repository: vincenzopalazzo/unified-hwi
           path: unified-hwi
+          token: ${{ secrets.REPO_TOKEN }}
           submodules: recursive
 
       - name: Install system dependencies
