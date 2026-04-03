@@ -1,11 +1,12 @@
 const std = @import("std");
-const hwi = @import("hwi");
+const hwi_mod = @import("hwi");
 const bitcoin = @import("bitcoin.zig");
 const bip322 = @import("bip322.zig");
 
 const Allocator = std.mem.Allocator;
-const ColdCardDevice = hwi.cc.ColdCardDevice;
-const DeviceError = hwi.hwi.DeviceError;
+const HWDevice = hwi_mod.hwi.HWDevice;
+const DeviceError = hwi_mod.hwi.DeviceError;
+const ColdCardDevice = hwi_mod.cc.ColdCardDevice;
 
 pub const SignError = error{
     NoColdcardFound,
@@ -69,33 +70,17 @@ pub fn defaultP2wpkhPath() struct { path: [5]u32, len: usize } {
     };
 }
 
-/// Complete BIP-322 signing flow using a connected Coldcard.
+/// BIP-322 signing using any HWDevice implementation.
 ///
-/// 1. Detect and connect to Coldcard
-/// 2. Get master fingerprint + xpub to extract pubkey
-/// 3. Compute BIP-322 message hash
-/// 4. Build to_spend and to_sign transactions
-/// 5. Wrap as PSBTv0
-/// 6. Sign via Coldcard
-/// 7. Extract witness and base64-encode
-pub fn signBip322(
+/// The caller is responsible for device detection, session setup, and
+/// cleanup. This function only needs a ready-to-use HWDevice.
+pub fn signBip322WithDevice(
     allocator: Allocator,
+    hw: HWDevice,
     message: []const u8,
     address: []const u8,
     path: []const u32,
 ) SignError![]u8 {
-    // Initialize Coldcard device
-    var device = ColdCardDevice.init();
-    defer device.deinit();
-
-    const detected = device.hwDevice().detect() catch return error.ConnectionFailed;
-    if (!detected) return error.NoColdcardFound;
-
-    // Establish encrypted session
-    device.encryptSession(allocator) catch return error.ConnectionFailed;
-
-    const hw = device.hwDevice();
-
     // Get master fingerprint
     const master_fp = hw.getMasterFingerprint(allocator) catch return error.ConnectionFailed;
 
@@ -128,7 +113,7 @@ pub fn signBip322(
     ) catch return error.OutOfMemory;
     defer allocator.free(psbt);
 
-    // Sign the PSBT via Coldcard
+    // Sign the PSBT via the hardware wallet
     const signed_psbt = hw.signTx(allocator, psbt) catch |err| {
         return switch (err) {
             DeviceError.UserRefused => error.UserRefused,
@@ -143,6 +128,36 @@ pub fn signBip322(
 
     // Base64-encode the witness as the BIP-322 "simple" signature
     return bip322.encodeSignature(allocator, witness) catch return error.OutOfMemory;
+}
+
+/// Detect the first available hardware wallet and sign via BIP-322.
+///
+/// Currently tries Coldcard. As new drivers are added to unified-hwi
+/// (BitBox02, etc.), detection will be extended here.
+pub fn signBip322(
+    allocator: Allocator,
+    message: []const u8,
+    address: []const u8,
+    path: []const u32,
+) SignError![]u8 {
+    // Try Coldcard
+    var coldcard = ColdCardDevice.init();
+    errdefer coldcard.deinit();
+
+    const detected = coldcard.hwDevice().detect() catch return error.ConnectionFailed;
+    if (!detected) {
+        coldcard.deinit();
+        // TODO: try BitBox02, Trezor, etc. when drivers are available
+        return error.NoColdcardFound;
+    }
+
+    // Establish encrypted session (Coldcard-specific)
+    coldcard.encryptSession(allocator) catch return error.ConnectionFailed;
+
+    const result = signBip322WithDevice(allocator, coldcard.hwDevice(), message, address, path);
+
+    coldcard.deinit();
+    return result;
 }
 
 // ── Tests ────────────────────────────────────────────────────────
