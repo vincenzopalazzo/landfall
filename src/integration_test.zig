@@ -1,12 +1,16 @@
-//! Integration tests for the oceanln-cli BIP-322 signing flow.
+//! Integration tests for the oceanln-cli.
 //!
-//! Uses MockDevice (software secp256k1 signer) to test the full pipeline:
-//! message hash → PSBT construction → signing → witness extraction → base64 output
+//! - BIP-322 signing: MockDevice (software secp256k1 signer) tests the full
+//!   pipeline: message hash → PSBT construction → signing → witness extraction
+//! - Wallet commands: MockSidecar (HTTP server) tests Lexe client operations:
+//!   health, create_invoice, get_payment
 const std = @import("std");
+const lexe = @import("lexe");
 const bitcoin = @import("bitcoin.zig");
 const bip322 = @import("bip322.zig");
 const signer = @import("signer.zig");
 const mock_device = @import("mock_device.zig");
+const mock_sidecar = @import("mock_sidecar.zig");
 
 const Sha256 = std.crypto.hash.sha2.Sha256;
 
@@ -178,4 +182,129 @@ test "BIP-322 different keys produce different signatures" {
     defer allocator.free(sig2);
 
     try std.testing.expect(!std.mem.eql(u8, sig1, sig2));
+}
+
+// ── Wallet Command Integration Tests ─────────────────────────────
+
+const TestCtx = struct {
+    sidecar: mock_sidecar.MockSidecar,
+    client: lexe.LexeClient,
+
+    fn deinit(self: *TestCtx) void {
+        self.client.deinit();
+        self.sidecar.stop();
+    }
+};
+
+// Use a fixed URL since the port is always 15393
+const mock_url = "http://127.0.0.1:15393";
+
+fn startMockAndClient(allocator: std.mem.Allocator) !TestCtx {
+    var sidecar = mock_sidecar.MockSidecar.init(15393);
+    try sidecar.start();
+    std.Thread.sleep(10_000_000); // 10ms for server to bind
+
+    const client = lexe.LexeClient.init(allocator, .{
+        .base_url = mock_url,
+    }) catch return error.ClientInitFailed;
+
+    return .{ .sidecar = sidecar, .client = client };
+}
+
+test "wallet: health check via mock sidecar" {
+    const allocator = std.testing.allocator;
+    var ctx = try startMockAndClient(allocator);
+    defer ctx.deinit();
+
+    const result = try ctx.client.health();
+    switch (result) {
+        .ok => |resp| {
+            defer resp.deinit();
+            try std.testing.expectEqualStrings("ok", resp.value.status);
+        },
+        .err => |resp| {
+            defer resp.deinit();
+            return error.UnexpectedApiError;
+        },
+        .not_found => return error.UnexpectedNotFound,
+    }
+}
+
+test "wallet: node info via mock sidecar" {
+    const allocator = std.testing.allocator;
+    var ctx = try startMockAndClient(allocator);
+    defer ctx.deinit();
+
+    const result = try ctx.client.nodeInfo();
+    switch (result) {
+        .ok => |resp| {
+            defer resp.deinit();
+            const info = resp.value;
+            try std.testing.expectEqualStrings("0.9.2-mock", info.version);
+            try std.testing.expectEqualStrings("50000", info.balance);
+            try std.testing.expectEqualStrings("25000", info.lightning_balance);
+            try std.testing.expectEqual(@as(u32, 2), info.num_channels);
+            try std.testing.expectEqual(@as(u32, 2), info.num_usable_channels);
+        },
+        .err => |resp| {
+            defer resp.deinit();
+            return error.UnexpectedApiError;
+        },
+        .not_found => return error.UnexpectedNotFound,
+    }
+}
+
+test "wallet: create invoice via mock sidecar" {
+    const allocator = std.testing.allocator;
+    var ctx = try startMockAndClient(allocator);
+    defer ctx.deinit();
+
+    const result = try ctx.client.createInvoice(.{
+        .amount = "1000",
+        .description = "test invoice",
+        .expiration_secs = 3600,
+    });
+    switch (result) {
+        .ok => |resp| {
+            defer resp.deinit();
+            const inv = resp.value;
+            try std.testing.expectEqualStrings("1000", inv.amount.?);
+            try std.testing.expectEqualStrings("mock invoice", inv.description.?);
+            try std.testing.expect(std.mem.startsWith(u8, inv.invoice, "lnbc"));
+            try std.testing.expect(inv.payment_hash.len > 0);
+            try std.testing.expect(inv.expires_at > inv.created_at);
+        },
+        .err => |resp| {
+            defer resp.deinit();
+            return error.UnexpectedApiError;
+        },
+        .not_found => return error.UnexpectedNotFound,
+    }
+}
+
+test "wallet: get payment via mock sidecar" {
+    const allocator = std.testing.allocator;
+    var ctx = try startMockAndClient(allocator);
+    defer ctx.deinit();
+
+    const result = try ctx.client.getPayment("0000001772349163844-ln_mock");
+    switch (result) {
+        .ok => |resp| {
+            defer resp.deinit();
+            const p = resp.value;
+            try std.testing.expectEqualStrings("0000001772349163844-ln_mock", p.index);
+            try std.testing.expectEqual(lexe.PaymentRail.invoice, p.rail);
+            try std.testing.expectEqual(lexe.PaymentKind.invoice, p.kind);
+            try std.testing.expectEqual(lexe.PaymentDirection.inbound, p.direction);
+            try std.testing.expectEqual(lexe.PaymentStatus.completed, p.status);
+            try std.testing.expectEqualStrings("1000", p.amount.?);
+            try std.testing.expectEqualStrings("0", p.fees);
+            try std.testing.expectEqualStrings("received", p.status_msg);
+        },
+        .err => |resp| {
+            defer resp.deinit();
+            return error.UnexpectedApiError;
+        },
+        .not_found => return error.UnexpectedNotFound,
+    }
 }

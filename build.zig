@@ -69,13 +69,14 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_unit_tests.step);
 
-    // Integration tests (BIP-322 signing with mock device)
+    // Integration tests (BIP-322 signing + wallet commands)
     const integration_mod = b.createModule(.{
         .root_source_file = b.path("src/integration_test.zig"),
         .target = target,
         .optimize = optimize,
         .imports = &.{
             .{ .name = "hwi", .module = hwi_mod },
+            .{ .name = "lexe", .module = lexe_mod },
         },
     });
 
