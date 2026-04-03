@@ -1,0 +1,42 @@
+name: CI
+on:
+  push:
+  pull_request:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout oceanln-cli
+        uses: actions/checkout@v4
+        with:
+          path: oceanln-cli
+
+      - name: Checkout lexe-zig-sdk
+        uses: actions/checkout@v4
+        with:
+          repository: vincenzopalazzo/lexe-zig-sdk
+          path: lexe-zig-sdk
+
+      - name: Checkout unified-hwi
+        uses: actions/checkout@v4
+        with:
+          repository: vincenzopalazzo/unified-hwi
+          path: unified-hwi
+          submodules: recursive
+
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y libhidapi-dev
+
+      - name: Install Zig
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.15.2
+
+      - name: Build
+        working-directory: oceanln-cli
+        run: zig build
+
+      - name: Test
+        working-directory: oceanln-cli
+        run: zig build test
