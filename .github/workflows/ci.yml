@@ -27,6 +27,14 @@ jobs:
           token: ${{ secrets.REPO_TOKEN }}
           submodules: recursive
 
+      - name: Checkout bolt12 (zig branch)
+        uses: actions/checkout@v4
+        with:
+          repository: vincenzopalazzo/bolt12
+          ref: claude/modest-jackson
+          path: bolt12
+          token: ${{ secrets.REPO_TOKEN }}
+
       - name: Install system dependencies
         run: sudo apt-get update && sudo apt-get install -y libhidapi-dev
 

@@ -16,5 +16,8 @@
         .hwi = .{
             .path = "../unified-hwi",
         },
+        .bolt12 = .{
+            .path = "../bolt12/zig",
+        },
     },
 }

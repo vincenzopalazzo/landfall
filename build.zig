@@ -16,6 +16,12 @@ pub fn build(b: *std.Build) void {
     });
     const hwi_mod = hwi_dep.module("hwi");
 
+    const bolt12_dep = b.dependency("bolt12", .{
+        .target = target,
+        .optimize = optimize,
+    });
+    const bolt12_mod = bolt12_dep.module("bolt12");
+
     // Main CLI executable
     const exe_mod = b.createModule(.{
         .root_source_file = b.path("src/main.zig"),
@@ -24,6 +30,7 @@ pub fn build(b: *std.Build) void {
         .imports = &.{
             .{ .name = "lexe", .module = lexe_mod },
             .{ .name = "hwi", .module = hwi_mod },
+            .{ .name = "bolt12", .module = bolt12_mod },
         },
     });
 
@@ -50,6 +57,7 @@ pub fn build(b: *std.Build) void {
         .imports = &.{
             .{ .name = "lexe", .module = lexe_mod },
             .{ .name = "hwi", .module = hwi_mod },
+            .{ .name = "bolt12", .module = bolt12_mod },
         },
     });
 

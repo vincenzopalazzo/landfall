@@ -350,7 +350,7 @@ fn cmdConfigure(allocator: Allocator, client: *lexe.LexeClient, args: ConfigureA
     };
 
     // Validate offer
-    if (!ocean.validateBolt12Offer(bolt12_offer)) {
+    if (!ocean.validateBolt12Offer(allocator, bolt12_offer)) {
         exitErr(ew, "error: invalid BOLT12 offer (must start with 'lno1')\n", .{});
     }
 
