@@ -129,9 +129,10 @@ async fn create_invoice_decodes_payload() {
     let client = SidecarClient::new(url_for(addr), None).expect("client");
     let inv = client
         .create_invoice(CreateInvoiceReq {
-            amount: "1000",
+            amount: Some("1000"),
             description: Some("mock invoice"),
-            expiration_secs: 3600,
+            expiration_secs: Some(3600),
+            payer_note: None,
         })
         .await
         .expect("create_invoice");
@@ -168,6 +169,27 @@ async fn offer_returns_known_offer() {
     assert!(o.offer.starts_with("lno1"));
 }
 
+/// When nothing is listening on the URL, the client must surface the
+/// actionable `SidecarUnreachable` variant — not the generic `Http` —
+/// so the user sees a message naming the binary they need to launch.
+#[tokio::test]
+async fn connection_refused_is_classified() {
+    // Bind a port, grab the addr, then drop the listener so the port
+    // is closed when we connect. Race-free way to get a guaranteed-dead
+    // local address without picking a magic number.
+    let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+    let addr = listener.local_addr().expect("local_addr");
+    drop(listener);
+
+    let client = SidecarClient::new(url_for(addr), None).expect("client");
+    match client.health().await {
+        Err(Error::SidecarUnreachable { url, .. }) => {
+            assert!(url.contains(&addr.to_string()));
+        }
+        other => panic!("expected SidecarUnreachable, got {other:?}"),
+    }
+}
+
 #[tokio::test]
 async fn unknown_endpoint_returns_404() {
     let addr = spawn_mock().await;
@@ -175,6 +197,9 @@ async fn unknown_endpoint_returns_404() {
     let r = client
         .pay_invoice(PayInvoiceReq {
             invoice: "lnbc1...",
+            fallback_amount: None,
+            note: None,
+            payer_note: None,
         })
         .await;
     match r {

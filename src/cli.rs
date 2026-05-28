@@ -8,7 +8,16 @@ use clap::{Args, Parser, Subcommand};
 #[command(
     name = "oceanln",
     version,
-    about = "OCEAN Lightning payout CLI — BIP-322 message signing + Lexe sidecar client"
+    about = "OCEAN Lightning payout CLI — BIP-322 message signing + Lexe sidecar client",
+    after_help = "Examples:\n  \
+        oceanln health\n  \
+        oceanln info --credentials $LEXE_CLIENT_CREDENTIALS\n  \
+        oceanln sign --message 'Configure OCEAN payout to lno1... at block 840000' --address bc1q...\n  \
+        oceanln configure --offer lno1... --message 'Configure OCEAN payout...' --address bc1q...\n  \
+        oceanln invoice 5000 'donation'\n  \
+        oceanln pay lnbc50n...\n\n\
+        The sidecar must be running separately:\n  \
+        lexe-sidecar --client-credentials-path <path>"
 )]
 pub struct Cli {
     /// Lexe sidecar URL.
@@ -76,9 +85,14 @@ pub struct ConfigureArgs {
     #[arg(long)]
     pub message: String,
 
-    /// BOLT12 offer override. If omitted, fetched from the Lexe node.
+    /// BOLT12 offer to publish to OCEAN.
+    ///
+    /// Required: the upstream `lexe-sidecar` does not yet expose a
+    /// `/v2/node/offer` endpoint, so we can't auto-fetch. Copy the
+    /// offer from your node's UI or a separate `lncli`/`lightning-cli`
+    /// session.
     #[arg(long)]
-    pub offer: Option<String>,
+    pub offer: String,
 }
 
 #[derive(Args, Debug)]

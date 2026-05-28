@@ -50,10 +50,15 @@ pub struct OfferResp {
 
 #[derive(Debug, Serialize)]
 pub struct CreateInvoiceReq<'a> {
-    pub amount: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub amount: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<&'a str>,
-    pub expiration_secs: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expiration_secs: Option<u64>,
+    /// Note exposed in the offer/invoice for the payer to see.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub payer_note: Option<&'a str>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -74,6 +79,15 @@ pub struct Invoice {
 #[derive(Debug, Serialize)]
 pub struct PayInvoiceReq<'a> {
     pub invoice: &'a str,
+    /// Used for amountless invoices to supply the amount in sats.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fallback_amount: Option<&'a str>,
+    /// Personal note attached to the local payment record.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub note: Option<&'a str>,
+    /// Note delivered to the recipient (offers / LNURL-pay).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub payer_note: Option<&'a str>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -89,6 +103,8 @@ pub struct Payment {
     pub kind: String,
     pub direction: String,
     #[serde(default)]
+    pub txid: Option<String>,
+    #[serde(default)]
     pub amount: Option<String>,
     pub fees: String,
     pub status: String,
@@ -99,8 +115,14 @@ pub struct Payment {
     pub address: Option<String>,
     #[serde(default)]
     pub note: Option<String>,
+    #[serde(default)]
+    pub payer_name: Option<String>,
+    #[serde(default)]
+    pub payer_note: Option<String>,
     pub created_at: i64,
     pub updated_at: i64,
+    #[serde(default)]
+    pub expires_at: Option<i64>,
     #[serde(default)]
     pub finalized_at: Option<i64>,
 }
@@ -139,7 +161,11 @@ impl SidecarClient {
     }
 
     async fn send<T: for<'de> Deserialize<'de>>(&self, req: RequestBuilder) -> Result<T> {
-        let resp = req.headers(self.headers()).send().await?;
+        let resp = req
+            .headers(self.headers())
+            .send()
+            .await
+            .map_err(|e| self.classify_send_error(e))?;
         let status = resp.status();
         let bytes = resp.bytes().await?;
         if status.is_success() {
@@ -148,12 +174,18 @@ impl SidecarClient {
         Err(api_error(status, &bytes))
     }
 
-    /// Variant that returns `Ok(None)` on 404 (used by GET /v2/node/offer and payment lookup).
+    /// Variant that returns `Ok(None)` on a bare HTTP 404 (used by
+    /// `payment` lookup, where the sidecar uses 404 to signal "no such
+    /// payment" rather than wrapping it in a JSON envelope).
     async fn send_opt<T: for<'de> Deserialize<'de>>(
         &self,
         req: RequestBuilder,
     ) -> Result<Option<T>> {
-        let resp = req.headers(self.headers()).send().await?;
+        let resp = req
+            .headers(self.headers())
+            .send()
+            .await
+            .map_err(|e| self.classify_send_error(e))?;
         let status = resp.status();
         if status == StatusCode::NOT_FOUND {
             return Ok(None);
@@ -165,6 +197,20 @@ impl SidecarClient {
                 .map_err(Error::Json);
         }
         Err(api_error(status, &bytes))
+    }
+
+    /// Map low-level reqwest errors into actionable user-facing errors.
+    /// In particular, distinguish "sidecar isn't running" from other
+    /// HTTP failures so the message can name the binary the user needs
+    /// to launch.
+    fn classify_send_error(&self, e: reqwest::Error) -> Error {
+        if e.is_connect() || e.is_timeout() {
+            return Error::SidecarUnreachable {
+                url: self.base_url.clone(),
+                source: e,
+            };
+        }
+        Error::Http(e)
     }
 
     pub async fn health(&self) -> Result<Health> {
@@ -180,6 +226,14 @@ impl SidecarClient {
         .await
     }
 
+    /// Fetch the BOLT12 offer from the node.
+    ///
+    /// Note: as of `sdk-sidecar` v0.4.x this endpoint is not served —
+    /// the sidecar replies with "Client requested a non-existent
+    /// endpoint" if called. Kept here so that when/if the endpoint
+    /// lands upstream the client doesn't need a new release. Callers
+    /// should treat this as best-effort and require the user to supply
+    /// the offer manually.
     pub async fn offer(&self) -> Result<Option<OfferResp>> {
         self.send_opt(self.http.request(Method::GET, self.url("/v2/node/offer")))
             .await

@@ -2,6 +2,9 @@ use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum Error {
+    #[error("could not reach sidecar at {url} — is `lexe-sidecar` running? (cause: {source})")]
+    SidecarUnreachable { url: String, source: reqwest::Error },
+
     #[error("HTTP request failed: {0}")]
     Http(#[from] reqwest::Error),
 

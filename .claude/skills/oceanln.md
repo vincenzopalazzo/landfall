@@ -76,7 +76,7 @@ $OCEANLN configure \
   --message "Configure OCEAN payout to lno1... at block 840000"
 ```
 
-If `--offer` is omitted, the CLI fetches the BOLT12 offer from the connected Lexe node (`GET /v2/node/offer`).
+`--offer` is **required** — the upstream `lexe-sidecar` v0.4.x does not yet expose `/v2/node/offer`. Fetch the offer from your Lexe node's UI (or a separate `lncli`/`lightning-cli` session) and pass it as the flag value.
 
 ### 3. Lexe Lightning Node Operations
 
@@ -139,8 +139,9 @@ When the user asks about balance or wallet operations:
 - **"only P2WPKH (bc1q...) addresses are supported"**: Pass a native segwit v0 address; legacy and taproot are not supported
 - **"invalid BIP32 path"**: Use `m/84'/0'/0'/0/0` style (`'` or `h` for hardened markers)
 - **"invalid BOLT12 offer"**: The offer string failed full BOLT12 validation (bech32 + TLV + signature checks)
-- **"API (404): ..."**: The Lexe sidecar does not implement the requested endpoint
-- **Connection errors**: Lexe sidecar not running at the configured URL
+- **"API (101): No client credentials configured"**: launch the sidecar with `LEXE_CLIENT_CREDENTIALS=<creds>` or `--client-credentials-path <path>`
+- **"API (7): Client requested a non-existent endpoint"**: the sidecar doesn't serve that route in your version; check the README for known gaps
+- **"could not reach sidecar at <url> — is `lexe-sidecar` running?"**: start the sidecar binary in another terminal first
 
 ## Architecture Notes
 

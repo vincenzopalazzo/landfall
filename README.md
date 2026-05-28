@@ -32,7 +32,14 @@ disk, never echoed.
 ### Lexe sidecar commands
 
 Assumes a [Lexe sidecar](https://github.com/lexe-app/lexe-public) is already
-running locally on `127.0.0.1:5393` (or pass `--url`).
+running locally on `127.0.0.1:5393` (or pass `--url`). Launch it with:
+
+```sh
+lexe-sidecar --client-credentials-path <path-to-your-credentials>
+# or set LEXE_CLIENT_CREDENTIALS in your env
+```
+
+Then drive it:
 
 ```sh
 oceanln health
@@ -40,11 +47,23 @@ oceanln info
 oceanln invoice 5000 "donation"
 oceanln pay lnbc50n...
 oceanln payment <index>
-oceanln configure --message "Configure OCEAN payout to lno1... at block 840000"
+oceanln configure --message "Configure OCEAN payout to lno1... at block 840000" --offer lno1...
 ```
 
 Add `--json` to any read command for machine-readable output. Add
 `--credentials <token>` to send a `Bearer` header to the sidecar.
+
+`configure` requires `--offer` because the upstream sidecar does not yet
+expose a `/v2/node/offer` endpoint — fetch the offer from your node's UI
+(or a separate `lncli`/`lightning-cli` session) and pass it in. When the
+endpoint lands upstream, the client method is already wired (`SidecarClient::offer`)
+so this becomes a follow-up flag change.
+
+If the sidecar isn't running, you'll see:
+
+```
+error: could not reach sidecar at http://127.0.0.1:5393 — is `lexe-sidecar` running?
+```
 
 ## What changed from the Zig version
 

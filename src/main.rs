@@ -3,7 +3,7 @@
 use clap::Parser;
 use oceanln::cli::{Cli, Command, ConfigureArgs, InvoiceArgs, PayArgs, PaymentArgs, SignArgs};
 use oceanln::client::{CreateInvoiceReq, PayInvoiceReq, SidecarClient};
-use oceanln::error::{Error, Result};
+use oceanln::error::Result;
 use oceanln::{ocean, sign};
 use serde::Serialize;
 
@@ -128,20 +128,8 @@ struct ConfigureOutput<'a> {
     address: Option<&'a str>,
 }
 
-async fn cmd_configure(client: &SidecarClient, args: ConfigureArgs, json: bool) -> Result<()> {
-    let offer_string = match args.offer {
-        Some(o) => o,
-        None => match client.offer().await? {
-            Some(r) => r.offer,
-            None => {
-                return Err(Error::Other(
-                    "Lexe node does not support offer retrieval (404). Pass --offer manually."
-                        .into(),
-                ))
-            }
-        },
-    };
-
+async fn cmd_configure(_client: &SidecarClient, args: ConfigureArgs, json: bool) -> Result<()> {
+    let offer_string = args.offer;
     ocean::validate_bolt12_offer(&offer_string)?;
 
     if json {
@@ -177,9 +165,10 @@ async fn cmd_configure(client: &SidecarClient, args: ConfigureArgs, json: bool) 
 async fn cmd_invoice(client: &SidecarClient, args: InvoiceArgs, json: bool) -> Result<()> {
     let inv = client
         .create_invoice(CreateInvoiceReq {
-            amount: &args.amount,
+            amount: Some(&args.amount),
             description: args.description.as_deref(),
-            expiration_secs: 3600,
+            expiration_secs: Some(3600),
+            payer_note: None,
         })
         .await?;
     if json {
@@ -202,6 +191,9 @@ async fn cmd_pay(client: &SidecarClient, args: PayArgs, json: bool) -> Result<()
     let resp = client
         .pay_invoice(PayInvoiceReq {
             invoice: &args.bolt11,
+            fallback_amount: None,
+            note: None,
+            payer_note: None,
         })
         .await?;
     if json {
