@@ -10,7 +10,7 @@ use bip322::sign_simple_encoded;
 use bip39::Mnemonic;
 use bitcoin::bip32::{ChildNumber, DerivationPath, Xpriv};
 use bitcoin::secp256k1::Secp256k1;
-use bitcoin::{Address, AddressType, Network, PrivateKey};
+use bitcoin::{Address, AddressType, CompressedPublicKey, Network, PrivateKey};
 use std::io::IsTerminal;
 use std::str::FromStr;
 use zeroize::{Zeroize, Zeroizing};
@@ -70,6 +70,20 @@ pub fn parse_mnemonic(secret: &MnemonicSecret) -> Result<Mnemonic> {
     Mnemonic::parse(secret.as_str()).map_err(|e| Error::InvalidMnemonic(format!("{e}")))
 }
 
+/// Generate a fresh 24-word BIP39 mnemonic (256 bits of entropy).
+///
+/// 24 words to match the count [`parse_mnemonic`] enforces, so the same
+/// seed is usable both here (BIP-322 signing) and as the Lexe sidecar's
+/// `RootSeed` (`LEXE_ROOT_SEED` / `LEXE_ROOT_SEED_PATH` accept a
+/// mnemonic). Entropy comes from the OS CSPRNG via `bip39`'s `rand`
+/// feature; the intermediate `Mnemonic` is `ZeroizeOnDrop` and the
+/// returned [`MnemonicSecret`] wipes its heap string on drop. The caller
+/// is responsible for displaying it exactly once.
+pub fn generate_mnemonic() -> Result<MnemonicSecret> {
+    let m = Mnemonic::generate(24).map_err(|e| Error::InvalidMnemonic(format!("{e}")))?;
+    Ok(MnemonicSecret::new(m.to_string()))
+}
+
 /// Derive a BIP32 child private key from a mnemonic at the given path.
 ///
 /// Uses the standard BIP39 PBKDF2 seed (empty passphrase) →
@@ -85,6 +99,20 @@ pub fn derive_private_key(m: &Mnemonic, path: &DerivationPath) -> Result<Private
         .derive_priv(&secp, path)
         .map_err(|e| Error::SigningFailed(format!("derive: {e}")))?;
     Ok(PrivateKey::new(child.private_key, Network::Bitcoin))
+}
+
+/// Derive the BIP84 P2WPKH mainnet address (`bc1q…`) for a mnemonic at a path.
+///
+/// This is the address the user registers with OCEAN as their mining payout
+/// destination. Deriving it from the same mnemonic we sign with guarantees the
+/// key controls the address — callers never have to supply (and can't mistype)
+/// an address that the key doesn't own.
+pub fn derive_address(m: &Mnemonic, path: &DerivationPath) -> Result<String> {
+    let key = derive_private_key(m, path)?;
+    let secp = Secp256k1::new();
+    let cpk = CompressedPublicKey::from_private_key(&secp, &key)
+        .map_err(|e| Error::SigningFailed(format!("compressed pubkey: {e}")))?;
+    Ok(Address::p2wpkh(&cpk, Network::Bitcoin).to_string())
 }
 
 /// Parse a BIP32 path string like `m/84'/0'/0'/0/0`.
@@ -226,6 +254,38 @@ mod tests {
             "hello",
         );
         assert!(matches!(r, Err(Error::AddressNotP2wpkh(_))));
+    }
+
+    #[test]
+    fn generates_valid_24_word_mnemonic() {
+        let secret = generate_mnemonic().unwrap();
+        assert_eq!(secret.as_str().split_whitespace().count(), 24);
+        // Must pass the same validation real users hit, and derive a key.
+        let m = parse_mnemonic(&secret).unwrap();
+        let path = parse_bip32_path(DEFAULT_BIP32_PATH).unwrap();
+        derive_private_key(&m, &path).unwrap();
+    }
+
+    #[test]
+    fn generated_mnemonics_are_unique() {
+        let a = generate_mnemonic().unwrap();
+        let b = generate_mnemonic().unwrap();
+        assert_ne!(a.as_str(), b.as_str());
+    }
+
+    #[test]
+    fn derives_p2wpkh_address_that_key_controls() {
+        let m = Mnemonic::parse(TEST_MNEMONIC).unwrap();
+        let path = parse_bip32_path(DEFAULT_BIP32_PATH).unwrap();
+        let addr = derive_address(&m, &path).unwrap();
+        // Native segwit v0 mainnet address.
+        assert!(addr.starts_with("bc1q"), "got {addr}");
+        // Deterministic.
+        assert_eq!(addr, derive_address(&m, &path).unwrap());
+        // The derived address is, by construction, P2WPKH-mainnet — so signing
+        // against it must pass the address guard and succeed.
+        let sig = sign_bip322(&m, &addr, &path, "hello").unwrap();
+        assert!(!sig.is_empty());
     }
 
     #[test]

@@ -8,5 +8,4 @@
 pub mod cli;
 pub mod client;
 pub mod error;
-pub mod ocean;
 pub mod sign;

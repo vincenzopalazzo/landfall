@@ -1,7 +1,8 @@
 # oceanln
 
-OCEAN Lightning payout CLI. Sign OCEAN payout configuration messages via BIP-322
-from a BIP39 mnemonic, and drive a [Lexe](https://lexe.app) Lightning sidecar.
+OCEAN Lightning payout CLI. Two commands: generate a BIP39 seed, and configure
+an OCEAN payout end-to-end (derive the mining address, create a payable BOLT12
+offer on a [Lexe](https://lexe.app) node, and BIP-322 sign the OCEAN message).
 
 ## Build
 
@@ -13,68 +14,74 @@ Binary: `target/release/oceanln`.
 
 ## Use
 
-### Sign an OCEAN configuration message
+### Generate a seed
 
 ```sh
-oceanln sign \
+oceanln generate
+```
+
+Generates a fresh 24-word BIP39 mnemonic (256 bits of entropy from the OS
+CSPRNG) and prints it **once**. This single seed does double duty:
+
+- feed it to `oceanln payout` to derive your mining address and sign, and
+- feed it to the Lexe sidecar as its root seed
+  (`LEXE_ROOT_SEED_PATH=<file with these words> lexe-sidecar`), so the same
+  wallet runs your Lightning node.
+
+The mnemonic goes to **stdout**; the warning and usage hint go to stderr, so
+`oceanln generate --json` / piping yields a clean `{"mnemonic": "..."}` (or the
+bare words). It is never written to disk — write it down yourself.
+
+### Configure an OCEAN payout (end-to-end)
+
+```sh
+oceanln payout \
   --message "Configure OCEAN payout to lno1... at block 840000" \
-  --address bc1q...
+  --description "my pool payout" \
+  --min-amount 1000
 ```
 
-The CLI prompts for your 24-word BIP39 mnemonic on stdin with terminal echo
-disabled, derives the BIP84 child key at `m/84'/0'/0'/0/0`, signs via BIP-322
-simple mode, and prints the base64 witness for you to paste into the OCEAN web
-interface.
+One command does the whole setup. It prompts for your mnemonic (stdin, echo
+disabled), then:
 
-The mnemonic is wrapped in a zero-on-drop type — never logged, never written to
-disk, never echoed.
+1. derives your BIP84 mining address (`m/84'/0'/0'/0/0`) — the address you
+   register with OCEAN, provably controlled by the same seed it signs with;
+2. asks the **node** to create a payable BOLT12 offer with your `--description`
+   (via the sidecar's `POST /v2/node/create_offer`), so the offer has real
+   blinded paths back to your node and can actually receive rewards;
+3. BIP-322 signs the OCEAN `--message` **verbatim** with the derived key;
+4. prints the address, the offer, and the base64 signature (add `--json` for a
+   machine-readable object).
 
-### Lexe sidecar commands
+Order matters: the offer is created before signing, so if the sidecar is down
+the flow aborts without using your mnemonic on a message you couldn't submit.
 
-Assumes a [Lexe sidecar](https://github.com/lexe-app/lexe-public) is already
-running locally on `127.0.0.1:5393` (or pass `--url`). Launch it with:
+> The offer must come from a running node — a BOLT12 offer built offline from a
+> key is structurally valid but **unpayable** (no node answers invoice requests
+> for it), so `payout` deliberately uses the node's `create_offer` instead.
+
+`--min-amount` is in satoshis; omit it for a variable-amount offer. `--path`
+overrides the default derivation path.
+
+### The Lexe sidecar
+
+`payout` talks to a [Lexe sidecar](https://github.com/lexe-app/lexe-public)
+running locally on `127.0.0.1:5393` (or pass `--url`). Launch it with the same
+seed `generate` produced:
 
 ```sh
-lexe-sidecar --client-credentials-path <path-to-your-credentials>
-# or set LEXE_CLIENT_CREDENTIALS in your env
+LEXE_ROOT_SEED_PATH=<path-to-your-mnemonic> lexe-sidecar
+# or LEXE_CLIENT_CREDENTIALS=<client-credentials-from-the-Lexe-app>
 ```
 
-Then drive it:
-
-```sh
-oceanln health
-oceanln info
-oceanln invoice 5000 "donation"
-oceanln pay lnbc50n...
-oceanln payment <index>
-oceanln configure --message "Configure OCEAN payout to lno1... at block 840000" --offer lno1...
-```
-
-Add `--json` to any read command for machine-readable output. Add
-`--credentials <token>` to send a `Bearer` header to the sidecar.
-
-`configure` requires `--offer` because the upstream sidecar does not yet
-expose a `/v2/node/offer` endpoint — fetch the offer from your node's UI
-(or a separate `lncli`/`lightning-cli` session) and pass it in. When the
-endpoint lands upstream, the client method is already wired (`SidecarClient::offer`)
-so this becomes a follow-up flag change.
-
-If the sidecar isn't running, you'll see:
+Add `--credentials <token>` to send a `Bearer` header to the sidecar. If the
+sidecar isn't running, you'll see:
 
 ```
 error: could not reach sidecar at http://127.0.0.1:5393 — is `lexe-sidecar` running?
 ```
 
-## What changed from the Zig version
-
-- Hardware-wallet signing (Coldcard via unified-hwi) was removed; signing is now
-  software-only from a BIP39 mnemonic. If you previously relied on the air-gapped
-  Coldcard flow, the old Zig binary still works from the `git log` before this
-  rewrite.
-- `--message-to-sign` was replaced by the `sign` subcommand for cleaner ergonomics.
-- Sidecar HTTP client, BIP-322 signing, and BOLT12 offer validation moved from
-  hand-rolled Zig to canonical Rust crates: `reqwest`, `bip322`, `bip39`,
-  `bitcoin`, `lightning`.
+The sidecar must be a version that serves `POST /v2/node/create_offer`.
 
 ## License
 

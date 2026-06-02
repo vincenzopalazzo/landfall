@@ -8,14 +8,11 @@ use clap::{Args, Parser, Subcommand};
 #[command(
     name = "oceanln",
     version,
-    about = "OCEAN Lightning payout CLI — BIP-322 message signing + Lexe sidecar client",
+    about = "OCEAN Lightning payout CLI — BIP-322 signing + BOLT12 offer over a Lexe sidecar",
     after_help = "Examples:\n  \
-        oceanln health\n  \
-        oceanln info --credentials $LEXE_CLIENT_CREDENTIALS\n  \
-        oceanln sign --message 'Configure OCEAN payout to lno1... at block 840000' --address bc1q...\n  \
-        oceanln configure --offer lno1... --message 'Configure OCEAN payout...' --address bc1q...\n  \
-        oceanln invoice 5000 'donation'\n  \
-        oceanln pay lnbc50n...\n\n\
+        oceanln generate\n  \
+        oceanln payout --message 'Configure OCEAN payout to lno1... at block 840000' --description 'my pool payout'\n  \
+        oceanln payout --message '...' --description '...' --min-amount 1000 --credentials $LEXE_CLIENT_CREDENTIALS\n\n\
         The sidecar must be running separately:\n  \
         lexe-sidecar --client-credentials-path <path>"
 )]
@@ -38,79 +35,32 @@ pub struct Cli {
 
 #[derive(Subcommand, Debug)]
 pub enum Command {
-    /// Sign a message via BIP-322 using a BIP39 mnemonic prompted on stdin.
-    Sign(SignArgs),
+    /// Generate a fresh 24-word BIP39 mnemonic seed.
+    Generate,
 
-    /// Show Lexe node info (balance, channels, keys).
-    Info,
-
-    /// Build the OCEAN payout configuration message + offer summary.
-    Configure(ConfigureArgs),
-
-    /// Create a BOLT11 invoice.
-    Invoice(InvoiceArgs),
-
-    /// Pay a BOLT11 invoice.
-    Pay(PayArgs),
-
-    /// Look up a payment by index.
-    Payment(PaymentArgs),
-
-    /// Lexe sidecar health check.
-    Health,
+    /// End-to-end OCEAN payout setup: derive the mining address from the
+    /// mnemonic, create a payable BOLT12 offer on the node, and BIP-322
+    /// sign the OCEAN message — printing address, offer, and signature.
+    Payout(PayoutArgs),
 }
 
 #[derive(Args, Debug)]
-pub struct SignArgs {
-    /// The exact message text from the OCEAN web interface.
+pub struct PayoutArgs {
+    /// The exact OCEAN configuration message (copy verbatim from the web UI).
+    /// Signed byte-for-byte — do not edit it.
     #[arg(long)]
     pub message: String,
 
-    /// Bitcoin address (P2WPKH bc1q…) registered with OCEAN.
+    /// Description baked into the BOLT12 offer the node creates.
     #[arg(long)]
-    pub address: String,
+    pub description: Option<String>,
 
-    /// BIP32 derivation path (default: m/84'/0'/0'/0/0).
+    /// Optional minimum amount for the offer, in satoshis. Omit for a
+    /// variable-amount offer the payer chooses.
+    #[arg(long)]
+    pub min_amount: Option<String>,
+
+    /// BIP32 derivation path for the mining address (default: m/84'/0'/0'/0/0).
     #[arg(long, default_value = DEFAULT_BIP32_PATH)]
     pub path: String,
-}
-
-#[derive(Args, Debug)]
-pub struct ConfigureArgs {
-    /// Bitcoin address registered with OCEAN (context only — not signed).
-    #[arg(long)]
-    pub address: Option<String>,
-
-    /// The OCEAN configuration message text (copy from the web UI).
-    #[arg(long)]
-    pub message: String,
-
-    /// BOLT12 offer to publish to OCEAN.
-    ///
-    /// Required: the upstream `lexe-sidecar` does not yet expose a
-    /// `/v2/node/offer` endpoint, so we can't auto-fetch. Copy the
-    /// offer from your node's UI or a separate `lncli`/`lightning-cli`
-    /// session.
-    #[arg(long)]
-    pub offer: String,
-}
-
-#[derive(Args, Debug)]
-pub struct InvoiceArgs {
-    /// Amount in satoshis.
-    pub amount: String,
-    /// Optional invoice description.
-    pub description: Option<String>,
-}
-
-#[derive(Args, Debug)]
-pub struct PayArgs {
-    /// BOLT11 invoice string.
-    pub bolt11: String,
-}
-
-#[derive(Args, Debug)]
-pub struct PaymentArgs {
-    /// Payment index returned by `pay` or `invoice`.
-    pub index: String,
 }
