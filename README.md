@@ -98,11 +98,15 @@ exclusive with `--description`/`--min-amount`.
 ### In-process Lexe wallet (no sidecar) — default
 
 By default oceanln embeds the published [`lexe`](https://crates.io/crates/lexe)
-SDK and runs the wallet in-process — no separate `lexe-sidecar` needed. `cargo
-install --path .` gives you the full CLI, with `init` and `offer`:
+SDK and runs the wallet in-process — no separate `lexe-sidecar` needed. Install
+the CLI from the `oceanln-cli` workspace crate (the repo root is a virtual
+workspace, so `--path .` won't work); this gives you the full CLI, with `init`
+and `offer`:
 
 ```sh
-cargo install --path .
+cargo install --path oceanln-cli            # CLI binary `oceanln`
+# optional: the local HTTP server for a web/desktop frontend
+cargo install --path oceanln-httpd          # binary `oceanln-httpd`
 
 oceanln init --generate   # one shot: generate seed + provision wallet + print mining address
 oceanln offer --description "OCEAN payout"   # create a payable BOLT12 offer, print it

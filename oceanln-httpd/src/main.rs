@@ -390,7 +390,13 @@ async fn main() {
         std::process::exit(1);
     }
 
-    let token = cfg.token.unwrap_or_else(sign::random_token);
+    // A generated token must be revealed once so the operator can use it; an
+    // operator-supplied `--token` is already known and must NOT be echoed —
+    // stderr is commonly captured by systemd/Docker/supervisor logs.
+    let (token, generated) = match cfg.token {
+        Some(t) => (t, false),
+        None => (sign::random_token(), true),
+    };
 
     let state = Arc::new(AppState {
         seed,
@@ -402,7 +408,11 @@ async fn main() {
     });
 
     eprintln!("oceanln-httpd listening on http://{}", cfg.bind);
-    eprintln!("bearer token: {token}");
+    if generated {
+        eprintln!("bearer token (generated, shown once): {token}");
+    } else {
+        eprintln!("bearer token: using --token (not echoed)");
+    }
     if cfg.allow_origin.is_empty() {
         eprintln!("no --allow-origin set: browser (cross-origin) clients will be rejected.");
     } else {
