@@ -26,6 +26,9 @@ pub enum Error {
     #[error("BIP-322 signing failed: {0}")]
     SigningFailed(String),
 
+    #[error("lexe wallet: {0}")]
+    Wallet(String),
+
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
 

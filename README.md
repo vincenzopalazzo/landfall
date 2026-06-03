@@ -79,6 +79,35 @@ app, or a `payout` run without `--offer`), paste it into OCEAN to get the
 message, then sign that message here with `--offer`. `--offer` is mutually
 exclusive with `--description`/`--min-amount`.
 
+### In-process Lexe wallet (no sidecar) — `--features lexe-sdk`
+
+Built with the `lexe-sdk` feature, oceanln embeds the published [`lexe`](https://crates.io/crates/lexe)
+SDK and runs the wallet in-process — no separate `lexe-sidecar` needed. Two extra
+commands appear:
+
+```sh
+cargo install --path . --features lexe-sdk
+
+oceanln init     # prompt seed -> create + provision the onchain Lexe wallet (once)
+oceanln offer --description "OCEAN payout"   # create a payable BOLT12 offer, print it
+```
+
+Full OCEAN flow, sidecar-free:
+
+```sh
+oceanln generate > seed         # make one 24-word seed (write it down)
+cat seed | oceanln init         # create + provision the onchain wallet
+OFFER=$(cat seed | oceanln offer --json --description "OCEAN payout" \
+          | python3 -c 'import sys,json;print(json.load(sys.stdin)["offer"])')
+# register $OFFER on ocean.xyz -> copy the message it gives you
+cat seed | oceanln payout --offer "$OFFER" --message "<exact OCEAN message>"
+```
+
+`init` is headless (no app, no Google Drive) — it registers with Lexe's backend
+and provisions, exactly like `lexe init`. The default build (without the feature)
+keeps the thin sidecar client and a smaller dependency tree. See issue #3 for the
+migration plan.
+
 ### The Lexe sidecar
 
 `payout` talks to a [Lexe sidecar](https://github.com/lexe-app/lexe-public)

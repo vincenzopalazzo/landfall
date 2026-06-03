@@ -80,6 +80,22 @@ The offer is created **before** signing, so a sidecar failure aborts the flow
 before the mnemonic is used. The sidecar must be a version that serves
 `create_offer`.
 
+### 3. In-process Lexe wallet (`init` / `offer`) — requires `--features lexe-sdk`
+
+Built with `cargo install --path . --features lexe-sdk`, oceanln embeds the `lexe`
+SDK and runs the wallet in-process (no sidecar). Two extra commands appear:
+
+```bash
+$OCEANLN init     # prompt seed -> create + provision the onchain Lexe wallet (once)
+$OCEANLN offer --description "OCEAN payout" [--min-amount N]   # create a BOLT12 offer, print it
+```
+
+- `init` is headless (no app/Google Drive) — registers with Lexe's backend and provisions, like `lexe init`. Run it once before `offer`. Idempotent.
+- `offer` mints a payable offer on the provisioned node and prints the `lno1...`. `offer` fails with "user not signed up yet" if `init` hasn't run.
+- Both prompt the 24-word mnemonic on stdin. The sidecar-free OCEAN flow: `generate` -> `init` -> `offer` -> register on OCEAN -> `payout --offer <lno1> --message "..."`.
+
+The default build (no feature) keeps the thin sidecar client; only `generate` + `payout` exist there.
+
 ## The OCEAN web flow
 
 1. User goes to ocean.xyz → mining address → "Configuration".

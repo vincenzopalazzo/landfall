@@ -8,4 +8,6 @@
 pub mod cli;
 pub mod client;
 pub mod error;
+#[cfg(feature = "lexe-sdk")]
+pub mod lexe_wallet;
 pub mod sign;

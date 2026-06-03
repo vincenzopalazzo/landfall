@@ -1,6 +1,8 @@
 //! oceanln — OCEAN Lightning payout CLI.
 
 use clap::Parser;
+#[cfg(feature = "lexe-sdk")]
+use oceanln::cli::OfferArgs;
 use oceanln::cli::{Cli, Command, PayoutArgs};
 use oceanln::client::{CreateOfferReq, SidecarClient};
 use oceanln::error::{Error, Result};
@@ -20,6 +22,49 @@ async fn run(cli: Cli) -> Result<()> {
     match cli.command {
         Command::Generate => cmd_generate(cli.json),
         Command::Payout(args) => cmd_payout(cli.url, cli.credentials, args, cli.json).await,
+        #[cfg(feature = "lexe-sdk")]
+        Command::Init => cmd_init().await,
+        #[cfg(feature = "lexe-sdk")]
+        Command::Offer(args) => cmd_offer(args, cli.json).await,
+    }
+}
+
+// ── init / offer (in-process Lexe SDK, feature `lexe-sdk`) ───────
+
+#[cfg(feature = "lexe-sdk")]
+async fn cmd_init() -> Result<()> {
+    let secret = sign::prompt_mnemonic()?;
+    // Enforce the 24-word contract before any network call.
+    sign::parse_mnemonic(&secret)?;
+    eprintln!("Creating and provisioning your Lexe wallet (this contacts Lexe)...");
+    oceanln::lexe_wallet::init(secret.as_str()).await?;
+    println!("Lexe wallet created and provisioned.");
+    Ok(())
+}
+
+#[cfg(feature = "lexe-sdk")]
+#[derive(Serialize)]
+struct OfferOutput<'a> {
+    offer: &'a str,
+}
+
+#[cfg(feature = "lexe-sdk")]
+async fn cmd_offer(args: OfferArgs, json: bool) -> Result<()> {
+    let secret = sign::prompt_mnemonic()?;
+    sign::parse_mnemonic(&secret)?;
+    let offer = oceanln::lexe_wallet::create_offer(
+        secret.as_str(),
+        args.description.as_deref(),
+        args.min_amount.as_deref(),
+    )
+    .await?;
+    if json {
+        print_json(&OfferOutput { offer: &offer })
+    } else {
+        println!("BOLT12 offer:\n{offer}");
+        println!("\nRegister this offer with OCEAN, then sign the message it gives you:");
+        println!("  oceanln payout --offer {offer} --message '<OCEAN message>'");
+        Ok(())
     }
 }
 

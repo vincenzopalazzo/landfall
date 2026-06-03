@@ -44,6 +44,27 @@ pub enum Command {
     /// mnemonic, create a payable BOLT12 offer on the node, and BIP-322
     /// sign the OCEAN message — printing address, offer, and signature.
     Payout(PayoutArgs),
+
+    /// Create + provision the onchain Lexe wallet from the mnemonic (in-process,
+    /// no sidecar). Run once before `offer`.
+    #[cfg(feature = "lexe-sdk")]
+    Init,
+
+    /// Create a payable BOLT12 offer in-process (no sidecar) and print it.
+    #[cfg(feature = "lexe-sdk")]
+    Offer(OfferArgs),
+}
+
+#[cfg(feature = "lexe-sdk")]
+#[derive(Args, Debug)]
+pub struct OfferArgs {
+    /// Description encoded into the offer (shown to payers).
+    #[arg(long)]
+    pub description: Option<String>,
+
+    /// Minimum offer amount in satoshis. Omit for a variable-amount offer.
+    #[arg(long)]
+    pub min_amount: Option<String>,
 }
 
 #[derive(Args, Debug)]
