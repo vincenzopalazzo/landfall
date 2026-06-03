@@ -1,16 +1,31 @@
 # oceanln
 
-OCEAN Lightning payout CLI. Two commands: generate a BIP39 seed, and configure
-an OCEAN payout end-to-end (derive the mining address, create a payable BOLT12
-offer on a [Lexe](https://lexe.app) node, and BIP-322 sign the OCEAN message).
+OCEAN Lightning payout tooling: generate a BIP39 seed, and configure an OCEAN
+payout end-to-end (derive the mining address, create a payable BOLT12 offer on a
+[Lexe](https://lexe.app) node, and BIP-322 sign the OCEAN message).
+
+## Workspace layout
+
+A Cargo workspace with three crates over one shared core:
+
+| crate | what it is |
+|---|---|
+| `oceanln-common` | shared core: BIP-322 signing, address derivation, seed sources, Lexe wallet/sidecar client |
+| `oceanln-cli` | the `oceanln` command-line tool (for humans / scripts / AI) |
+| `oceanln-httpd` | a local loopback HTTP server exposing the same flow to a web app or desktop frontend |
+
+`oceanln-cli` and `oceanln-httpd` are independent frontends over
+`oceanln-common`; neither depends on the other. The CLI keeps its offline,
+in-process path; the server is what a UI talks to.
 
 ## Build
 
 ```sh
-cargo build --release
+cargo build --release --workspace
 ```
 
-Binary: `target/release/oceanln`.
+Binaries: `target/release/oceanln` (CLI) and `target/release/oceanln-httpd`
+(server).
 
 ## Use
 
@@ -83,11 +98,15 @@ exclusive with `--description`/`--min-amount`.
 ### In-process Lexe wallet (no sidecar) — default
 
 By default oceanln embeds the published [`lexe`](https://crates.io/crates/lexe)
-SDK and runs the wallet in-process — no separate `lexe-sidecar` needed. `cargo
-install --path .` gives you the full CLI, with `init` and `offer`:
+SDK and runs the wallet in-process — no separate `lexe-sidecar` needed. Install
+the CLI from the `oceanln-cli` workspace crate (the repo root is a virtual
+workspace, so `--path .` won't work); this gives you the full CLI, with `init`
+and `offer`:
 
 ```sh
-cargo install --path .
+cargo install --path oceanln-cli            # CLI binary `oceanln`
+# optional: the local HTTP server for a web/desktop frontend
+cargo install --path oceanln-httpd          # binary `oceanln-httpd`
 
 oceanln init --generate   # one shot: generate seed + provision wallet + print mining address
 oceanln offer --description "OCEAN payout"   # create a payable BOLT12 offer, print it
@@ -142,15 +161,72 @@ overwrite a file holding a *different* seed unless you pass `--force` (an
 identical write is a no-op), and `--no-store` skips persistence entirely for a
 one-off provisioning.
 
-**Thin build:** `cargo build --no-default-features` drops the SDK for a smaller
-dependency tree — only `generate` + `payout` (the sidecar client). See issue #3
-for the migration notes.
+**Thin build:** `cargo build --no-default-features -p oceanln-common -p
+oceanln-cli` drops the SDK for a smaller dependency tree — only `generate` +
+`payout` (the sidecar client). See issue #3 for the migration notes.
+
+## Local HTTP server (`oceanln-httpd`)
+
+For a web app or desktop frontend, run `oceanln-httpd` instead of shelling out
+to the CLI. It's a thin loopback HTTP transport over the same `oceanln-common`
+core, so a UI can drive `payout` / `offer` / `init` over `127.0.0.1`.
+
+```sh
+oceanln-httpd --seed-file ./seed.txt --allow-origin http://localhost:5173
+# oceanln-httpd listening on http://127.0.0.1:7762
+# bearer token: <64 hex chars>      # printed once unless you pass --token
+```
+
+The **seed never crosses the HTTP boundary**: the server reads the 24 words from
+`--seed-file` per request, signs in-process, and never echoes them back. Seed
+*generation* stays a human-witnessed CLI operation (`oceanln generate` /
+`oceanln init --generate`) and is deliberately not exposed over HTTP.
+
+Because a browser is a supported client, the loopback port is guarded:
+
+- binds a **loopback address only** (refuses a routable `--bind`);
+- requires `Authorization: Bearer <token>` on every endpoint except `/health`
+  (token auto-generated and printed, or set with `--token`);
+- enforces an **`Origin` allowlist** (`--allow-origin`, repeatable) — blocks
+  cross-origin browser calls and DNS-rebinding;
+- validates the `Host` header is loopback;
+- the Lexe sidecar URL/credentials are **server-side config** (`--sidecar-url` /
+  `--sidecar-credentials`), never taken from a request body (no SSRF).
+
+Point the server at a non-default sidecar with the server's own flags (these
+differ from the CLI's `--url` / `--credentials`):
+
+```sh
+oceanln-httpd --seed-file ./seed.txt \
+  --sidecar-url http://127.0.0.1:5393 --sidecar-credentials <token>
+```
+
+Endpoints (all JSON; all but `/health` need the bearer token):
+
+| method + path | body | returns |
+|---|---|---|
+| `GET /health` | — | `{"status":"ok"}` |
+| `POST /payout` | `{message, offer?, description?, min_amount?, path?}` | `{address, offer, message, signature}` |
+| `POST /offer` | `{description?, min_amount?}` | `{offer}` |
+| `POST /init` | `{path?}` | `{mining_address, provisioned}` |
+
+`/payout` mirrors the CLI: pass `offer` to sign for an existing offer fully
+offline (it must be embedded in `message`), or omit it to have the configured
+sidecar create one first.
+
+```sh
+curl -s http://127.0.0.1:7762/payout \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"message":"<exact OCEAN message embedding the offer>","offer":"lno1..."}'
+```
 
 ### The Lexe sidecar
 
-`payout` talks to a [Lexe sidecar](https://github.com/lexe-app/lexe-public)
-running locally on `127.0.0.1:5393` (or pass `--url`). Launch it with the same
-seed `generate` produced:
+The CLI `payout` command talks to a
+[Lexe sidecar](https://github.com/lexe-app/lexe-public) running locally on
+`127.0.0.1:5393` (or pass `--url`). The flags below are the **CLI** flags; the
+`oceanln-httpd` server uses `--sidecar-url` / `--sidecar-credentials` instead
+(see above). Launch the sidecar with the same seed `generate` produced:
 
 ```sh
 LEXE_ROOT_SEED_PATH=<path-to-your-mnemonic> lexe-sidecar

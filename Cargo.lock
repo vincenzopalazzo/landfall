@@ -1709,27 +1709,50 @@ dependencies = [
 ]
 
 [[package]]
-name = "oceanln"
+name = "oceanln-cli"
 version = "0.3.0"
 dependencies = [
  "assert_cmd",
+ "clap",
+ "oceanln-common",
+ "predicates",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "oceanln-common"
+version = "0.3.0"
+dependencies = [
  "axum 0.7.9",
  "bip322",
  "bip39",
  "bitcoin",
- "clap",
  "hex",
- "http-body-util",
  "lexe",
- "predicates",
  "reqwest",
  "rpassword",
  "serde",
  "serde_json",
  "thiserror 1.0.69",
  "tokio",
- "tower",
  "zeroize",
+]
+
+[[package]]
+name = "oceanln-httpd"
+version = "0.3.0"
+dependencies = [
+ "async-trait",
+ "axum 0.7.9",
+ "clap",
+ "oceanln-common",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tower-http",
 ]
 
 [[package]]

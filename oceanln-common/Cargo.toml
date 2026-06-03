@@ -1,0 +1,33 @@
+[package]
+name = "oceanln-common"
+description = "OCEAN Lightning payout — shared core: BIP-322 signing, Lexe wallet/client, seed sources"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[features]
+# In-process Lexe wallet: provision the onchain wallet and create BOLT12 offers
+# via the published `lexe` SDK. On by default. Build `--no-default-features`
+# for the thin sidecar-client-only surface (no `lexe_wallet` module).
+default = ["lexe-sdk"]
+lexe-sdk = ["dep:lexe"]
+
+[dependencies]
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+bip39.workspace = true
+bitcoin.workspace = true
+bip322.workspace = true
+rpassword.workspace = true
+zeroize.workspace = true
+thiserror.workspace = true
+lexe = { workspace = true, optional = true }
+
+[dev-dependencies]
+axum.workspace = true
+tokio = { workspace = true, features = ["net", "sync"] }
+serde_json.workspace = true
+hex.workspace = true

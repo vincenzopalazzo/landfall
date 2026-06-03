@@ -1,25 +1,17 @@
-[package]
-name = "oceanln"
+[workspace]
+resolver = "2"
+members = ["oceanln-common", "oceanln-cli", "oceanln-httpd"]
+
+# Shared package metadata — every crate inherits these via `field.workspace = true`.
+[workspace.package]
 version = "0.3.0"
 edition = "2021"
-description = "OCEAN Lightning payout CLI — BIP-322 message signing + Lexe sidecar client"
 license = "MIT"
 repository = "https://github.com/vincenzopalazzo/oceanln-cli"
 rust-version = "1.74"
 
-[[bin]]
-name = "oceanln"
-path = "src/main.rs"
-
-[features]
-# In-process Lexe wallet: create/provision the onchain wallet (`init`) and
-# create BOLT12 offers (`offer`) via the published `lexe` SDK, no sidecar.
-# On by default — the full CLI works out of the box. For the thin sidecar
-# client only, build with `--no-default-features`.
-default = ["lexe-sdk"]
-lexe-sdk = ["dep:lexe"]
-
-[dependencies]
+# Single source of truth for third-party versions across the workspace.
+[workspace.dependencies]
 clap = { version = "4.5", features = ["derive"] }
 tokio = { version = "1.40", features = ["macros", "rt-multi-thread"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
@@ -32,16 +24,17 @@ rpassword = "7"
 zeroize = { version = "1.8", features = ["derive"] }
 thiserror = "1"
 # In-process Lexe SDK (feature `lexe-sdk`). `unstable` gates signup/provision.
-lexe = { version = "0.1", features = ["unstable"], optional = true }
-
-[dev-dependencies]
+lexe = { version = "0.1", features = ["unstable"] }
+# HTTP server (oceanln-httpd).
 axum = "0.7"
-tokio = { version = "1.40", features = ["macros", "rt-multi-thread", "net"] }
 tower = "0.5"
+tower-http = { version = "0.6", features = ["cors"] }
 http-body-util = "0.1"
-hex = "0.4"
+async-trait = "0.1"
+# Dev/test only.
 assert_cmd = "2.0"
 predicates = "3.1"
+hex = "0.4"
 
 [profile.release]
 strip = "symbols"
