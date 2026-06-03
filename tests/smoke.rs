@@ -207,7 +207,10 @@ fn payout_success_path_signs_and_derives_address() {
 fn payout_with_existing_offer_signs_offline() {
     // `--offer` must NOT contact the sidecar: point `--url` at a refused port
     // to prove it. The flow should still succeed, echo the provided offer back,
-    // and produce a signature + address.
+    // and produce a signature + address. The message embeds the offer (as the
+    // real OCEAN message does), which the offer/message consistency guard
+    // requires.
+    let message = format!("Configure OCEAN payout to {MOCK_OFFER} at block 840000");
     let out = bin()
         .args([
             "payout",
@@ -217,7 +220,7 @@ fn payout_with_existing_offer_signs_offline() {
             "--offer",
             MOCK_OFFER,
             "--message",
-            "Configure OCEAN payout at block 840000",
+            &message,
         ])
         .write_stdin(TEST_MNEMONIC)
         .assert()
@@ -285,6 +288,27 @@ fn payout_signs_ocean_json_message() {
         .get("address")
         .and_then(|a| a.as_str())
         .is_some_and(|a| a.starts_with("bc1q")));
+}
+
+#[test]
+fn payout_rejects_offer_not_in_message() {
+    // A --offer that isn't embedded in --message would sign for a different
+    // offer than the one shown — must be rejected before any signing.
+    bin()
+        .args([
+            "payout",
+            "--url",
+            REFUSED_URL,
+            "--offer",
+            MOCK_OFFER,
+            "--message",
+            "Configure OCEAN payout to lno1somethingelse at block 840000",
+        ])
+        .write_stdin(TEST_MNEMONIC)
+        .assert()
+        .failure()
+        .code(1)
+        .stderr(predicate::str::contains("not present in --message"));
 }
 
 #[test]

@@ -133,6 +133,17 @@ async fn cmd_payout(
                     "expected a BOLT12 offer starting with 'lno1': {offer}"
                 )));
             }
+            // OCEAN's message embeds the offer being configured. If --offer
+            // isn't present in --message, the signature would authorize a
+            // different offer than the one we print — reject the mismatch
+            // (stale clipboard / wrong --offer).
+            if !args.message.contains(&offer) {
+                return Err(Error::InvalidOffer(
+                    "--offer is not present in --message; OCEAN's message must \
+                     embed the offer it authorizes (wrong --offer or stale message?)"
+                        .to_string(),
+                ));
+            }
             offer
         }
         None => {
