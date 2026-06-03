@@ -233,6 +233,36 @@ curl -s http://127.0.0.1:7762/payout \
   -d '{"message":"<exact OCEAN message embedding the offer>","offer":"lno1..."}'
 ```
 
+## Web wizard (`oceanln-web`)
+
+`oceanln-web/` is the Svelte onboarding wizard that drives `oceanln-httpd` from a
+browser: create/import a recovery phrase → back up → confirm → create wallet
+(description → BOLT12 offer) → BIP-322 sign → copy the three artifacts. It also
+has a profile (1→n payout addresses linked to offers, reveal phrase) and an
+illustrative payout dashboard + MCP panel (those are mocks — no backend yet).
+It's a static SPA, structured so a later Tauri shell can bundle it unchanged.
+
+Run both with the dev script:
+
+```sh
+scripts/dev.sh          # builds + runs oceanln-httpd, then `npm run dev` in oceanln-web
+# open http://localhost:5173
+```
+
+Or manually:
+
+```sh
+oceanln-httpd --seed-file ./seed --token <tok> --allow-origin http://localhost:5173 &
+cd oceanln-web && npm install
+VITE_OCEANLN_BASE=http://127.0.0.1:7762 VITE_OCEANLN_TOKEN=<tok> npm run dev
+```
+
+The wizard reaches the server cross-origin, so the server's `--allow-origin`
+must include the Vite origin (`http://localhost:5173`); the bearer token is
+injected via `VITE_OCEANLN_TOKEN` (or pasted into the in-app settings panel).
+The phrase-generation and signing steps work offline; the wallet/offer steps
+need `oceanln-httpd` to reach a Lexe node. `npm run build` emits static assets.
+
 ### The Lexe sidecar
 
 The CLI `payout` command talks to a

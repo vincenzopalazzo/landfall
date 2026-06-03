@@ -1,0 +1,278 @@
+import { OceanlnClient } from "./api";
+import { DEFAULT_BASE, DEFAULT_TOKEN } from "./config";
+
+export type Surface = "wizard" | "profile" | "dashboard";
+export type Mode = "create" | "import";
+
+export const STEPS = [
+  { key: "welcome", label: "Welcome" },
+  { key: "phrase", label: "Recovery phrase" },
+  { key: "confirm", label: "Confirm backup" },
+  { key: "wallet", label: "Create wallet" },
+  { key: "sign", label: "Sign for OCEAN" },
+  { key: "done", label: "Turn on payouts" },
+] as const;
+
+// Confirm-quiz positions (0-indexed) for a 24-word phrase.
+export const CONFIRM_PICKS = [3, 12, 20];
+
+export interface Offer {
+  id: string;
+  label: string;
+  value: string;
+}
+export interface Address {
+  id: string;
+  label: string;
+  address: string;
+  offerId: string | null;
+}
+
+// ── Single shared reactive store ──
+export const app = $state({
+  // connection
+  base: DEFAULT_BASE,
+  token: DEFAULT_TOKEN,
+  serverUp: false,
+
+  // tweaks
+  density: "guided" as "guided" | "concise",
+  accent: "orange" as "orange" | "blue",
+
+  // navigation
+  surface: "wizard" as Surface,
+  stepIndex: 0,
+  mode: "create" as Mode,
+
+  // wizard inputs
+  importWords: Array(24).fill("") as string[],
+  revealed: false,
+  backedUp: false,
+  answers: {} as Record<number, string>,
+  offerDescription: "",
+
+  // real artifacts
+  phrase: [] as string[], // generated words (create mode), revealed once
+  miningAddress: "",
+  offer: "",
+  signature: "",
+  message: "",
+
+  // OCEAN verification (simulated — there is no OCEAN API here)
+  verifyState: "idle" as "idle" | "verifying" | "verified",
+
+  // post-setup profile
+  profile: null as null | { offers: Offer[]; addresses: Address[] },
+
+  // transient UI
+  busy: false,
+  error: "",
+});
+
+export function client(): OceanlnClient {
+  return new OceanlnClient(app.base.replace(/\/$/, ""), app.token);
+}
+
+export const guided = () => app.density === "guided";
+export const isImport = () => app.mode === "import";
+export const stepKey = () => STEPS[app.stepIndex].key;
+
+// ── gating ──
+export function canContinue(): boolean {
+  switch (stepKey()) {
+    case "phrase":
+      return isImport()
+        ? app.importWords.every((w) => w.trim().length > 1)
+        : app.revealed && app.backedUp;
+    case "confirm":
+      return CONFIRM_PICKS.every((idx, qi) => app.answers[qi] === app.phrase[idx]);
+    case "wallet":
+      return !!app.offer && !!app.miningAddress;
+    case "sign":
+      return !!app.signature;
+    default:
+      return true;
+  }
+}
+
+// ── navigation ──
+const skipConfirm = () => isImport(); // imported phrases skip re-confirmation
+
+export function chooseMode(m: Mode) {
+  app.mode = m;
+  app.error = "";
+  app.stepIndex = 1;
+}
+export function goNext() {
+  let n = app.stepIndex + 1;
+  if (STEPS[n]?.key === "confirm" && skipConfirm()) n += 1;
+  app.stepIndex = Math.min(n, STEPS.length - 1);
+}
+export function goBack() {
+  let n = app.stepIndex - 1;
+  if (STEPS[n]?.key === "confirm" && skipConfirm()) n -= 1;
+  app.stepIndex = Math.max(n, 0);
+  app.error = "";
+}
+// Footer "Continue": import mode persists the phrase before advancing; all
+// other steps complete their server work in-step, so this just advances.
+export async function continueStep() {
+  if (stepKey() === "phrase" && isImport()) {
+    const ok = await importWallet();
+    if (!ok) return;
+  }
+  goNext();
+}
+
+export function visibleSteps(): number {
+  return STEPS.length - (skipConfirm() ? 1 : 0);
+}
+export function humanIndex(): number {
+  return app.stepIndex - (skipConfirm() && app.stepIndex > 2 ? 1 : 0) + 1;
+}
+
+export function railClick(i: number) {
+  if (i < app.stepIndex && !(STEPS[i].key === "confirm" && skipConfirm())) {
+    app.stepIndex = i;
+    app.error = "";
+  }
+}
+export function stepState(i: number): "done" | "active" | "skip" | "" {
+  if (STEPS[i].key === "confirm" && skipConfirm()) return "skip";
+  if (i < app.stepIndex) return "done";
+  if (i === app.stepIndex) return "active";
+  return "";
+}
+
+// ── server actions (real endpoints) ──
+export async function refreshHealth() {
+  app.serverUp = await client().health();
+}
+
+export async function generateWallet() {
+  app.busy = true;
+  app.error = "";
+  try {
+    const r = await client().generate();
+    app.phrase = r.mnemonic.trim().split(/\s+/);
+    app.miningAddress = r.mining_address;
+  } catch (e) {
+    app.error = msg(e);
+  } finally {
+    app.busy = false;
+  }
+}
+
+export async function importWallet(): Promise<boolean> {
+  app.busy = true;
+  app.error = "";
+  try {
+    const phrase = app.importWords.map((w) => w.trim().toLowerCase()).join(" ");
+    const r = await client().importSeed(phrase);
+    app.miningAddress = r.mining_address;
+    app.phrase = phrase.split(/\s+/);
+    return true;
+  } catch (e) {
+    app.error = msg(e);
+    return false;
+  } finally {
+    app.busy = false;
+  }
+}
+
+// Provision the wallet + create the offer (both hit the Lexe-backed node).
+export async function createWalletAndOffer(): Promise<boolean> {
+  app.busy = true;
+  app.error = "";
+  try {
+    const init = await client().init();
+    if (init.mining_address) app.miningAddress = init.mining_address;
+    const offer = await client().offer(app.offerDescription.trim());
+    app.offer = offer.offer;
+    return true;
+  } catch (e) {
+    app.error = msg(e);
+    return false;
+  } finally {
+    app.busy = false;
+  }
+}
+
+// Build an OCEAN-style verification message embedding the offer, then sign it
+// (offline). In the real flow OCEAN issues the message; the wizard constructs an
+// equivalent so the offer-in-message guard is satisfied.
+export async function signForOcean(): Promise<boolean> {
+  app.busy = true;
+  app.error = "";
+  try {
+    const issued = new Date().toISOString();
+    const nonce =
+      typeof crypto !== "undefined" && "randomUUID" in crypto
+        ? crypto.randomUUID()
+        : Math.random().toString(16).slice(2);
+    const message = [
+      "OCEAN Lightning Payout Authorization",
+      "Pool: ocean.xyz",
+      `Payout address: ${app.miningAddress}`,
+      `Offer: ${app.offer}`,
+      `Issued: ${issued}`,
+      `Nonce: ${nonce}`,
+    ].join("\n");
+    const r = await client().payout(message, app.offer);
+    app.message = r.message;
+    app.signature = r.signature;
+    app.miningAddress = r.address;
+    return true;
+  } catch (e) {
+    app.error = msg(e);
+    return false;
+  } finally {
+    app.busy = false;
+  }
+}
+
+// Simulated final hand-off. There is no OCEAN backend here, so "verify" just
+// confirms the three artifacts are present and flips to the success screen.
+export function verifyOcean() {
+  app.verifyState = "verifying";
+  setTimeout(() => (app.verifyState = "verified"), 1500);
+}
+
+// ── post-setup profile ──
+export function seedProfile() {
+  if (app.profile) return;
+  app.profile = {
+    offers: [
+      { id: "o1", label: app.offerDescription || "OCEAN mining payouts", value: app.offer },
+    ],
+    addresses: [
+      { id: "a1", label: "Primary payout", address: app.miningAddress, offerId: "o1" },
+    ],
+  };
+}
+export function go(s: Surface) {
+  if (s === "profile") seedProfile();
+  app.surface = s;
+}
+export function restart() {
+  app.surface = "wizard";
+  app.stepIndex = 0;
+  app.mode = "create";
+  app.importWords = Array(24).fill("");
+  app.revealed = false;
+  app.backedUp = false;
+  app.answers = {};
+  app.offerDescription = "";
+  app.phrase = [];
+  app.miningAddress = "";
+  app.offer = "";
+  app.signature = "";
+  app.message = "";
+  app.verifyState = "idle";
+  app.profile = null;
+  app.error = "";
+}
+
+function msg(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
+}
