@@ -20,9 +20,9 @@ tokio = { workspace = true, features = ["net"] }
 clap.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-zeroize.workspace = true
+async-trait.workspace = true
 
 [dev-dependencies]
-tower.workspace = true
-http-body-util.workspace = true
+# Bound-socket integration tests drive the server over real HTTP.
+reqwest.workspace = true
 serde_json.workspace = true
