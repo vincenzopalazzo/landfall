@@ -14,6 +14,9 @@ path = "src/main.rs"
 [features]
 # In-process Lexe wallet: create/provision the onchain wallet (`init`) and
 # create BOLT12 offers (`offer`) via the published `lexe` SDK, no sidecar.
+# On by default — the full CLI works out of the box. For the thin sidecar
+# client only, build with `--no-default-features`.
+default = ["lexe-sdk"]
 lexe-sdk = ["dep:lexe"]
 
 [dependencies]

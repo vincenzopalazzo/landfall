@@ -80,19 +80,20 @@ The offer is created **before** signing, so a sidecar failure aborts the flow
 before the mnemonic is used. The sidecar must be a version that serves
 `create_offer`.
 
-### 3. In-process Lexe wallet (`init` / `offer`) — requires `--features lexe-sdk`
+### 3. In-process Lexe wallet (`init` / `offer`) — default build
 
-Built with `cargo install --path . --features lexe-sdk`, oceanln embeds the `lexe`
-SDK and runs the wallet in-process (no sidecar). Two extra commands appear:
+`cargo install --path .` builds the full CLI: oceanln embeds the `lexe` SDK and
+runs the wallet in-process (no sidecar). Two extra commands beyond generate/payout:
 
 ```bash
-$OCEANLN init --generate   # one shot: generate seed + provision wallet + print mining address
-$OCEANLN init              # same, but read an existing seed from stdin instead of generating
+$OCEANLN init --generate              # one shot: generate seed + provision wallet + print mining address
+$OCEANLN init --generate --dry-run    # derive seed + mining address WITHOUT provisioning (no network)
+$OCEANLN init                         # onboard an existing seed read from stdin
 $OCEANLN offer --description "OCEAN payout" [--min-amount N]   # create a BOLT12 offer, print it
 ```
 
-- `init --generate` does the whole onboarding at once: generates a fresh 24-word seed (printed once), derives the **mining address** to register with OCEAN, and provisions the onchain wallet. `--json` -> `{"mnemonic": "...", "mining_address": "bc1q..."}`. `--path` overrides the address path.
-- `init` is headless (no app/Google Drive) — registers with Lexe's backend and provisions, like `lexe init`. Run it once before `offer`. Idempotent.
+- `init --generate` does the whole onboarding at once: generates a fresh 24-word seed (printed once), derives the **mining address** to register with OCEAN, and provisions the onchain wallet. `--json` -> `{"mnemonic": "...", "mining_address": "bc1q...", "provisioned": true}`. `--dry-run` skips provisioning (offline; good for testing). `--path` overrides the address path.
+- `init` is headless (no app/Google Drive) — registers with Lexe's backend and provisions, like `lexe init`. Run it once before `offer`. Idempotent. The thin build (`cargo build --no-default-features`) drops `init`/`offer` and the SDK.
 - `offer` mints a payable offer on the provisioned node and prints the `lno1...`. `offer` fails with "user not signed up yet" if `init` hasn't run.
 - Both prompt the 24-word mnemonic on stdin. The sidecar-free OCEAN flow: `generate` -> `init` -> `offer` -> register on OCEAN -> `payout --offer <lno1> --message "..."`.
 

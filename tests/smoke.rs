@@ -104,6 +104,49 @@ fn generate_prints_24_words() {
     );
 }
 
+// `init` only exists in the in-process build (the default). `--dry-run` skips
+// provisioning, so these run offline with no Lexe backend.
+#[cfg(feature = "lexe-sdk")]
+#[test]
+fn init_generate_dry_run_derives_seed_and_address() {
+    let out = bin()
+        .args(["init", "--generate", "--dry-run", "--json"])
+        .assert()
+        .success();
+    let stdout = String::from_utf8(out.get_output().stdout.clone()).expect("utf8 stdout");
+    let v: serde_json::Value =
+        serde_json::from_str(&stdout).expect("init --json stdout should be valid JSON");
+    assert_eq!(
+        v["mnemonic"].as_str().map(|m| m.split_whitespace().count()),
+        Some(24),
+        "a freshly generated 24-word seed"
+    );
+    assert!(v["mining_address"]
+        .as_str()
+        .is_some_and(|a| a.starts_with("bc1q")));
+    assert_eq!(v["provisioned"], serde_json::json!(false), "dry run");
+}
+
+#[cfg(feature = "lexe-sdk")]
+#[test]
+fn init_dry_run_with_seed_omits_mnemonic_and_derives_known_address() {
+    let out = bin()
+        .args(["init", "--dry-run", "--json"])
+        .write_stdin(TEST_MNEMONIC)
+        .assert()
+        .success();
+    let stdout = String::from_utf8(out.get_output().stdout.clone()).expect("utf8 stdout");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("valid JSON");
+    // A provided seed must NOT be echoed back.
+    assert!(v.get("mnemonic").is_none(), "must not echo a provided seed");
+    assert_eq!(
+        v["mining_address"].as_str(),
+        Some("bc1qpstw48j7j9gjugw25jmjvd96jlwgdnedk5pr6r"),
+        "deterministic BIP84 address for TEST_MNEMONIC"
+    );
+    assert_eq!(v["provisioned"], serde_json::json!(false));
+}
+
 #[test]
 fn generate_json_has_24_word_mnemonic() {
     let out = bin().args(["generate", "--json"]).assert().success();

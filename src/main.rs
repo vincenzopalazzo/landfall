@@ -21,7 +21,7 @@ async fn main() {
 async fn run(cli: Cli) -> Result<()> {
     match cli.command {
         Command::Generate => cmd_generate(cli.json),
-        Command::Payout(args) => cmd_payout(cli.url, cli.credentials, args, cli.json).await,
+        Command::Payout(args) => cmd_payout(args, cli.json).await,
         #[cfg(feature = "lexe-sdk")]
         Command::Init(args) => cmd_init(args, cli.json).await,
         #[cfg(feature = "lexe-sdk")]
@@ -39,10 +39,12 @@ struct InitOutput<'a> {
     mnemonic: Option<&'a str>,
     /// The BIP84 address to register with OCEAN as your mining payout address.
     mining_address: &'a str,
+    /// False under `--dry-run` (seed + address derived, wallet not provisioned).
+    provisioned: bool,
 }
 
 /// One-shot onboarding: get a seed (generated or provided), derive the mining
-/// address, and provision the onchain Lexe wallet.
+/// address, and (unless `--dry-run`) provision the onchain Lexe wallet.
 #[cfg(feature = "lexe-sdk")]
 async fn cmd_init(args: InitArgs, json: bool) -> Result<()> {
     let path = sign::parse_bip32_path(&args.path)?;
@@ -69,18 +71,29 @@ async fn cmd_init(args: InitArgs, json: bool) -> Result<()> {
         }
         println!("Mining address:  {mining_address}");
         println!("  ^ register this address with OCEAN as your payout address.");
-        eprintln!("Provisioning your Lexe wallet (this contacts Lexe)...");
     }
 
-    oceanln::lexe_wallet::init(secret.as_str()).await?;
+    if args.dry_run {
+        if !json {
+            eprintln!("(dry run) wallet NOT provisioned — no network call made.");
+        }
+    } else {
+        if !json {
+            eprintln!("Provisioning your Lexe wallet (this contacts Lexe)...");
+        }
+        oceanln::lexe_wallet::init(secret.as_str()).await?;
+        if !json {
+            println!("Lexe wallet provisioned.");
+        }
+    }
 
     if json {
         print_json(&InitOutput {
             mnemonic: args.generate.then(|| secret.as_str()),
             mining_address: &mining_address,
+            provisioned: !args.dry_run,
         })
     } else {
-        println!("Lexe wallet provisioned.");
         Ok(())
     }
 }
@@ -137,9 +150,18 @@ fn cmd_generate(json: bool) -> Result<()> {
     eprintln!();
     println!("{}", secret.as_str());
     eprintln!();
-    eprintln!("Use the same mnemonic for both the OCEAN signing and the Lexe node:");
-    eprintln!("  oceanln payout --message '<OCEAN message>' --description '<offer description>'");
-    eprintln!("  LEXE_ROOT_SEED_PATH=<file containing these words> lexe-sidecar");
+    #[cfg(feature = "lexe-sdk")]
+    {
+        eprintln!(
+            "Next: `oceanln init --generate` does seed + wallet + mining address in one step,"
+        );
+        eprintln!("or feed this seed to `oceanln offer` / `oceanln payout`.");
+    }
+    #[cfg(not(feature = "lexe-sdk"))]
+    {
+        eprintln!("Use the same mnemonic for both the OCEAN signing and the Lexe node:");
+        eprintln!("  LEXE_ROOT_SEED_PATH=<file containing these words> lexe-sidecar");
+    }
     Ok(())
 }
 
@@ -157,12 +179,7 @@ struct PayoutOutput<'a> {
 /// network call, and only when creating) *before* prompting for the mnemonic,
 /// so a sidecar failure aborts the flow without ever asking the user for — or
 /// touching — their seed.
-async fn cmd_payout(
-    url: String,
-    credentials: Option<String>,
-    args: PayoutArgs,
-    json: bool,
-) -> Result<()> {
+async fn cmd_payout(args: PayoutArgs, json: bool) -> Result<()> {
     let path = sign::parse_bip32_path(&args.path)?;
 
     // 1. Resolve the offer. With --offer the user signs for an existing offer
@@ -190,7 +207,7 @@ async fn cmd_payout(
             offer
         }
         None => {
-            let client = SidecarClient::new(url, credentials)?;
+            let client = SidecarClient::new(args.url, args.credentials)?;
             client
                 .create_offer(CreateOfferReq {
                     description: args.description.as_deref(),
