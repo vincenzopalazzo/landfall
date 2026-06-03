@@ -3,6 +3,7 @@
 use crate::client::DEFAULT_BASE_URL;
 use crate::sign::DEFAULT_BIP32_PATH;
 use clap::{Args, Parser, Subcommand};
+use std::path::PathBuf;
 
 // No `Debug` derive: `PayoutArgs` holds `--credentials`, and we don't want a
 // stray `{:?}` to leak it. (The other arg structs hold no secrets.)
@@ -72,6 +73,20 @@ pub struct InitArgs {
     /// BIP32 derivation path for the mining address (default: m/84'/0'/0'/0/0).
     #[arg(long, default_value = DEFAULT_BIP32_PATH)]
     pub path: String,
+
+    /// Read/write the seed at this path instead of the default
+    /// (`$XDG_CONFIG_HOME/oceanln/seed`, else `~/.config/oceanln/seed`).
+    #[arg(long)]
+    pub seed_file: Option<PathBuf>,
+
+    /// Overwrite an existing seed file that holds a different seed.
+    #[arg(long)]
+    pub force: bool,
+
+    /// Do not persist the seed to disk (one-off provisioning; you'll be
+    /// prompted again on the next `offer` / `payout`).
+    #[arg(long)]
+    pub no_store: bool,
 }
 
 #[cfg(feature = "lexe-sdk")]
@@ -84,6 +99,11 @@ pub struct OfferArgs {
     /// Minimum offer amount in satoshis. Omit for a variable-amount offer.
     #[arg(long)]
     pub min_amount: Option<String>,
+
+    /// Read the seed from this path instead of the default managed file
+    /// (`~/.config/oceanln/seed`). Falls back to a prompt if no seed is found.
+    #[arg(long)]
+    pub seed_file: Option<PathBuf>,
 }
 
 #[derive(Args, Debug)]
@@ -121,4 +141,9 @@ pub struct PayoutArgs {
     /// Bearer credentials for the sidecar (only used without --offer).
     #[arg(long)]
     pub credentials: Option<String>,
+
+    /// Read the seed from this path instead of the default managed file
+    /// (`~/.config/oceanln/seed`). Falls back to a prompt if no seed is found.
+    #[arg(long)]
+    pub seed_file: Option<PathBuf>,
 }

@@ -147,6 +147,46 @@ fn init_dry_run_with_seed_omits_mnemonic_and_derives_known_address() {
     assert_eq!(v["provisioned"], serde_json::json!(false));
 }
 
+// `--dry-run` is a pure preview: it must NOT persist a seed file (no side
+// effects). We point `--seed-file` at an isolated temp path and assert the
+// file never appears, and that the JSON omits `seed_file`.
+#[cfg(feature = "lexe-sdk")]
+#[test]
+fn init_dry_run_does_not_persist_seed_file() {
+    let seed_path = std::env::temp_dir().join(format!(
+        "oceanln-smoke-dryrun-{}-{}.seed",
+        std::process::id(),
+        line!()
+    ));
+    std::fs::remove_file(&seed_path).ok(); // ensure clean slate
+
+    let out = bin()
+        .args([
+            "init",
+            "--generate",
+            "--dry-run",
+            "--json",
+            "--seed-file",
+            seed_path.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+    let stdout = String::from_utf8(out.get_output().stdout.clone()).expect("utf8 stdout");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("valid JSON");
+
+    assert!(
+        !seed_path.exists(),
+        "dry-run must not write a seed file at {}",
+        seed_path.display()
+    );
+    assert!(
+        v.get("seed_file").is_none(),
+        "dry-run JSON must omit `seed_file`"
+    );
+
+    std::fs::remove_file(&seed_path).ok();
+}
+
 #[test]
 fn generate_json_has_24_word_mnemonic() {
     let out = bin().args(["generate", "--json"]).assert().success();

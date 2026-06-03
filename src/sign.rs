@@ -11,6 +11,7 @@ use bitcoin::bip32::{ChildNumber, DerivationPath, Xpriv};
 use bitcoin::secp256k1::Secp256k1;
 use bitcoin::{Address, AddressType, CompressedPublicKey, Network, PrivateKey};
 use std::io::IsTerminal;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use zeroize::{Zeroize, Zeroizing};
 
@@ -35,19 +36,186 @@ impl Drop for MnemonicSecret {
     }
 }
 
-/// Prompt for a BIP39 mnemonic on stdin with terminal echo disabled.
+/// Resolve a BIP39 mnemonic without forcing the user to re-type it every run.
 ///
-/// If stdin is not a TTY (e.g. test harness, shell pipe) reads a line
-/// of plaintext instead — required for `tests/integration.rs`.
-pub fn prompt_mnemonic() -> Result<MnemonicSecret> {
-    let raw = if std::io::stdin().is_terminal() {
-        rpassword::prompt_password("BIP39 mnemonic (24 words, hidden): ")?
-    } else {
-        let mut buf = String::new();
+/// Precedence, highest first:
+///   1. `seed_file` — an explicit `--seed-file <path>` override
+///   2. piped stdin (non-TTY) — used by the test harness and shell pipes
+///   3. the persisted managed seed file ([`default_seed_path`]), if present
+///   4. an interactive hidden prompt (TTY only)
+///
+/// An empty pipe at step 2 falls through to the managed file rather than
+/// erroring, so a closed stdin never masks a stored seed. Returns an error
+/// when none apply (e.g. non-interactive with no seed source).
+pub fn resolve_seed(seed_file: Option<&Path>) -> Result<MnemonicSecret> {
+    // 1. Explicit --seed-file always wins.
+    if let Some(path) = seed_file {
+        return read_seed_file(path);
+    }
+
+    // 2. Piped stdin (non-TTY): test harness, shell pipes.
+    if !std::io::stdin().is_terminal() {
+        let mut buf = Zeroizing::new(String::new());
         std::io::stdin().read_line(&mut buf)?;
-        buf
+        let secret = MnemonicSecret::new(normalize_whitespace(&buf));
+        if !secret.as_str().is_empty() {
+            return Ok(secret);
+        }
+        // Empty pipe — fall through to the managed file.
+    }
+
+    // 3. The persisted managed seed file.
+    if let Some(path) = default_seed_path() {
+        if path.exists() {
+            return read_seed_file(&path);
+        }
+    }
+
+    // 4. Interactive hidden prompt — only possible on a TTY.
+    if std::io::stdin().is_terminal() {
+        let raw = Zeroizing::new(rpassword::prompt_password(
+            "BIP39 mnemonic (24 words, hidden): ",
+        )?);
+        return Ok(MnemonicSecret::new(normalize_whitespace(&raw)));
+    }
+
+    Err(Error::InvalidMnemonic(
+        "no seed available: stdin is empty, no seed file found, and no TTY to prompt on \
+         (run `oceanln init` first, or pass --seed-file)"
+            .into(),
+    ))
+}
+
+/// Default location of the persisted seed file: `$XDG_CONFIG_HOME/oceanln/seed`,
+/// falling back to `~/.config/oceanln/seed`. `None` if neither
+/// `XDG_CONFIG_HOME` nor `HOME` is set.
+pub fn default_seed_path() -> Option<PathBuf> {
+    config_dir().map(|d| d.join("seed"))
+}
+
+fn config_dir() -> Option<PathBuf> {
+    if let Ok(xdg) = std::env::var("XDG_CONFIG_HOME") {
+        if !xdg.is_empty() {
+            return Some(PathBuf::from(xdg).join("oceanln"));
+        }
+    }
+    let home = std::env::var("HOME").ok().filter(|h| !h.is_empty())?;
+    Some(PathBuf::from(home).join(".config").join("oceanln"))
+}
+
+/// Read a mnemonic from a seed file, enforcing owner-only perms on unix.
+///
+/// A group/world-accessible seed file is a hard error — we refuse to read a
+/// mainnet seed that other local users could too.
+fn read_seed_file(path: &Path) -> Result<MnemonicSecret> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let meta = std::fs::metadata(path)
+            .map_err(|e| Error::Wallet(format!("cannot read seed file {}: {e}", path.display())))?;
+        let mode = meta.permissions().mode() & 0o777;
+        if mode & 0o077 != 0 {
+            return Err(Error::Wallet(format!(
+                "seed file {} has insecure permissions {mode:04o}; \
+                 run `chmod 600 {}` (must not be group/world-accessible)",
+                path.display(),
+                path.display(),
+            )));
+        }
+    }
+    let raw =
+        Zeroizing::new(std::fs::read_to_string(path).map_err(|e| {
+            Error::Wallet(format!("cannot read seed file {}: {e}", path.display()))
+        })?);
+    let secret = MnemonicSecret::new(normalize_whitespace(&raw));
+    if secret.as_str().is_empty() {
+        return Err(Error::Wallet(format!(
+            "seed file {} is empty",
+            path.display()
+        )));
+    }
+    Ok(secret)
+}
+
+/// Persist a mnemonic to the managed seed file (or `dest` override) so future
+/// `offer` / `payout` runs derive keys without re-prompting.
+///
+/// Writes `0600` on unix and creates the parent dir `0700`. Refuses to clobber
+/// an existing file holding a *different* seed unless `force`; an identical
+/// existing file is a no-op, so re-running `init` is idempotent. Returns the
+/// path written.
+#[cfg(feature = "lexe-sdk")]
+pub fn store_seed(secret: &MnemonicSecret, dest: Option<&Path>, force: bool) -> Result<PathBuf> {
+    let path = match dest {
+        Some(p) => p.to_path_buf(),
+        None => default_seed_path().ok_or_else(|| {
+            Error::Wallet(
+                "cannot locate a config dir (set HOME or XDG_CONFIG_HOME, or pass --seed-file)"
+                    .into(),
+            )
+        })?,
     };
-    Ok(MnemonicSecret::new(normalize_whitespace(&raw)))
+
+    if path.exists() {
+        let existing = Zeroizing::new(std::fs::read_to_string(&path).map_err(|e| {
+            Error::Wallet(format!(
+                "cannot read existing seed file {}: {e}",
+                path.display()
+            ))
+        })?);
+        if normalize_whitespace(&existing) == secret.as_str() {
+            return Ok(path); // idempotent: identical contents need no --force
+        }
+        if !force {
+            return Err(Error::Wallet(format!(
+                "seed file {} already exists with a different seed; pass --force to overwrite",
+                path.display(),
+            )));
+        }
+    }
+
+    if let Some(parent) = path.parent() {
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| Error::Wallet(format!("cannot create {}: {e}", parent.display())))?;
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let _ = std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700));
+            }
+        }
+    }
+
+    write_secret_file(&path, secret.as_str())?;
+    Ok(path)
+}
+
+/// Write `contents` to `path` as a `0600` file, truncating any existing one.
+#[cfg(feature = "lexe-sdk")]
+fn write_secret_file(path: &Path, contents: &str) -> Result<()> {
+    use std::io::Write;
+    let mut opts = std::fs::OpenOptions::new();
+    opts.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        opts.mode(0o600); // applies only when the file is freshly created
+    }
+    let mut f = opts
+        .open(path)
+        .map_err(|e| Error::Wallet(format!("cannot write seed file {}: {e}", path.display())))?;
+    // Re-assert 0600 so a --force overwrite of a pre-existing (possibly looser)
+    // file is also tightened, not just freshly-created ones.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        f.set_permissions(std::fs::Permissions::from_mode(0o600))
+            .map_err(|e| Error::Wallet(format!("cannot set perms on {}: {e}", path.display())))?;
+    }
+    // Trailing newline; `normalize_whitespace` strips it on read.
+    writeln!(f, "{contents}")
+        .map_err(|e| Error::Wallet(format!("cannot write seed file {}: {e}", path.display())))?;
+    Ok(())
 }
 
 fn normalize_whitespace(s: &str) -> String {
@@ -294,5 +462,115 @@ mod tests {
         let k1 = derive_private_key(&m, &path).unwrap();
         let k2 = derive_private_key(&m, &path).unwrap();
         assert_eq!(k1.to_wif(), k2.to_wif());
+    }
+}
+
+// Seed-file persistence tests. Gated to `lexe-sdk` (where `store_seed` lives)
+// and `unix` (where the 0600 perms contract applies). Each test uses an
+// explicit `--seed-file`-style path, so they never touch HOME/XDG and stay
+// order-independent under parallel execution.
+#[cfg(all(test, unix, feature = "lexe-sdk"))]
+mod seed_file_tests {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+
+    const TEST_MNEMONIC: &str = "music mystery deliver gospel profit blanket leaf tell photo segment letter degree nice plastic duty canyon mammal marble bicycle economy unique find cream dune";
+    // Any other valid 24-word mnemonic, for the conflicting-overwrite case.
+    const OTHER_MNEMONIC: &str = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon art";
+
+    // Unique temp dir per call site (line!()), no external tempfile dep.
+    fn tmp_dir(label: u32) -> PathBuf {
+        std::env::temp_dir().join(format!("oceanln-seedtest-{}-{label}", std::process::id()))
+    }
+
+    #[test]
+    fn store_writes_0600_and_resolve_roundtrips() {
+        let dir = tmp_dir(line!());
+        let path = dir.join("seed");
+        let secret = MnemonicSecret::new(TEST_MNEMONIC.into());
+
+        let written = store_seed(&secret, Some(&path), false).unwrap();
+        assert_eq!(written, path);
+
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600, "seed file must be 0600, got {mode:04o}");
+
+        let got = resolve_seed(Some(&path)).unwrap();
+        assert_eq!(got.as_str(), TEST_MNEMONIC);
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn store_is_idempotent_but_refuses_conflicting_overwrite() {
+        let dir = tmp_dir(line!());
+        let path = dir.join("seed");
+        let a = MnemonicSecret::new(TEST_MNEMONIC.into());
+        store_seed(&a, Some(&path), false).unwrap();
+
+        // Identical contents — no --force required.
+        store_seed(&a, Some(&path), false).unwrap();
+
+        // A different seed — refused without --force...
+        let b = MnemonicSecret::new(OTHER_MNEMONIC.into());
+        assert!(store_seed(&b, Some(&path), false).is_err());
+        // ...allowed with it.
+        store_seed(&b, Some(&path), true).unwrap();
+        assert_eq!(resolve_seed(Some(&path)).unwrap().as_str(), OTHER_MNEMONIC);
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn force_overwrite_tightens_loose_perms_to_0600() {
+        let dir = tmp_dir(line!());
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("seed");
+        std::fs::write(&path, "stale").unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+
+        let secret = MnemonicSecret::new(TEST_MNEMONIC.into());
+        store_seed(&secret, Some(&path), true).unwrap();
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(
+            mode, 0o600,
+            "overwrite must tighten to 0600, got {mode:04o}"
+        );
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn resolve_rejects_group_or_world_readable_seed() {
+        let dir = tmp_dir(line!());
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("seed");
+        std::fs::write(&path, TEST_MNEMONIC).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+
+        match resolve_seed(Some(&path)) {
+            Err(Error::Wallet(msg)) => assert!(msg.contains("insecure permissions")),
+            Err(other) => panic!("expected insecure-perms Wallet error, got {other:?}"),
+            Ok(_) => panic!("expected insecure-perms error, got Ok"),
+        }
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn resolve_rejects_empty_seed_file() {
+        let dir = tmp_dir(line!());
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("seed");
+        std::fs::write(&path, "").unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+
+        match resolve_seed(Some(&path)) {
+            Err(Error::Wallet(msg)) => assert!(msg.contains("empty")),
+            Err(other) => panic!("expected empty-file Wallet error, got {other:?}"),
+            Ok(_) => panic!("expected empty-file error, got Ok"),
+        }
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

@@ -41,6 +41,10 @@ struct InitOutput<'a> {
     mining_address: &'a str,
     /// False under `--dry-run` (seed + address derived, wallet not provisioned).
     provisioned: bool,
+    /// Where the seed was persisted, if at all. Absent under `--no-store` /
+    /// `--dry-run`; future `offer` / `payout` read it without re-prompting.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    seed_file: Option<String>,
 }
 
 /// One-shot onboarding: get a seed (generated or provided), derive the mining
@@ -49,28 +53,52 @@ struct InitOutput<'a> {
 async fn cmd_init(args: InitArgs, json: bool) -> Result<()> {
     let path = sign::parse_bip32_path(&args.path)?;
 
-    // Seed: fresh (--generate) or read from stdin/prompt.
+    // Seed: fresh (--generate) or resolved (seed file / stdin / managed file /
+    // prompt).
     let secret = if args.generate {
         sign::generate_mnemonic()?
     } else {
-        sign::prompt_mnemonic()?
+        sign::resolve_seed(args.seed_file.as_deref())?
     };
     let mnemonic = sign::parse_mnemonic(&secret)?;
 
     // The mining address to register with OCEAN — derived locally, instantly.
     let mining_address = sign::derive_address(&mnemonic, &path)?;
 
+    // Persist the seed BEFORE the network call so a provisioning failure can't
+    // lose it — and so future `offer` / `payout` runs derive keys without
+    // re-prompting. Skipped under --dry-run (pure preview) and --no-store.
+    let stored = if args.dry_run || args.no_store {
+        None
+    } else {
+        Some(sign::store_seed(
+            &secret,
+            args.seed_file.as_deref(),
+            args.force,
+        )?)
+    };
+
     // Surface the seed + address BEFORE the network call, so a provisioning
     // failure never loses a freshly generated seed.
     if !json {
         if args.generate {
-            eprintln!(
-                "WARNING: write these 24 words down — they ARE your wallet, shown once, never saved."
-            );
+            if stored.is_some() {
+                eprintln!(
+                    "WARNING: these 24 words ARE your wallet — saved below to the seed file, \
+                     but back them up offline too."
+                );
+            } else {
+                eprintln!(
+                    "WARNING: write these 24 words down — they ARE your wallet, shown once, not saved."
+                );
+            }
             println!("Seed:            {}", secret.as_str());
         }
         println!("Mining address:  {mining_address}");
         println!("  ^ register this address with OCEAN as your payout address.");
+        if let Some(path) = &stored {
+            println!("Seed saved to:   {} (0600)", path.display());
+        }
     }
 
     // In JSON mode the seed is only emitted in the final object, which is
@@ -101,6 +129,7 @@ async fn cmd_init(args: InitArgs, json: bool) -> Result<()> {
             mnemonic: args.generate.then(|| secret.as_str()),
             mining_address: &mining_address,
             provisioned: !args.dry_run,
+            seed_file: stored.map(|p| p.display().to_string()),
         })
     } else {
         Ok(())
@@ -115,7 +144,7 @@ struct OfferOutput<'a> {
 
 #[cfg(feature = "lexe-sdk")]
 async fn cmd_offer(args: OfferArgs, json: bool) -> Result<()> {
-    let secret = sign::prompt_mnemonic()?;
+    let secret = sign::resolve_seed(args.seed_file.as_deref())?;
     sign::parse_mnemonic(&secret)?;
     let offer = oceanln::lexe_wallet::create_offer(
         secret.as_str(),
@@ -227,10 +256,11 @@ async fn cmd_payout(args: PayoutArgs, json: bool) -> Result<()> {
         }
     };
 
-    // 2. Now the secret: prompt, validate, and derive the signing key ONCE
-    //    (BIP39 PBKDF2 is expensive). The mining address the user registers
-    //    with OCEAN comes from the same key, so the key provably controls it.
-    let secret = sign::prompt_mnemonic()?;
+    // 2. Now the secret: resolve (seed file / stdin / managed file / prompt),
+    //    validate, and derive the signing key ONCE (BIP39 PBKDF2 is expensive).
+    //    The mining address the user registers with OCEAN comes from the same
+    //    key, so the key provably controls it.
+    let secret = sign::resolve_seed(args.seed_file.as_deref())?;
     let mnemonic = sign::parse_mnemonic(&secret)?;
     let mut key = sign::derive_private_key(&mnemonic, &path)?;
     let address = sign::address_from_key(&key)?;

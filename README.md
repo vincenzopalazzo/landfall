@@ -41,8 +41,9 @@ oceanln payout \
   --min-amount 1000
 ```
 
-One command does the whole setup. It prompts for your mnemonic (stdin, echo
-disabled), then:
+One command does the whole setup. It resolves your seed (see
+[Seed resolution](#seed-resolution) — a persisted seed file, a pipe, or an
+interactive hidden prompt), then:
 
 1. derives your BIP84 mining address (`m/84'/0'/0'/0/0`) — the address you
    register with OCEAN, provably controlled by the same seed it signs with;
@@ -99,23 +100,47 @@ seed read from stdin. Add `--dry-run` to derive the seed + mining address
 **without** provisioning (no network) — handy for testing. `--path` overrides
 the address derivation path.
 
-Full OCEAN flow, sidecar-free (the seed is reused across steps, so capture it):
+`init` also **persists the seed** to `~/.config/oceanln/seed` (0600) so the
+subsequent `offer` / `payout` runs don't re-prompt — see
+[Seed resolution](#seed-resolution). The seed is saved *before* the network
+call, so a provisioning failure never loses a freshly generated seed.
+
+Full OCEAN flow, sidecar-free — `init` persists the seed, so the later steps
+read it automatically (no piping):
 
 ```sh
-# Create the wallet and capture the seed + mining address as JSON.
-oceanln init --generate --json > wallet.json   # {"mnemonic": "...", "mining_address": "bc1q...", "provisioned": true}
-SEED=$(python3 -c 'import sys,json;print(json.load(sys.stdin)["mnemonic"])' < wallet.json)
+# Create the wallet (seed persisted to ~/.config/oceanln/seed) + print address.
+oceanln init --generate --json > wallet.json
+# {"mnemonic": "...", "mining_address": "bc1q...", "provisioned": true, "seed_file": "/home/you/.config/oceanln/seed"}
 python3 -c 'import sys,json;print("mining address:", json.load(sys.stdin)["mining_address"])' < wallet.json
 
-# Create the offer, then sign the OCEAN message for it.
-OFFER=$(echo "$SEED" | oceanln offer --json --description "OCEAN payout" \
+# Create the offer, then sign the OCEAN message for it — no seed piping needed.
+OFFER=$(oceanln offer --json --description "OCEAN payout" \
           | python3 -c 'import sys,json;print(json.load(sys.stdin)["offer"])')
 # register the mining address + $OFFER on ocean.xyz -> copy the message it gives you
-echo "$SEED" | oceanln payout --offer "$OFFER" --message "<exact OCEAN message>"
+oceanln payout --offer "$OFFER" --message "<exact OCEAN message>"
 ```
 
 `init` is headless (no app, no Google Drive) — it registers with Lexe's backend
 and provisions, exactly like `lexe init` (verified end-to-end on mainnet).
+
+#### Seed resolution
+
+`init`, `offer`, and `payout` resolve the seed in this order, stopping at the
+first that yields one:
+
+1. `--seed-file <path>` — an explicit override (read, and for `init` also the
+   write target);
+2. **piped stdin** — `echo "$SEED" | oceanln …` or the test harness;
+3. the **persisted managed file** — `$XDG_CONFIG_HOME/oceanln/seed`, else
+   `~/.config/oceanln/seed`, if present;
+4. an interactive **hidden prompt** (TTY only).
+
+The seed file is plaintext but written `0600` (owner-only); a group/world-
+readable seed file is rejected with a `chmod 600` hint. `init` refuses to
+overwrite a file holding a *different* seed unless you pass `--force` (an
+identical write is a no-op), and `--no-store` skips persistence entirely for a
+one-off provisioning.
 
 **Thin build:** `cargo build --no-default-features` drops the SDK for a smaller
 dependency tree — only `generate` + `payout` (the sidecar client). See issue #3
