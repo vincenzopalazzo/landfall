@@ -7,13 +7,14 @@ use crate::error::{Error, Result};
 use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION, CONTENT_TYPE};
 use reqwest::{Client, Method, RequestBuilder, StatusCode};
 use serde::{Deserialize, Serialize};
+use zeroize::Zeroizing;
 
 pub const DEFAULT_BASE_URL: &str = "http://127.0.0.1:5393";
 
 pub struct SidecarClient {
     http: Client,
     base_url: String,
-    credentials: Option<String>,
+    credentials: Option<Zeroizing<String>>,
 }
 
 // ── Request / response types ────────────────────────────────────
@@ -51,7 +52,7 @@ impl SidecarClient {
         Ok(Self {
             http,
             base_url,
-            credentials,
+            credentials: credentials.map(Zeroizing::new),
         })
     }
 
@@ -63,7 +64,10 @@ impl SidecarClient {
         let mut h = HeaderMap::new();
         h.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
         if let Some(creds) = &self.credentials {
-            if let Ok(v) = HeaderValue::from_str(&format!("Bearer {creds}")) {
+            // Wrap the intermediate "Bearer <token>" so it's wiped after use;
+            // `HeaderValue` then owns its own copy.
+            let header = Zeroizing::new(format!("Bearer {}", creds.as_str()));
+            if let Ok(v) = HeaderValue::from_str(&header) {
                 h.insert(AUTHORIZATION, v);
             }
         }

@@ -86,15 +86,18 @@ async fn cmd_payout(client: &SidecarClient, args: PayoutArgs, json: bool) -> Res
         .await?
         .offer;
 
-    // 2. Now the secret: prompt, validate, and derive the mining address the
-    //    user registers with OCEAN — from the same seed we sign with, so the
-    //    key provably controls it.
+    // 2. Now the secret: prompt, validate, and derive the signing key ONCE
+    //    (BIP39 PBKDF2 is expensive). The mining address the user registers
+    //    with OCEAN comes from the same key, so the key provably controls it.
     let secret = sign::prompt_mnemonic()?;
     let mnemonic = sign::parse_mnemonic(&secret)?;
-    let address = sign::derive_address(&mnemonic, &path)?;
+    let mut key = sign::derive_private_key(&mnemonic, &path)?;
+    let address = sign::address_from_key(&key)?;
 
-    // 3. BIP-322 sign the exact OCEAN message with the derived key.
-    let signature = sign::sign_bip322(&mnemonic, &address, &path, &args.message)?;
+    // 3. BIP-322 sign the exact OCEAN message with the derived key, then wipe
+    //    it — secp256k1 0.29 does not zeroize `SecretKey` on drop.
+    let signature = sign::sign_bip322(&key, &address, &args.message)?;
+    key.inner.non_secure_erase();
 
     if json {
         print_json(&PayoutOutput {

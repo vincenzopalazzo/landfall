@@ -4,7 +4,9 @@ use crate::client::DEFAULT_BASE_URL;
 use crate::sign::DEFAULT_BIP32_PATH;
 use clap::{Args, Parser, Subcommand};
 
-#[derive(Parser, Debug)]
+// No `Debug` derive: `Cli` holds `--credentials`, and we don't want a stray
+// `{:?}` to leak it. The subcommand arg structs (no secrets) keep `Debug`.
+#[derive(Parser)]
 #[command(
     name = "oceanln",
     version,

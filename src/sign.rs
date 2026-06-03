@@ -1,9 +1,8 @@
 //! BIP-322 message signing from a BIP39 mnemonic.
 //!
-//! Replaces the Zig hardware-wallet flow (`src/signer.zig`,
-//! `src/bip322.zig`) with software signing using the `bip322` crate.
-//! Output format is unchanged: a base64-encoded witness, exactly what
-//! the OCEAN web interface expects.
+//! Software signing via the `bip322` crate (replacing the project's
+//! earlier hardware-wallet flow). Output is a base64-encoded witness,
+//! exactly what the OCEAN web interface expects.
 
 use crate::error::{Error, Result};
 use bip322::sign_simple_encoded;
@@ -22,7 +21,7 @@ pub const DEFAULT_BIP32_PATH: &str = "m/84'/0'/0'/0/0";
 pub struct MnemonicSecret(String);
 
 impl MnemonicSecret {
-    pub fn new(s: String) -> Self {
+    pub(crate) fn new(s: String) -> Self {
         Self(s)
     }
     pub fn as_str(&self) -> &str {
@@ -101,18 +100,23 @@ pub fn derive_private_key(m: &Mnemonic, path: &DerivationPath) -> Result<Private
     Ok(PrivateKey::new(child.private_key, Network::Bitcoin))
 }
 
+/// P2WPKH mainnet address (`bc1q…`) for an already-derived key.
+pub fn address_from_key(key: &PrivateKey) -> Result<String> {
+    let secp = Secp256k1::new();
+    let cpk = CompressedPublicKey::from_private_key(&secp, key)
+        .map_err(|e| Error::SigningFailed(format!("compressed pubkey: {e}")))?;
+    Ok(Address::p2wpkh(&cpk, Network::Bitcoin).to_string())
+}
+
 /// Derive the BIP84 P2WPKH mainnet address (`bc1q…`) for a mnemonic at a path.
 ///
 /// This is the address the user registers with OCEAN as their mining payout
 /// destination. Deriving it from the same mnemonic we sign with guarantees the
 /// key controls the address — callers never have to supply (and can't mistype)
-/// an address that the key doesn't own.
+/// an address that the key doesn't own. When you already hold the derived key,
+/// call [`address_from_key`] to avoid re-running PBKDF2.
 pub fn derive_address(m: &Mnemonic, path: &DerivationPath) -> Result<String> {
-    let key = derive_private_key(m, path)?;
-    let secp = Secp256k1::new();
-    let cpk = CompressedPublicKey::from_private_key(&secp, &key)
-        .map_err(|e| Error::SigningFailed(format!("compressed pubkey: {e}")))?;
-    Ok(Address::p2wpkh(&cpk, Network::Bitcoin).to_string())
+    address_from_key(&derive_private_key(m, path)?)
 }
 
 /// Parse a BIP32 path string like `m/84'/0'/0'/0/0`.
@@ -169,19 +173,13 @@ fn require_p2wpkh_mainnet(address: &str) -> Result<()> {
     Ok(())
 }
 
-/// Sign a message with BIP-322 simple mode.
+/// Sign a message with BIP-322 simple mode using an already-derived key.
 ///
 /// Returns a base64-encoded witness — the exact format the OCEAN web
-/// interface expects. Equivalent to the Zig
-/// `signer.signBip322` output contract.
-pub fn sign_bip322(
-    mnemonic: &Mnemonic,
-    address: &str,
-    path: &DerivationPath,
-    message: &str,
-) -> Result<String> {
+/// interface expects. Takes the derived key rather than the mnemonic so the
+/// caller can derive once and reuse it for the address too.
+pub fn sign_bip322(key: &PrivateKey, address: &str, message: &str) -> Result<String> {
     require_p2wpkh_mainnet(address)?;
-    let key = derive_private_key(mnemonic, path)?;
     // `WIF` is a base58check serialization of the secret key. Wrap in
     // `Zeroizing` so the heap bytes are wiped once signing returns.
     let wif: Zeroizing<String> = Zeroizing::new(key.to_wif());
@@ -246,11 +244,11 @@ mod tests {
     fn rejects_non_p2wpkh_address() {
         let m = Mnemonic::parse(TEST_MNEMONIC).unwrap();
         let path = parse_bip32_path(DEFAULT_BIP32_PATH).unwrap();
+        let key = derive_private_key(&m, &path).unwrap();
         // P2TR (taproot) — must be rejected
         let r = sign_bip322(
-            &m,
+            &key,
             "bc1ppv609nr0vr25u07u95waq5lucwfm6tde4nydujnu8npg4q75mr5sxq8lt3",
-            &path,
             "hello",
         );
         assert!(matches!(r, Err(Error::AddressNotP2wpkh(_))));
@@ -284,7 +282,8 @@ mod tests {
         assert_eq!(addr, derive_address(&m, &path).unwrap());
         // The derived address is, by construction, P2WPKH-mainnet — so signing
         // against it must pass the address guard and succeed.
-        let sig = sign_bip322(&m, &addr, &path, "hello").unwrap();
+        let key = derive_private_key(&m, &path).unwrap();
+        let sig = sign_bip322(&key, &addr, "hello").unwrap();
         assert!(!sig.is_empty());
     }
 

@@ -1,14 +1,14 @@
 //! BIP-322 hash + signing-roundtrip vectors.
 //!
-//! These vectors come straight from the previous Zig implementation
-//! (`src/bip322.zig:288-307` in the deleted code) to guarantee that
-//! the Rust `bip322` crate produces the same domain-separated hash
-//! the Zig hand-rolled implementation did. A regression here means
-//! OCEAN signatures would silently change.
+//! These vectors come straight from the project's previous Zig
+//! implementation (deleted in the Rust rewrite) to guarantee that the
+//! Rust `bip322` crate produces the same domain-separated hash the Zig
+//! hand-rolled implementation did. A regression here means OCEAN
+//! signatures would silently change.
 
 use bip322::{sign_simple_encoded, tagged_hash, verify_simple_encoded, BIP322_TAG};
 
-/// Test vector lifted from `src/bip322.zig:291`.
+/// Test vector lifted from the previous Zig implementation.
 #[test]
 fn hash_of_empty_string() {
     let h = tagged_hash(BIP322_TAG, "");
@@ -18,7 +18,7 @@ fn hash_of_empty_string() {
     );
 }
 
-/// Test vector lifted from `src/bip322.zig:301`.
+/// Test vector lifted from the previous Zig implementation.
 #[test]
 fn hash_of_hello_world() {
     let h = tagged_hash(BIP322_TAG, "Hello World");
