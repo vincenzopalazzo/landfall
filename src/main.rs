@@ -73,6 +73,15 @@ async fn cmd_init(args: InitArgs, json: bool) -> Result<()> {
         println!("  ^ register this address with OCEAN as your payout address.");
     }
 
+    // In JSON mode the seed is only emitted in the final object, which is
+    // printed AFTER provisioning — echo it to stderr first so a provisioning
+    // failure can't lose a freshly generated seed. (Non-JSON prints it above;
+    // dry-run never provisions and always reaches the final print.)
+    if json && args.generate && !args.dry_run {
+        eprintln!("WARNING: write these 24 words down (echoed here in case provisioning fails):");
+        eprintln!("{}", secret.as_str());
+    }
+
     if args.dry_run {
         if !json {
             eprintln!("(dry run) wallet NOT provisioned — no network call made.");
