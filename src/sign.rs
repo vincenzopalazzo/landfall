@@ -164,6 +164,16 @@ pub fn store_seed(secret: &MnemonicSecret, dest: Option<&Path>, force: bool) -> 
             ))
         })?);
         if normalize_whitespace(&existing) == secret.as_str() {
+            // Identical seed already present: no rewrite needed, but still
+            // re-assert 0600 so a manually-created loose file becomes usable by
+            // later `offer` / `payout` (which reject group/world-readable seeds).
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).map_err(
+                    |e| Error::Wallet(format!("cannot set perms on {}: {e}", path.display())),
+                )?;
+            }
             return Ok(path); // idempotent: identical contents need no --force
         }
         if !force {
@@ -517,6 +527,30 @@ mod seed_file_tests {
         // ...allowed with it.
         store_seed(&b, Some(&path), true).unwrap();
         assert_eq!(resolve_seed(Some(&path)).unwrap().as_str(), OTHER_MNEMONIC);
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn idempotent_identical_write_tightens_loose_perms_to_0600() {
+        let dir = tmp_dir(line!());
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("seed");
+        // A manually-created, correct-but-loose seed file.
+        std::fs::write(&path, TEST_MNEMONIC).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+
+        // Same seed, no --force: the idempotent path must still tighten perms,
+        // otherwise `read_seed_file` would reject this very file afterwards.
+        let secret = MnemonicSecret::new(TEST_MNEMONIC.into());
+        store_seed(&secret, Some(&path), false).unwrap();
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(
+            mode, 0o600,
+            "idempotent store must tighten to 0600, got {mode:04o}"
+        );
+        // And the file is now actually readable by resolve_seed.
+        assert_eq!(resolve_seed(Some(&path)).unwrap().as_str(), TEST_MNEMONIC);
 
         std::fs::remove_dir_all(&dir).ok();
     }

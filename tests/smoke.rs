@@ -187,6 +187,49 @@ fn init_dry_run_does_not_persist_seed_file() {
     std::fs::remove_file(&seed_path).ok();
 }
 
+// A generated seed must be shown to the user BEFORE the fallible persist step,
+// so a store conflict can never lose words the user hasn't seen. We point
+// `--seed-file` at an existing file holding a *different* seed (no `--force`):
+// `store_seed` will reject it, but the freshly generated 24 words must already
+// be on stdout by then.
+#[cfg(feature = "lexe-sdk")]
+#[test]
+fn init_generate_surfaces_seed_before_store_conflict() {
+    let dir = std::env::temp_dir().join(format!(
+        "oceanln-smoke-conflict-{}-{}",
+        std::process::id(),
+        line!()
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    let seed_path = dir.join("seed");
+    // A different, valid seed already persisted at the target.
+    std::fs::write(&seed_path, TEST_MNEMONIC).unwrap();
+
+    let out = bin()
+        .args([
+            "init",
+            "--generate",
+            "--seed-file",
+            seed_path.to_str().unwrap(),
+        ])
+        .assert()
+        .failure(); // store conflict aborts before provisioning
+    let stdout = String::from_utf8(out.get_output().stdout.clone()).expect("utf8 stdout");
+
+    // The generated seed line must have printed despite the later failure.
+    let seed_line = stdout
+        .lines()
+        .find(|l| l.starts_with("Seed:"))
+        .expect("generated seed must be surfaced before the store conflict");
+    let words = seed_line
+        .trim_start_matches("Seed:")
+        .split_whitespace()
+        .count();
+    assert_eq!(words, 24, "surfaced seed should be 24 words: {seed_line:?}");
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
 #[test]
 fn generate_json_has_24_word_mnemonic() {
     let out = bin().args(["generate", "--json"]).assert().success();

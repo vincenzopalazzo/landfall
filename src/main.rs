@@ -65,9 +65,28 @@ async fn cmd_init(args: InitArgs, json: bool) -> Result<()> {
     // The mining address to register with OCEAN — derived locally, instantly.
     let mining_address = sign::derive_address(&mnemonic, &path)?;
 
-    // Persist the seed BEFORE the network call so a provisioning failure can't
-    // lose it — and so future `offer` / `payout` runs derive keys without
-    // re-prompting. Skipped under --dry-run (pure preview) and --no-store.
+    // Surface a freshly generated seed BEFORE any fallible step (persistence or
+    // the provisioning network call), so neither a store conflict nor a network
+    // failure can ever lose words the user has not seen yet.
+    if args.generate {
+        if json {
+            // In JSON mode the seed is only in the final object (printed after
+            // provisioning) — echo to stderr now so a later failure can't lose it.
+            if !args.dry_run {
+                eprintln!(
+                    "WARNING: write these 24 words down (echoed here in case a later step fails):"
+                );
+                eprintln!("{}", secret.as_str());
+            }
+        } else {
+            eprintln!("WARNING: write these 24 words down — they ARE your wallet.");
+            println!("Seed:            {}", secret.as_str());
+        }
+    }
+
+    // Persist the seed (now that it has been surfaced) so future `offer` /
+    // `payout` runs derive keys without re-prompting. Skipped under --dry-run
+    // (pure preview) and --no-store.
     let stored = if args.dry_run || args.no_store {
         None
     } else {
@@ -78,36 +97,12 @@ async fn cmd_init(args: InitArgs, json: bool) -> Result<()> {
         )?)
     };
 
-    // Surface the seed + address BEFORE the network call, so a provisioning
-    // failure never loses a freshly generated seed.
     if !json {
-        if args.generate {
-            if stored.is_some() {
-                eprintln!(
-                    "WARNING: these 24 words ARE your wallet — saved below to the seed file, \
-                     but back them up offline too."
-                );
-            } else {
-                eprintln!(
-                    "WARNING: write these 24 words down — they ARE your wallet, shown once, not saved."
-                );
-            }
-            println!("Seed:            {}", secret.as_str());
-        }
         println!("Mining address:  {mining_address}");
         println!("  ^ register this address with OCEAN as your payout address.");
         if let Some(path) = &stored {
             println!("Seed saved to:   {} (0600)", path.display());
         }
-    }
-
-    // In JSON mode the seed is only emitted in the final object, which is
-    // printed AFTER provisioning — echo it to stderr first so a provisioning
-    // failure can't lose a freshly generated seed. (Non-JSON prints it above;
-    // dry-run never provisions and always reaches the final print.)
-    if json && args.generate && !args.dry_run {
-        eprintln!("WARNING: write these 24 words down (echoed here in case provisioning fails):");
-        eprintln!("{}", secret.as_str());
     }
 
     if args.dry_run {
