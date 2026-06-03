@@ -190,8 +190,16 @@ Because a browser is a supported client, the loopback port is guarded:
 - enforces an **`Origin` allowlist** (`--allow-origin`, repeatable) — blocks
   cross-origin browser calls and DNS-rebinding;
 - validates the `Host` header is loopback;
-- the Lexe sidecar URL/credentials are **server-side config**, never taken from
-  a request body (no SSRF).
+- the Lexe sidecar URL/credentials are **server-side config** (`--sidecar-url` /
+  `--sidecar-credentials`), never taken from a request body (no SSRF).
+
+Point the server at a non-default sidecar with the server's own flags (these
+differ from the CLI's `--url` / `--credentials`):
+
+```sh
+oceanln-httpd --seed-file ./seed.txt \
+  --sidecar-url http://127.0.0.1:5393 --sidecar-credentials <token>
+```
 
 Endpoints (all JSON; all but `/health` need the bearer token):
 
@@ -214,9 +222,11 @@ curl -s http://127.0.0.1:7762/payout \
 
 ### The Lexe sidecar
 
-`payout` talks to a [Lexe sidecar](https://github.com/lexe-app/lexe-public)
-running locally on `127.0.0.1:5393` (or pass `--url`). Launch it with the same
-seed `generate` produced:
+The CLI `payout` command talks to a
+[Lexe sidecar](https://github.com/lexe-app/lexe-public) running locally on
+`127.0.0.1:5393` (or pass `--url`). The flags below are the **CLI** flags; the
+`oceanln-httpd` server uses `--sidecar-url` / `--sidecar-credentials` instead
+(see above). Launch the sidecar with the same seed `generate` produced:
 
 ```sh
 LEXE_ROOT_SEED_PATH=<path-to-your-mnemonic> lexe-sidecar
