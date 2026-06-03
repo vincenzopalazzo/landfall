@@ -45,14 +45,28 @@ pub enum Command {
     /// sign the OCEAN message — printing address, offer, and signature.
     Payout(PayoutArgs),
 
-    /// Create + provision the onchain Lexe wallet from the mnemonic (in-process,
-    /// no sidecar). Run once before `offer`.
+    /// Onboard in one shot (in-process, no sidecar): generate or take a seed,
+    /// provision the onchain Lexe wallet, and print the mining address to
+    /// register with OCEAN. Run once before `offer`.
     #[cfg(feature = "lexe-sdk")]
-    Init,
+    Init(InitArgs),
 
     /// Create a payable BOLT12 offer in-process (no sidecar) and print it.
     #[cfg(feature = "lexe-sdk")]
     Offer(OfferArgs),
+}
+
+#[cfg(feature = "lexe-sdk")]
+#[derive(Args, Debug)]
+pub struct InitArgs {
+    /// Generate a fresh 24-word seed instead of reading one from stdin.
+    /// Use this to create a brand-new wallet in one shot.
+    #[arg(long)]
+    pub generate: bool,
+
+    /// BIP32 derivation path for the mining address (default: m/84'/0'/0'/0/0).
+    #[arg(long, default_value = DEFAULT_BIP32_PATH)]
+    pub path: String,
 }
 
 #[cfg(feature = "lexe-sdk")]

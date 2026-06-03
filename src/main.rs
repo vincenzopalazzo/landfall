@@ -1,9 +1,9 @@
 //! oceanln — OCEAN Lightning payout CLI.
 
 use clap::Parser;
-#[cfg(feature = "lexe-sdk")]
-use oceanln::cli::OfferArgs;
 use oceanln::cli::{Cli, Command, PayoutArgs};
+#[cfg(feature = "lexe-sdk")]
+use oceanln::cli::{InitArgs, OfferArgs};
 use oceanln::client::{CreateOfferReq, SidecarClient};
 use oceanln::error::{Error, Result};
 use oceanln::sign;
@@ -23,7 +23,7 @@ async fn run(cli: Cli) -> Result<()> {
         Command::Generate => cmd_generate(cli.json),
         Command::Payout(args) => cmd_payout(cli.url, cli.credentials, args, cli.json).await,
         #[cfg(feature = "lexe-sdk")]
-        Command::Init => cmd_init().await,
+        Command::Init(args) => cmd_init(args, cli.json).await,
         #[cfg(feature = "lexe-sdk")]
         Command::Offer(args) => cmd_offer(args, cli.json).await,
     }
@@ -32,14 +32,57 @@ async fn run(cli: Cli) -> Result<()> {
 // ── init / offer (in-process Lexe SDK, feature `lexe-sdk`) ───────
 
 #[cfg(feature = "lexe-sdk")]
-async fn cmd_init() -> Result<()> {
-    let secret = sign::prompt_mnemonic()?;
-    // Enforce the 24-word contract before any network call.
-    sign::parse_mnemonic(&secret)?;
-    eprintln!("Creating and provisioning your Lexe wallet (this contacts Lexe)...");
+#[derive(Serialize)]
+struct InitOutput<'a> {
+    /// Only present when the seed was freshly generated (`--generate`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    mnemonic: Option<&'a str>,
+    /// The BIP84 address to register with OCEAN as your mining payout address.
+    mining_address: &'a str,
+}
+
+/// One-shot onboarding: get a seed (generated or provided), derive the mining
+/// address, and provision the onchain Lexe wallet.
+#[cfg(feature = "lexe-sdk")]
+async fn cmd_init(args: InitArgs, json: bool) -> Result<()> {
+    let path = sign::parse_bip32_path(&args.path)?;
+
+    // Seed: fresh (--generate) or read from stdin/prompt.
+    let secret = if args.generate {
+        sign::generate_mnemonic()?
+    } else {
+        sign::prompt_mnemonic()?
+    };
+    let mnemonic = sign::parse_mnemonic(&secret)?;
+
+    // The mining address to register with OCEAN — derived locally, instantly.
+    let mining_address = sign::derive_address(&mnemonic, &path)?;
+
+    // Surface the seed + address BEFORE the network call, so a provisioning
+    // failure never loses a freshly generated seed.
+    if !json {
+        if args.generate {
+            eprintln!(
+                "WARNING: write these 24 words down — they ARE your wallet, shown once, never saved."
+            );
+            println!("Seed:            {}", secret.as_str());
+        }
+        println!("Mining address:  {mining_address}");
+        println!("  ^ register this address with OCEAN as your payout address.");
+        eprintln!("Provisioning your Lexe wallet (this contacts Lexe)...");
+    }
+
     oceanln::lexe_wallet::init(secret.as_str()).await?;
-    println!("Lexe wallet created and provisioned.");
-    Ok(())
+
+    if json {
+        print_json(&InitOutput {
+            mnemonic: args.generate.then(|| secret.as_str()),
+            mining_address: &mining_address,
+        })
+    } else {
+        println!("Lexe wallet provisioned.");
+        Ok(())
+    }
 }
 
 #[cfg(feature = "lexe-sdk")]

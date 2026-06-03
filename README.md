@@ -88,25 +88,32 @@ commands appear:
 ```sh
 cargo install --path . --features lexe-sdk
 
-oceanln init     # prompt seed -> create + provision the onchain Lexe wallet (once)
+oceanln init --generate   # one shot: generate seed + provision wallet + print mining address
 oceanln offer --description "OCEAN payout"   # create a payable BOLT12 offer, print it
 ```
+
+`init --generate` does the whole onboarding at once — generates a fresh 24-word
+seed (printed once), derives the **mining address** to register with OCEAN, and
+provisions the onchain Lexe wallet. Drop `--generate` to onboard an existing
+seed read from stdin (`cat seed | oceanln init`). `--path` overrides the mining
+address derivation path.
 
 Full OCEAN flow, sidecar-free:
 
 ```sh
-oceanln generate > seed         # make one 24-word seed (write it down)
-cat seed | oceanln init         # create + provision the onchain wallet
+oceanln init --generate           # creates the wallet; copy the seed + mining address
+#   (or, to capture machine-readably:)
+#   oceanln init --generate --json   # -> {"mnemonic": "...", "mining_address": "bc1q..."}
 OFFER=$(cat seed | oceanln offer --json --description "OCEAN payout" \
           | python3 -c 'import sys,json;print(json.load(sys.stdin)["offer"])')
-# register $OFFER on ocean.xyz -> copy the message it gives you
+# register the mining address + $OFFER on ocean.xyz -> copy the message it gives you
 cat seed | oceanln payout --offer "$OFFER" --message "<exact OCEAN message>"
 ```
 
 `init` is headless (no app, no Google Drive) — it registers with Lexe's backend
-and provisions, exactly like `lexe init`. The default build (without the feature)
-keeps the thin sidecar client and a smaller dependency tree. See issue #3 for the
-migration plan.
+and provisions, exactly like `lexe init` (verified end-to-end on mainnet). The
+default build (without the feature) keeps the thin sidecar client and a smaller
+dependency tree. See issue #3 for the migration plan.
 
 ### The Lexe sidecar
 
