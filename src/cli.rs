@@ -4,29 +4,16 @@ use crate::client::DEFAULT_BASE_URL;
 use crate::sign::DEFAULT_BIP32_PATH;
 use clap::{Args, Parser, Subcommand};
 
-// No `Debug` derive: `Cli` holds `--credentials`, and we don't want a stray
-// `{:?}` to leak it. The subcommand arg structs (no secrets) keep `Debug`.
+// No `Debug` derive: `PayoutArgs` holds `--credentials`, and we don't want a
+// stray `{:?}` to leak it. (The other arg structs hold no secrets.)
 #[derive(Parser)]
 #[command(
     name = "oceanln",
     version,
-    about = "OCEAN Lightning payout CLI — BIP-322 signing + BOLT12 offer over a Lexe sidecar",
-    after_help = "Examples:\n  \
-        oceanln generate\n  \
-        oceanln payout --message 'Configure OCEAN payout to lno1... at block 840000' --description 'my pool payout'\n  \
-        oceanln payout --message '...' --description '...' --min-amount 1000 --credentials $LEXE_CLIENT_CREDENTIALS\n\n\
-        The sidecar must be running separately:\n  \
-        lexe-sidecar --client-credentials-path <path>"
+    about = "OCEAN Lightning payout CLI — create a Lexe wallet + BOLT12 offer and BIP-322 sign for OCEAN",
+    after_help = AFTER_HELP,
 )]
 pub struct Cli {
-    /// Lexe sidecar URL.
-    #[arg(long, global = true, default_value = DEFAULT_BASE_URL)]
-    pub url: String,
-
-    /// Bearer credentials for sidecar authentication.
-    #[arg(long, global = true)]
-    pub credentials: Option<String>,
-
     /// Output as machine-readable JSON.
     #[arg(long, global = true)]
     pub json: bool,
@@ -35,24 +22,56 @@ pub struct Cli {
     pub command: Command,
 }
 
+#[cfg(feature = "lexe-sdk")]
+const AFTER_HELP: &str = "Examples (in-process, no sidecar):\n  \
+    oceanln init --generate                         # new wallet + mining address, one shot\n  \
+    oceanln offer --description 'OCEAN payout'      # create a BOLT12 offer\n  \
+    oceanln payout --offer lno1... --message '<exact OCEAN message>'   # BIP-322 sign\n\n\
+    `init --dry-run` previews the seed + mining address without provisioning.";
+
+#[cfg(not(feature = "lexe-sdk"))]
+const AFTER_HELP: &str = "Examples (thin build — needs a running lexe-sidecar):\n  \
+    oceanln generate\n  \
+    oceanln payout --message '<OCEAN message>' --description 'my pool payout'\n  \
+    oceanln payout --offer lno1... --message '<OCEAN message>'   # offline sign\n\n\
+    Build with the in-process Lexe wallet (default): `cargo build` adds `init`/`offer`.";
+
 #[derive(Subcommand, Debug)]
 pub enum Command {
     /// Generate a fresh 24-word BIP39 mnemonic seed.
     Generate,
 
-    /// End-to-end OCEAN payout setup: derive the mining address from the
-    /// mnemonic, create a payable BOLT12 offer on the node, and BIP-322
-    /// sign the OCEAN message — printing address, offer, and signature.
+    /// End-to-end OCEAN payout: derive the mining address from the mnemonic,
+    /// obtain a payable BOLT12 offer, and BIP-322 sign the OCEAN message.
     Payout(PayoutArgs),
 
-    /// Create + provision the onchain Lexe wallet from the mnemonic (in-process,
-    /// no sidecar). Run once before `offer`.
+    /// Onboard in one shot (in-process, no sidecar): generate or take a seed,
+    /// provision the onchain Lexe wallet, and print the mining address to
+    /// register with OCEAN. Run once before `offer`.
     #[cfg(feature = "lexe-sdk")]
-    Init,
+    Init(InitArgs),
 
     /// Create a payable BOLT12 offer in-process (no sidecar) and print it.
     #[cfg(feature = "lexe-sdk")]
     Offer(OfferArgs),
+}
+
+#[cfg(feature = "lexe-sdk")]
+#[derive(Args, Debug)]
+pub struct InitArgs {
+    /// Generate a fresh 24-word seed instead of reading one from stdin.
+    /// Use this to create a brand-new wallet in one shot.
+    #[arg(long)]
+    pub generate: bool,
+
+    /// Derive and print the seed + mining address WITHOUT provisioning the
+    /// wallet (no network call). Useful for previewing or testing.
+    #[arg(long)]
+    pub dry_run: bool,
+
+    /// BIP32 derivation path for the mining address (default: m/84'/0'/0'/0/0).
+    #[arg(long, default_value = DEFAULT_BIP32_PATH)]
+    pub path: String,
 }
 
 #[cfg(feature = "lexe-sdk")]
@@ -82,7 +101,7 @@ pub struct PayoutArgs {
     #[arg(long, conflicts_with_all = ["description", "min_amount"])]
     pub offer: Option<String>,
 
-    /// Description baked into the BOLT12 offer the node creates.
+    /// Description baked into the BOLT12 offer the sidecar creates.
     #[arg(long)]
     pub description: Option<String>,
 
@@ -94,4 +113,12 @@ pub struct PayoutArgs {
     /// BIP32 derivation path for the mining address (default: m/84'/0'/0'/0/0).
     #[arg(long, default_value = DEFAULT_BIP32_PATH)]
     pub path: String,
+
+    /// Lexe sidecar URL (only used when creating an offer, i.e. without --offer).
+    #[arg(long, default_value = DEFAULT_BASE_URL)]
+    pub url: String,
+
+    /// Bearer credentials for the sidecar (only used without --offer).
+    #[arg(long)]
+    pub credentials: Option<String>,
 }

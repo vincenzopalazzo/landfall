@@ -79,34 +79,47 @@ app, or a `payout` run without `--offer`), paste it into OCEAN to get the
 message, then sign that message here with `--offer`. `--offer` is mutually
 exclusive with `--description`/`--min-amount`.
 
-### In-process Lexe wallet (no sidecar) — `--features lexe-sdk`
+### In-process Lexe wallet (no sidecar) — default
 
-Built with the `lexe-sdk` feature, oceanln embeds the published [`lexe`](https://crates.io/crates/lexe)
-SDK and runs the wallet in-process — no separate `lexe-sidecar` needed. Two extra
-commands appear:
+By default oceanln embeds the published [`lexe`](https://crates.io/crates/lexe)
+SDK and runs the wallet in-process — no separate `lexe-sidecar` needed. `cargo
+install --path .` gives you the full CLI, with `init` and `offer`:
 
 ```sh
-cargo install --path . --features lexe-sdk
+cargo install --path .
 
-oceanln init     # prompt seed -> create + provision the onchain Lexe wallet (once)
+oceanln init --generate   # one shot: generate seed + provision wallet + print mining address
 oceanln offer --description "OCEAN payout"   # create a payable BOLT12 offer, print it
 ```
 
-Full OCEAN flow, sidecar-free:
+`init --generate` does the whole onboarding at once — generates a fresh 24-word
+seed (printed once), derives the **mining address** to register with OCEAN, and
+provisions the onchain Lexe wallet. Drop `--generate` to onboard an existing
+seed read from stdin. Add `--dry-run` to derive the seed + mining address
+**without** provisioning (no network) — handy for testing. `--path` overrides
+the address derivation path.
+
+Full OCEAN flow, sidecar-free (the seed is reused across steps, so capture it):
 
 ```sh
-oceanln generate > seed         # make one 24-word seed (write it down)
-cat seed | oceanln init         # create + provision the onchain wallet
-OFFER=$(cat seed | oceanln offer --json --description "OCEAN payout" \
+# Create the wallet and capture the seed + mining address as JSON.
+oceanln init --generate --json > wallet.json   # {"mnemonic": "...", "mining_address": "bc1q...", "provisioned": true}
+SEED=$(python3 -c 'import sys,json;print(json.load(sys.stdin)["mnemonic"])' < wallet.json)
+python3 -c 'import sys,json;print("mining address:", json.load(sys.stdin)["mining_address"])' < wallet.json
+
+# Create the offer, then sign the OCEAN message for it.
+OFFER=$(echo "$SEED" | oceanln offer --json --description "OCEAN payout" \
           | python3 -c 'import sys,json;print(json.load(sys.stdin)["offer"])')
-# register $OFFER on ocean.xyz -> copy the message it gives you
-cat seed | oceanln payout --offer "$OFFER" --message "<exact OCEAN message>"
+# register the mining address + $OFFER on ocean.xyz -> copy the message it gives you
+echo "$SEED" | oceanln payout --offer "$OFFER" --message "<exact OCEAN message>"
 ```
 
 `init` is headless (no app, no Google Drive) — it registers with Lexe's backend
-and provisions, exactly like `lexe init`. The default build (without the feature)
-keeps the thin sidecar client and a smaller dependency tree. See issue #3 for the
-migration plan.
+and provisions, exactly like `lexe init` (verified end-to-end on mainnet).
+
+**Thin build:** `cargo build --no-default-features` drops the SDK for a smaller
+dependency tree — only `generate` + `payout` (the sidecar client). See issue #3
+for the migration notes.
 
 ### The Lexe sidecar
 
