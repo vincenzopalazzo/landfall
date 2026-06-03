@@ -25,6 +25,14 @@ impl MnemonicSecret {
     pub(crate) fn new(s: String) -> Self {
         Self(s)
     }
+
+    /// Build a secret from arbitrary input (a prompt line, a seed file),
+    /// collapsing every run of whitespace to a single space. The caller is
+    /// responsible for wiping the original buffer if it outlives this call.
+    pub fn from_input(raw: &str) -> Self {
+        Self(normalize_whitespace(raw))
+    }
+
     pub fn as_str(&self) -> &str {
         &self.0
     }
@@ -259,6 +267,24 @@ pub fn parse_mnemonic(secret: &MnemonicSecret) -> Result<Mnemonic> {
 pub fn generate_mnemonic() -> Result<MnemonicSecret> {
     let m = Mnemonic::generate(24).map_err(|e| Error::InvalidMnemonic(format!("{e}")))?;
     Ok(MnemonicSecret::new(m.to_string()))
+}
+
+/// Generate a 256-bit random bearer token as a 64-char lowercase hex string.
+///
+/// Drawn from the same OS CSPRNG `bitcoin`/`secp256k1` already uses, so no new
+/// dependency is needed. Used by `oceanln-httpd` to mint a loopback bearer
+/// token when the operator does not supply one.
+pub fn random_token() -> String {
+    use bitcoin::secp256k1::rand::RngCore;
+    let mut bytes = [0u8; 32];
+    bitcoin::secp256k1::rand::thread_rng().fill_bytes(&mut bytes);
+    let mut s = String::with_capacity(64);
+    for b in bytes {
+        // Two lowercase hex digits per byte, no external hex dependency.
+        s.push(char::from_digit((b >> 4) as u32, 16).unwrap());
+        s.push(char::from_digit((b & 0x0f) as u32, 16).unwrap());
+    }
+    s
 }
 
 /// Derive a BIP32 child private key from a mnemonic at the given path.

@@ -6,8 +6,8 @@
 use axum::http::HeaderMap;
 use axum::routing::post;
 use axum::{Json, Router};
-use oceanln::client::{CreateOfferReq, SidecarClient};
-use oceanln::error::Error;
+use oceanln_common::client::{CreateOfferReq, SidecarClient};
+use oceanln_common::error::Error;
 use serde_json::{json, Value};
 use std::net::SocketAddr;
 use std::sync::Arc;

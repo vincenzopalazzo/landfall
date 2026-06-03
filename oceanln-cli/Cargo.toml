@@ -1,0 +1,31 @@
+[package]
+name = "oceanln-cli"
+description = "OCEAN Lightning payout CLI — BIP-322 message signing + Lexe wallet/sidecar client"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "oceanln"
+path = "src/main.rs"
+
+[features]
+# Forward the in-process Lexe wallet to the shared core. On by default — the
+# full CLI (`init`/`offer`) works out of the box. `--no-default-features`
+# builds the thin sidecar-client CLI (`generate`/`payout`).
+default = ["lexe-sdk"]
+lexe-sdk = ["oceanln-common/lexe-sdk"]
+
+[dependencies]
+oceanln-common = { path = "../oceanln-common", default-features = false }
+clap.workspace = true
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+assert_cmd.workspace = true
+predicates.workspace = true
+serde_json.workspace = true

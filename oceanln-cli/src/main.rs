@@ -1,12 +1,14 @@
 //! oceanln — OCEAN Lightning payout CLI.
 
+mod cli;
+
 use clap::Parser;
-use oceanln::cli::{Cli, Command, PayoutArgs};
+use cli::{Cli, Command, PayoutArgs};
 #[cfg(feature = "lexe-sdk")]
-use oceanln::cli::{InitArgs, OfferArgs};
-use oceanln::client::{CreateOfferReq, SidecarClient};
-use oceanln::error::{Error, Result};
-use oceanln::sign;
+use cli::{InitArgs, OfferArgs};
+use oceanln_common::client::{CreateOfferReq, SidecarClient};
+use oceanln_common::error::{Error, Result};
+use oceanln_common::sign;
 use serde::Serialize;
 
 #[tokio::main]
@@ -113,7 +115,7 @@ async fn cmd_init(args: InitArgs, json: bool) -> Result<()> {
         if !json {
             eprintln!("Provisioning your Lexe wallet (this contacts Lexe)...");
         }
-        oceanln::lexe_wallet::init(secret.as_str()).await?;
+        oceanln_common::lexe_wallet::init(secret.as_str()).await?;
         if !json {
             println!("Lexe wallet provisioned.");
         }
@@ -141,7 +143,7 @@ struct OfferOutput<'a> {
 async fn cmd_offer(args: OfferArgs, json: bool) -> Result<()> {
     let secret = sign::resolve_seed(args.seed_file.as_deref())?;
     sign::parse_mnemonic(&secret)?;
-    let offer = oceanln::lexe_wallet::create_offer(
+    let offer = oceanln_common::lexe_wallet::create_offer(
         secret.as_str(),
         args.description.as_deref(),
         args.min_amount.as_deref(),

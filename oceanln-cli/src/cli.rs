@@ -1,8 +1,8 @@
 //! CLI argument definitions (clap).
 
-use crate::client::DEFAULT_BASE_URL;
-use crate::sign::DEFAULT_BIP32_PATH;
 use clap::{Args, Parser, Subcommand};
+use oceanln_common::client::DEFAULT_BASE_URL;
+use oceanln_common::sign::DEFAULT_BIP32_PATH;
 use std::path::PathBuf;
 
 // No `Debug` derive: `PayoutArgs` holds `--credentials`, and we don't want a
