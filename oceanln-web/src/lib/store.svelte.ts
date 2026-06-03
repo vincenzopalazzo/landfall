@@ -37,7 +37,7 @@ export const app = $state({
 
   // tweaks
   density: "guided" as "guided" | "concise",
-  accent: "orange" as "orange" | "blue",
+  accent: "blue" as "orange" | "blue", // OCEAN blue is the fixed default
 
   // navigation
   surface: "wizard" as Surface,

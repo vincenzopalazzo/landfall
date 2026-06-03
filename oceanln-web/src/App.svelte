@@ -34,20 +34,10 @@
     void app.base;
     refreshHealth();
   });
-
-  const title = $derived(
-    app.surface === "wizard" ? "Lightning Payouts Setup" : app.surface === "profile" ? "My Profile" : "Lightning Payouts",
-  );
 </script>
 
+<!-- Full-frame app surface (no OS window chrome); branding lives in the rail / top nav. -->
 <div class="wz-window">
-  <!-- titlebar -->
-  <div class="wz-titlebar">
-    <div class="wz-lights"><span class="r"></span><span class="y"></span><span class="g"></span></div>
-    <div class="wz-title"><img src="/assets/OCEAN-icon-white.svg" alt="OCEAN" /><span>{title}</span></div>
-    <button class="wz-help" title="Help">?</button>
-  </div>
-
   <div class="wz-body">
     {#if app.surface === "profile" || app.surface === "dashboard"}
       <div style="flex:1;display:flex;flex-direction:column;min-width:0">

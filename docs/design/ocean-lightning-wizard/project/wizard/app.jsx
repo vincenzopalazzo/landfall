@@ -3,7 +3,7 @@ const { useState, useEffect } = React;
 
 const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
   "density": "guided",
-  "accent": "orange",
+  "accent": "blue",
   "phraseLen": 24
 }/*EDITMODE-END*/;
 
@@ -41,7 +41,7 @@ function App() {
 
   // apply accent globally
   useEffect(() => {
-    const a = ACCENTS[t.accent] || ACCENTS.orange;
+    const a = ACCENTS[t.accent] || ACCENTS.blue;
     const r = document.documentElement.style;
     r.setProperty("--wiz-accent", a.c);
     r.setProperty("--wiz-accent-dim", a.dim);
@@ -114,16 +114,6 @@ function App() {
   return (
     <React.Fragment>
       <div className="wz-window">
-        {/* titlebar */}
-        <div className="wz-titlebar">
-          <div className="wz-lights"><span className="r" /><span className="y" /><span className="g" /></div>
-          <div className="wz-title">
-            <img src="assets/OCEAN-icon-white.svg" alt="OCEAN" />
-            <span>{surface === "wizard" ? "Lightning Payouts Setup" : surface === "profile" ? "My Profile" : "Lightning Payouts"}</span>
-          </div>
-          <button className="wz-help" title="Help">?</button>
-        </div>
-
         <div className="wz-body">
           {surface === "profile" || surface === "dashboard" ? (
             <AppShell active={surface} go={go}>
@@ -192,10 +182,6 @@ function App() {
         <TweakRadio label="Explainers" value={t.density} options={["guided", "concise"]} onChange={(v) => setTweak("density", v)} />
         <TweakSection label="Wallet" />
         <TweakRadio label="Phrase length" value={t.phraseLen} options={[24, 12]} onChange={(v) => setTweak("phraseLen", v)} />
-        <TweakSection label="Brand" />
-        <TweakColor label="Accent" value={ACCENTS[t.accent].c}
-          options={[ACCENTS.orange.c, ACCENTS.blue.c]}
-          onChange={(v) => setTweak("accent", v === ACCENTS.blue.c ? "blue" : "orange")} />
       </TweaksPanel>
     </React.Fragment>
   );

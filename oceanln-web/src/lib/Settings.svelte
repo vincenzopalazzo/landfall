@@ -20,11 +20,5 @@
       <button class={app.density === "guided" ? "on" : ""} onclick={() => (app.density = "guided")}>Guided</button>
       <button class={app.density === "concise" ? "on" : ""} onclick={() => (app.density = "concise")}>Concise</button>
     </div>
-
-    <h4>Accent</h4>
-    <div class="tw-row">
-      <button class={app.accent === "orange" ? "on" : ""} onclick={() => (app.accent = "orange")}>Orange</button>
-      <button class={app.accent === "blue" ? "on" : ""} onclick={() => (app.accent = "blue")}>Blue</button>
-    </div>
   </div>
 {/if}
