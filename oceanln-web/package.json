@@ -13,6 +13,8 @@
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^5.0.0",
+    "@testing-library/jest-dom": "^6.6.3",
+    "@testing-library/svelte": "^5.2.4",
     "@tsconfig/svelte": "^5.0.4",
     "jsdom": "^25.0.1",
     "svelte": "^5.19.0",
