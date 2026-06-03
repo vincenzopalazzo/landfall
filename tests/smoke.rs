@@ -243,6 +243,51 @@ fn payout_with_existing_offer_signs_offline() {
 }
 
 #[test]
+fn payout_signs_ocean_json_message() {
+    // OCEAN's config message is a JSON blob embedding the BOLT12 offer. It must
+    // be signed verbatim as an opaque string. Using the embedded offer as
+    // --offer keeps this fully offline (no sidecar). Offer + message from a
+    // real OCEAN-style example.
+    const OCEAN_OFFER: &str = "lno1pg7y7s69g98zq5rp09hh2arnypnx7u3qvf3nzufswdckcwtg095rqer88pervem8d4skkmngdse8gatgv5u8qan6ddm8gervwqepp6qrzjnh2g73mj79mdtqs8kuhsj2hqstxh358fkxw6ghdhns0stc63ts9kgyekcajjz9kgnzhsmmcmsz38c0h2d24hujg29zfnnj74a0a0t8qgpf47elgqaacqpscdz78799k4lt5uv8ve3x5hsg0znwzw3vfsskeqcqxwrxyu7xkttmnqqhnkrj5d22efa40sh2u3vtw2f9k0m4jfup93cv3rpq45hwj84s9c0ds0ta6gguf8adymtqx03wg7rjkgnn0c896lsxh2w4vc7n4xcdvl3xnwtxgqfz5svnw0z2qqkxwla3f0p6gxquq68x22567atpzhxqh8quyj3slgsuc3w4kykjufzp52dwp5x65alhdcgjavfqsmr90pjjuctswqtzzqhaklykhzhm6sn00ek6vwkp24ayh6q7ux83cnrw2znwayfmwszxns";
+    let message = format!(r#"{{"height":944040,"lightning_bolt12":"{OCEAN_OFFER}"}}"#);
+
+    let out = bin()
+        .args([
+            "payout",
+            "--url",
+            REFUSED_URL,
+            "--json",
+            "--offer",
+            OCEAN_OFFER,
+            "--message",
+            &message,
+        ])
+        .write_stdin(TEST_MNEMONIC)
+        .assert()
+        .success();
+
+    let stdout = String::from_utf8(out.get_output().stdout.clone()).expect("utf8 stdout");
+    let v: serde_json::Value =
+        serde_json::from_str(&stdout).expect("payout --json stdout should be valid JSON");
+
+    // The JSON message must be signed verbatim (echoed back unchanged).
+    assert_eq!(
+        v.get("message").and_then(|m| m.as_str()),
+        Some(message.as_str()),
+        "the OCEAN JSON message must round-trip unchanged"
+    );
+    assert_eq!(v.get("offer").and_then(|o| o.as_str()), Some(OCEAN_OFFER));
+    assert!(v
+        .get("signature")
+        .and_then(|s| s.as_str())
+        .is_some_and(|s| !s.is_empty()));
+    assert!(v
+        .get("address")
+        .and_then(|a| a.as_str())
+        .is_some_and(|a| a.starts_with("bc1q")));
+}
+
+#[test]
 fn payout_offer_conflicts_with_description() {
     // --offer and --description are mutually exclusive (one creates, one reuses).
     bin()
