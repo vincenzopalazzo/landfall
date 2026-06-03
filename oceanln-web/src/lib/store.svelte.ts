@@ -1,4 +1,4 @@
-import { OceanlnClient } from "./api";
+import { OceanlnClient, ApiError } from "./api";
 import { DEFAULT_BASE, DEFAULT_TOKEN } from "./config";
 
 export type Surface = "wizard" | "profile" | "dashboard";
@@ -43,6 +43,8 @@ export const app = $state({
   surface: "wizard" as Surface,
   stepIndex: 0,
   mode: "create" as Mode,
+  reuse: false, // using a wallet already configured on the server (no phrase to reveal)
+  walletExists: false, // /generate reported an existing seed (recover, don't dead-end)
 
   // wizard inputs
   importWords: Array(24).fill("") as string[],
@@ -96,11 +98,14 @@ export function canContinue(): boolean {
 }
 
 // ── navigation ──
-const skipConfirm = () => isImport(); // imported phrases skip re-confirmation
+// Imported phrases and reused (already-on-server) wallets skip the create-only
+// reveal/confirm steps.
+const skipConfirm = () => isImport() || app.reuse;
 
 export function chooseMode(m: Mode) {
   app.mode = m;
   app.error = "";
+  app.walletExists = false;
   app.stepIndex = 1;
 }
 export function goNext() {
@@ -157,10 +162,25 @@ export async function generateWallet() {
     app.phrase = r.mnemonic.trim().split(/\s+/);
     app.miningAddress = r.mining_address;
   } catch (e) {
-    app.error = msg(e);
+    // A wallet is already configured on this server — recover instead of
+    // dead-ending (the create flow has no force-overwrite by design).
+    if (e instanceof ApiError && e.status === 409) {
+      app.walletExists = true;
+    } else {
+      app.error = msg(e);
+    }
   } finally {
     app.busy = false;
   }
+}
+
+// Proceed with the wallet already configured on the server: skip the
+// reveal/confirm steps (there's no phrase to show) and go create the offer.
+export function useExistingWallet() {
+  app.walletExists = false;
+  app.reuse = true;
+  app.error = "";
+  app.stepIndex = STEPS.findIndex((s) => s.key === "wallet");
 }
 
 export async function importWallet(): Promise<boolean> {
@@ -258,6 +278,8 @@ export function restart() {
   app.surface = "wizard";
   app.stepIndex = 0;
   app.mode = "create";
+  app.reuse = false;
+  app.walletExists = false;
   app.importWords = Array(24).fill("");
   app.revealed = false;
   app.backedUp = false;

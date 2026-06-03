@@ -2,7 +2,7 @@
   import Icon from "../ui/Icon.svelte";
   import Callout from "../ui/Callout.svelte";
   import Button from "../ui/Button.svelte";
-  import { app, guided, isImport, generateWallet } from "../store.svelte";
+  import { app, guided, isImport, generateWallet, useExistingWallet } from "../store.svelte";
 
   // Create mode: generate the phrase once when this step is first shown.
   $effect(() => {
@@ -65,7 +65,16 @@
       funds.
     </p>
 
-    {#if app.error}
+    {#if app.walletExists}
+      <Callout kind="info" icon="wallet">
+        {#snippet children()}
+          <b>A wallet is already configured on this server.</b> If it's yours, continue to set up
+          your payout offer and signature — your recovery phrase isn't shown again. To use a
+          different wallet, restart the server with another <code>--seed-file</code>.
+        {/snippet}
+      </Callout>
+      <Button icon="arrowR" onclick={useExistingWallet}>{#snippet children()}Use existing wallet{/snippet}</Button>
+    {:else if app.error}
       <Callout kind="danger" icon="warn">
         {#snippet children()}
           Couldn't create your wallet: {app.error}
