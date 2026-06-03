@@ -3,50 +3,31 @@ on:
   push:
   pull_request:
 
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+
 jobs:
-  build-and-test:
+  check:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout oceanln-cli
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
         with:
-          path: oceanln-cli
+          components: rustfmt, clippy
 
-      - name: Checkout lexe-zig-sdk
-        uses: actions/checkout@v4
-        with:
-          repository: vincenzopalazzo/lexe-zig-sdk
-          path: lexe-zig-sdk
-          token: ${{ secrets.REPO_TOKEN }}
+      - uses: Swatinem/rust-cache@v2
 
-      - name: Checkout unified-hwi
-        uses: actions/checkout@v4
-        with:
-          repository: vincenzopalazzo/unified-hwi
-          path: unified-hwi
-          token: ${{ secrets.REPO_TOKEN }}
-          submodules: recursive
+      - name: Format
+        run: cargo fmt --all -- --check
 
-      - name: Checkout bolt12 (zig branch)
-        uses: actions/checkout@v4
-        with:
-          repository: vincenzopalazzo/bolt12
-          ref: claude/modest-jackson
-          path: bolt12
-          token: ${{ secrets.REPO_TOKEN }}
-
-      - name: Install system dependencies
-        run: sudo apt-get update && sudo apt-get install -y libhidapi-dev
-
-      - name: Install Zig
-        uses: mlugg/setup-zig@v2
-        with:
-          version: 0.15.2
-
-      - name: Build
-        working-directory: oceanln-cli
-        run: zig build
+      - name: Clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
 
       - name: Test
-        working-directory: oceanln-cli
-        run: zig build test
+        run: cargo test --all-targets --all-features
+
+      - name: Build release
+        run: cargo build --release

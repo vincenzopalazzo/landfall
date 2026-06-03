@@ -1,146 +1,135 @@
 ---
 name: oceanln
-description: "OCEAN Lightning payout CLI -- configure payouts with BIP-322 signing via hardware wallet, manage Lexe Lightning node (balance, invoices, payments)"
+description: "OCEAN Lightning payout CLI -- generate a BIP39 seed and configure an OCEAN payout end-to-end (derive mining address, create a payable BOLT12 offer on a Lexe node, BIP-322 sign)"
 allowed-tools: "Bash, Read"
-argument-hint: "<command> e.g. 'configure payout', 'sign message', 'check balance', 'create invoice 5000', 'pay lnbc...'"
+argument-hint: "<command> e.g. 'generate seed', 'configure payout'"
 ---
 
 # oceanln -- OCEAN Lightning Payout CLI
 
-You are an assistant that helps users interact with the `oceanln` CLI for managing OCEAN mining pool Lightning payouts and a Lexe Lightning node.
+You are an assistant that helps users configure OCEAN mining pool Lightning payouts with the `oceanln` CLI. The CLI has exactly two commands: `generate` and `payout`.
 
 ## Setup
 
-The project lives at `/Users/vincenzopalazzo/github/work/btc/oceanln-cli`.
-The binary is at `/Users/vincenzopalazzo/github/work/btc/oceanln-cli/zig-out/bin/oceanln`.
+The project lives at `/Users/vincenzopalazzo/github/work/btc/oceanln-cli`. It is a Rust workspace built with `cargo`.
+
+The release binary is at `/Users/vincenzopalazzo/github/work/btc/oceanln-cli/target/release/oceanln`.
 
 If the binary does not exist, build it first:
 
 ```bash
-cd /Users/vincenzopalazzo/github/work/btc/oceanln-cli && PATH="/opt/homebrew/bin:$PATH" zig build
+cd /Users/vincenzopalazzo/github/work/btc/oceanln-cli && cargo build --release
 ```
 
 Set the binary path for convenience:
 
 ```bash
-OCEANLN="/Users/vincenzopalazzo/github/work/btc/oceanln-cli/zig-out/bin/oceanln"
+OCEANLN="/Users/vincenzopalazzo/github/work/btc/oceanln-cli/target/release/oceanln"
 ```
 
 **Global flags:**
 - `--url <sidecar_url>` -- Lexe sidecar URL (default: `http://127.0.0.1:5393`)
 - `--credentials <token>` -- Bearer token for sidecar authentication
-- `--json` -- Output as machine-readable JSON (useful for piping/parsing)
+- `--json` -- Output as machine-readable JSON
 
 ## Commands
 
-### 1. BIP-322 Message Signing (OCEAN payout configuration)
-
-This is the primary use case. The user has an OCEAN mining pool account and wants to configure Lightning payouts. The flow is:
-
-1. User goes to ocean.xyz, navigates to their mining address stats, clicks "Configuration"
-2. User pastes their BOLT12 offer and selects a block height
-3. OCEAN generates a message like: `"Configure OCEAN payout to lno1... at block 840000"`
-4. User copies that message and signs it with this CLI using their hardware wallet
-5. User pastes the base64 signature back into the OCEAN web interface
-
-**Sign a message with a connected Coldcard:**
+### 1. Generate a seed
 
 ```bash
-$OCEANLN --message-to-sign "Configure OCEAN payout to lno1... at block 840000" \
-         --address bc1q... \
-         --path "m/84'/0'/0'/0/0"
+$OCEANLN generate
+$OCEANLN generate --json   # {"mnemonic": "..."} on stdout
 ```
 
-- `--message-to-sign` (required): The exact message from the OCEAN web interface
-- `--address` (required): The P2WPKH (bc1q...) Bitcoin address registered with OCEAN
-- `--path` (optional): BIP32 derivation path, defaults to `m/84'/0'/0'/0/0`
+Generates a fresh 24-word BIP39 mnemonic (256-bit entropy, OS CSPRNG). The same
+seed is used in two places: `oceanln payout` (mining-address derivation + OCEAN
+signing) and the Lexe sidecar's root seed (`LEXE_ROOT_SEED_PATH`). The mnemonic
+prints to stdout; the warning + usage hint print to stderr so piping/`--json`
+stays clean. Shown once, never written to disk — the user must record it.
 
-The CLI will:
-- Connect to the Coldcard via USB
-- Establish an encrypted session
-- Construct a BIP-322 PSBT (to_spend + to_sign virtual transactions)
-- Send the PSBT to the Coldcard for signing (user must approve on device)
-- Extract the witness and output the base64 BIP-322 signature
-
-**Requirements:** A Coldcard must be connected via USB. The `hidapi` system library must be installed. BitBox02 support is planned.
-
-### 2. OCEAN Payout Configuration (without signing)
-
-Display the configuration details and the message to sign externally:
+### 2. Configure an OCEAN payout (`payout`)
 
 ```bash
-$OCEANLN configure --offer lno1qgsq... --address bc1q... --message "Configure OCEAN payout to lno1... at block 840000"
+$OCEANLN payout \
+  --message "Configure OCEAN payout to lno1... at block 840000" \
+  --description "my pool payout" \
+  --min-amount 1000
 ```
 
-If `--offer` is omitted, the CLI attempts to fetch the BOLT12 offer from the connected Lexe node.
+The all-in-one flow. Prompts for the mnemonic on stdin (echo disabled), then:
 
-### 3. Lexe Lightning Node Operations
+1. derives the BIP84 mining address (`m/84'/0'/0'/0/0`) from the seed — this is
+   the address the user registers with OCEAN, provably controlled by the same
+   key that signs;
+2. creates a **payable** BOLT12 offer on the node via `POST /v2/node/create_offer`
+   with the given `--description`/`--min-amount`;
+3. BIP-322 signs the `--message` **verbatim** with the derived key;
+4. prints the mining address, the offer, and the base64 signature (`--json` for
+   a structured object).
 
-**Check node info (balance, channels):**
+Flags:
+- `--message` (required): exact OCEAN message text, signed byte-for-byte. Do not edit it.
+- `--offer` (optional): sign for an EXISTING BOLT12 offer instead of creating one. When set, no sidecar is contacted — `payout` is fully offline (derive address + sign). This is the offer-first OCEAN flow. Mutually exclusive with `--description`/`--min-amount`.
+- `--description` (optional): description baked into the BOLT12 offer the node creates.
+- `--min-amount` (optional): minimum offer amount in satoshis; omit for variable amount.
+- `--path` (optional): BIP32 derivation path, defaults to `m/84'/0'/0'/0/0`.
+
+Two modes: **create** (`--description`/`--min-amount`, needs the sidecar) mints a new offer then signs; **sign-only** (`--offer lno1...`, no sidecar) signs for an offer you already created/registered. Use sign-only for a real OCEAN submission, since OCEAN's message embeds an offer you must register first.
+
+The offer is created **before** signing, so a sidecar failure aborts the flow
+before the mnemonic is used. The sidecar must be a version that serves
+`create_offer`.
+
+### 3. In-process Lexe wallet (`init` / `offer`) — requires `--features lexe-sdk`
+
+Built with `cargo install --path . --features lexe-sdk`, oceanln embeds the `lexe`
+SDK and runs the wallet in-process (no sidecar). Two extra commands appear:
 
 ```bash
-$OCEANLN info
-$OCEANLN --json info
+$OCEANLN init     # prompt seed -> create + provision the onchain Lexe wallet (once)
+$OCEANLN offer --description "OCEAN payout" [--min-amount N]   # create a BOLT12 offer, print it
 ```
 
-**Create a BOLT11 invoice:**
+- `init` is headless (no app/Google Drive) — registers with Lexe's backend and provisions, like `lexe init`. Run it once before `offer`. Idempotent.
+- `offer` mints a payable offer on the provisioned node and prints the `lno1...`. `offer` fails with "user not signed up yet" if `init` hasn't run.
+- Both prompt the 24-word mnemonic on stdin. The sidecar-free OCEAN flow: `generate` -> `init` -> `offer` -> register on OCEAN -> `payout --offer <lno1> --message "..."`.
 
-```bash
-$OCEANLN invoice 5000 "donation"
-```
+The default build (no feature) keeps the thin sidecar client; only `generate` + `payout` exist there.
 
-- First argument: amount in satoshis
-- Second argument (optional): description
+## The OCEAN web flow
 
-**Pay a BOLT11 invoice:**
-
-```bash
-$OCEANLN pay lnbc50n1pn...
-```
-
-**Look up a payment by index:**
-
-```bash
-$OCEANLN payment "0000001772349163844-ln_abc"
-```
-
-**Health check (verify sidecar is running):**
-
-```bash
-$OCEANLN health
-```
+1. User goes to ocean.xyz → mining address → "Configuration".
+2. OCEAN generates a message like `"Configure OCEAN payout to lno1... at block 840000"`.
+3. User copies that message and runs `oceanln payout --message "<that text>" --description "..."`.
+4. User registers the printed **mining address** and **offer** with OCEAN, and
+   pastes the base64 signature into the OCEAN web interface.
 
 ## Typical Agent Workflow
 
-When the user asks to "configure OCEAN Lightning payouts" or "sign my OCEAN message":
-
-1. First check if the binary exists, build if needed
-2. Run `$OCEANLN health` to verify the Lexe sidecar is running (if wallet commands are needed)
-3. Run `$OCEANLN info` to show current node status
-4. Ask the user for the message from the OCEAN web interface
-5. Ask the user for their Bitcoin address (or get it from node info if available)
-6. Run the signing command with `--message-to-sign`
-7. Present the base64 signature for the user to paste into OCEAN
-
-When the user asks about balance or wallet operations:
-
-1. Run `$OCEANLN health` to check connectivity
-2. Run the appropriate command (`info`, `invoice`, `pay`, `payment`)
-3. If `--json` is useful for parsing specific fields, use it
+1. Build the binary with `cargo build --release` if it does not exist.
+2. If the user has no seed yet, run `$OCEANLN generate` and have them record it,
+   and point them at `LEXE_ROOT_SEED_PATH=<file> lexe-sidecar` to run the node
+   on the same seed.
+3. Ask the user for the exact message from the OCEAN web interface and the offer
+   description they want.
+4. Run `$OCEANLN payout --message "..." --description "..."` (add `--min-amount`
+   if they want a minimum).
+5. The CLI prompts for the mnemonic on stdin — tell the user to type/paste it.
+6. Present the address, offer, and signature for the user to register with OCEAN.
 
 ## Error Handling
 
-- **"no Coldcard found"**: Hardware wallet not connected via USB
-- **"signing refused on device"**: User declined on the Coldcard screen
-- **"signing timed out"**: User didn't respond on the device
-- **"only P2WPKH addresses supported"**: Only bc1q... addresses work (not legacy or taproot yet)
-- **Connection errors**: Lexe sidecar not running at the configured URL
-- **"invalid BOLT12 offer"**: The offer string failed full BOLT12 validation (bech32, TLV, field checks)
+- **"invalid mnemonic: expected 24 words, got N"**: only 24-word BIP39 mnemonics are accepted.
+- **"invalid BIP32 path"**: use `m/84'/0'/0'/0/0` style (`'` or `h` for hardened markers).
+- **"API (101): No client credentials configured"**: launch the sidecar with `LEXE_CLIENT_CREDENTIALS=<creds>` / `LEXE_ROOT_SEED_PATH=<path>` or `--client-credentials-path <path>`.
+- **"API (7): Client requested a non-existent endpoint"**: the sidecar version does not serve `create_offer`; upgrade it.
+- **"could not reach sidecar at <url> — is `lexe-sidecar` running?"**: start the sidecar binary in another terminal first.
 
 ## Architecture Notes
 
-- The CLI talks to a **Lexe sidecar** (local HTTP proxy at port 5393) for Lightning operations
-- BIP-322 signing is done via **unified-hwi** which communicates with hardware wallets over USB HID
-- BOLT12 offers are validated using the **bolt12-zig** library (full bech32 + TLV + secp256k1 validation)
-- The signing flow constructs BIP-322 virtual transactions, wraps them as PSBTv0, and sends to the hardware wallet
-- The `HWDevice` interface supports any wallet that implements the vtable (Coldcard now, BitBox02 planned)
+- Single Rust binary, two commands (`generate`, `payout`); no hardware-wallet support.
+- `payout` is a stateless client of a **Lexe sidecar** (separately managed by the user; bind address typically `127.0.0.1:5393`).
+- BIP-322 signing uses the `bip322` crate (rust-bitcoin) in "simple" mode.
+- BIP39 → BIP84 derivation: mnemonic → PBKDF2 seed → `Xpriv` → child key at `m/84'/0'/0'/0/0`; the mining address is the P2WPKH of that key.
+- The BOLT12 offer is created by the node (payable, with blinded paths) — never built locally, which would be unpayable.
+- The mnemonic is wrapped in a zero-on-drop type; prompted via `rpassword` with terminal echo disabled.
