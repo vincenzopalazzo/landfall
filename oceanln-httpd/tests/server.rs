@@ -273,13 +273,14 @@ async fn generate_creates_wallet_and_reveals_phrase_once() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn generate_refuses_to_clobber_existing_seed() {
-    // `spawn` writes a seed file first, so /generate must 409 (no force) and
-    // must NOT reveal a new phrase.
+    // `spawn` writes a seed file first, so /generate must 409. There is no
+    // `force` on /generate (it would destroy the wallet) — sending one must be
+    // ignored, so this still 409s and must NOT reveal a new phrase.
     let base = spawn("generate-conflict", &[]).await;
     let resp = client()
         .post(format!("{base}/generate"))
         .header("Authorization", format!("Bearer {TOKEN}"))
-        .json(&serde_json::json!({}))
+        .json(&serde_json::json!({ "force": true }))
         .send()
         .await
         .unwrap();

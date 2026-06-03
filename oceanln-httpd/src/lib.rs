@@ -31,6 +31,7 @@ use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tower_http::cors::CorsLayer;
+use zeroize::Zeroize;
 
 use oceanln_common::client::{CreateOfferReq, SidecarClient};
 use oceanln_common::error::{Error, Result};
@@ -288,14 +289,6 @@ async fn init(
     }))
 }
 
-#[derive(Deserialize)]
-struct GenerateReq {
-    /// Overwrite an existing seed file. Off by default so a fresh phrase can
-    /// never silently destroy a configured wallet.
-    #[serde(default)]
-    force: bool,
-}
-
 #[derive(Serialize)]
 struct GenerateResp {
     /// The freshly generated 24-word phrase — revealed exactly once so the user
@@ -307,18 +300,20 @@ struct GenerateResp {
 /// Generate a fresh 24-word recovery phrase, persist it to the configured
 /// seed file, derive the mining address, and reveal the phrase once.
 ///
-/// Refuses with 409 if a seed file already exists (unless `force`), so a new
-/// phrase can't clobber an existing wallet — and we never reveal a phrase we
-/// then fail to persist. This deliberately relaxes the "seed never crosses the
-/// wire" rule for the generate step; it stays gated by the loopback bind +
-/// bearer token + Origin allowlist.
+/// Refuses with 409 if a seed file already exists — there is deliberately no
+/// `force`: generating a new phrase over an existing wallet would irreversibly
+/// destroy it, so replacing a wallet must go through `/import` (an explicit,
+/// user-supplied phrase). Checking existence before generating also means a
+/// refusal never strands a revealed phrase. This relaxes the "seed never
+/// crosses the wire" rule for the generate step; it stays gated by the loopback
+/// bind + bearer token + Origin allowlist.
 async fn generate(
     State(state): State<Arc<AppState>>,
-    Json(req): Json<GenerateReq>,
 ) -> std::result::Result<Json<GenerateResp>, ApiError> {
     let dest = state.cfg.seed.path();
-    // Fail before generating so a refusal never strands a revealed phrase.
-    if dest.exists() && !req.force {
+    // Never overwrite an existing wallet from /generate; fail before generating
+    // so a refusal never strands a revealed phrase.
+    if dest.exists() {
         return Err(Error::SeedExists {
             path: dest.display().to_string(),
         }
@@ -328,7 +323,7 @@ async fn generate(
     let secret = sign::generate_mnemonic()?;
     let mnemonic = sign::parse_mnemonic(&secret)?;
     let mining_address = sign::derive_address(&mnemonic, &path)?;
-    sign::store_seed(&secret, Some(dest), req.force)?;
+    sign::store_seed(&secret, Some(dest), false)?;
     eprintln!("oceanln-httpd: generated a new recovery phrase (revealed once via /generate)");
     Ok(Json(GenerateResp {
         mnemonic: secret.as_str().to_string(),
@@ -354,10 +349,13 @@ struct ImportResp {
 /// mining address. The phrase crosses the wire once, by design.
 async fn import(
     State(state): State<Arc<AppState>>,
-    Json(req): Json<ImportReq>,
+    Json(mut req): Json<ImportReq>,
 ) -> std::result::Result<Json<ImportResp>, ApiError> {
     let path = sign::parse_bip32_path(&state.cfg.default_path)?;
     let secret = MnemonicSecret::from_input(&req.mnemonic);
+    // We hold a zeroizing copy now; wipe the request-body phrase. (The transport
+    // buffers upstream are out of our control, but don't keep a second copy.)
+    req.mnemonic.zeroize();
     let mnemonic = sign::parse_mnemonic(&secret)?; // 400 on a non-24-word phrase
     let mining_address = sign::derive_address(&mnemonic, &path)?;
     sign::store_seed(&secret, Some(state.cfg.seed.path()), req.force)?;
