@@ -53,6 +53,14 @@ pub struct PayoutArgs {
     #[arg(long)]
     pub message: String,
 
+    /// Sign for an EXISTING BOLT12 offer instead of creating one. When set,
+    /// no sidecar call is made — payout just derives the address and signs
+    /// (fully offline). This is the offer-first OCEAN flow: create/register
+    /// the offer, get the message from OCEAN, then sign it here.
+    /// Mutually exclusive with --description / --min-amount.
+    #[arg(long, conflicts_with_all = ["description", "min_amount"])]
+    pub offer: Option<String>,
+
     /// Description baked into the BOLT12 offer the node creates.
     #[arg(long)]
     pub description: Option<String>,

@@ -3,7 +3,7 @@
 use clap::Parser;
 use oceanln::cli::{Cli, Command, PayoutArgs};
 use oceanln::client::{CreateOfferReq, SidecarClient};
-use oceanln::error::Result;
+use oceanln::error::{Error, Result};
 use oceanln::sign;
 use serde::Serialize;
 
@@ -19,10 +19,7 @@ async fn main() {
 async fn run(cli: Cli) -> Result<()> {
     match cli.command {
         Command::Generate => cmd_generate(cli.json),
-        Command::Payout(args) => {
-            let client = SidecarClient::new(cli.url, cli.credentials)?;
-            cmd_payout(&client, args, cli.json).await
-        }
+        Command::Payout(args) => cmd_payout(cli.url, cli.credentials, args, cli.json).await,
     }
 }
 
@@ -68,23 +65,42 @@ struct PayoutOutput<'a> {
     signature: String,
 }
 
-/// End-to-end OCEAN payout setup. Order matters: validate the path and create
-/// the offer (the only network call) *before* prompting for the mnemonic, so a
-/// sidecar failure aborts the flow without ever asking the user for — or
+/// End-to-end OCEAN payout setup. Order matters: resolve the offer (the only
+/// network call, and only when creating) *before* prompting for the mnemonic,
+/// so a sidecar failure aborts the flow without ever asking the user for — or
 /// touching — their seed.
-async fn cmd_payout(client: &SidecarClient, args: PayoutArgs, json: bool) -> Result<()> {
+async fn cmd_payout(
+    url: String,
+    credentials: Option<String>,
+    args: PayoutArgs,
+    json: bool,
+) -> Result<()> {
     let path = sign::parse_bip32_path(&args.path)?;
 
-    // 1. A payable BOLT12 offer from the node, with the user's description.
-    //    Done first: if the sidecar is unreachable we fail here, before the
-    //    mnemonic prompt, so the secret is never entered on a doomed run.
-    let offer = client
-        .create_offer(CreateOfferReq {
-            description: args.description.as_deref(),
-            min_amount: args.min_amount.as_deref(),
-        })
-        .await?
-        .offer;
+    // 1. Resolve the offer. With --offer the user signs for an existing offer
+    //    (offer-first OCEAN flow) and no sidecar is contacted at all. Otherwise
+    //    the node creates a fresh payable offer — done before the mnemonic
+    //    prompt so a sidecar failure aborts before the secret is entered.
+    let offer = match args.offer {
+        Some(offer) => {
+            if !offer.starts_with("lno1") {
+                return Err(Error::InvalidOffer(format!(
+                    "expected a BOLT12 offer starting with 'lno1': {offer}"
+                )));
+            }
+            offer
+        }
+        None => {
+            let client = SidecarClient::new(url, credentials)?;
+            client
+                .create_offer(CreateOfferReq {
+                    description: args.description.as_deref(),
+                    min_amount: args.min_amount.as_deref(),
+                })
+                .await?
+                .offer
+        }
+    };
 
     // 2. Now the secret: prompt, validate, and derive the signing key ONCE
     //    (BIP39 PBKDF2 is expensive). The mining address the user registers

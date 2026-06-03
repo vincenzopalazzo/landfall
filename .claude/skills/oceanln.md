@@ -69,9 +69,12 @@ The all-in-one flow. Prompts for the mnemonic on stdin (echo disabled), then:
 
 Flags:
 - `--message` (required): exact OCEAN message text, signed byte-for-byte. Do not edit it.
-- `--description` (optional): description baked into the BOLT12 offer.
+- `--offer` (optional): sign for an EXISTING BOLT12 offer instead of creating one. When set, no sidecar is contacted — `payout` is fully offline (derive address + sign). This is the offer-first OCEAN flow. Mutually exclusive with `--description`/`--min-amount`.
+- `--description` (optional): description baked into the BOLT12 offer the node creates.
 - `--min-amount` (optional): minimum offer amount in satoshis; omit for variable amount.
 - `--path` (optional): BIP32 derivation path, defaults to `m/84'/0'/0'/0/0`.
+
+Two modes: **create** (`--description`/`--min-amount`, needs the sidecar) mints a new offer then signs; **sign-only** (`--offer lno1...`, no sidecar) signs for an offer you already created/registered. Use sign-only for a real OCEAN submission, since OCEAN's message embeds an offer you must register first.
 
 The offer is created **before** signing, so a sidecar failure aborts the flow
 before the mnemonic is used. The sidecar must be a version that serves

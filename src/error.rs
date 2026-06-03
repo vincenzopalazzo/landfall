@@ -11,6 +11,9 @@ pub enum Error {
     #[error("API ({code}): {msg}")]
     Api { code: u16, msg: String },
 
+    #[error("invalid BOLT12 offer: {0}")]
+    InvalidOffer(String),
+
     #[error("invalid mnemonic: {0}")]
     InvalidMnemonic(String),
 

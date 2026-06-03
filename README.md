@@ -63,6 +63,22 @@ the flow aborts without using your mnemonic on a message you couldn't submit.
 `--min-amount` is in satoshis; omit it for a variable-amount offer. `--path`
 overrides the default derivation path.
 
+#### Already have an offer? Sign for it directly (`--offer`)
+
+OCEAN's flow is offer-first: you give it an offer, it generates the message
+embedding that offer, then you sign. Pass `--offer <lno1...>` and `payout`
+**skips offer creation entirely** — no sidecar is contacted, it just derives
+the address and BIP-322 signs the message (fully offline):
+
+```sh
+oceanln payout --offer lno1... --message "<exact OCEAN message>"
+```
+
+So the real OCEAN sequence is: create/register the offer (your node, the Lexe
+app, or a `payout` run without `--offer`), paste it into OCEAN to get the
+message, then sign that message here with `--offer`. `--offer` is mutually
+exclusive with `--description`/`--min-amount`.
+
 ### The Lexe sidecar
 
 `payout` talks to a [Lexe sidecar](https://github.com/lexe-app/lexe-public)
