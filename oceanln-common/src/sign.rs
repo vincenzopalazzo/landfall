@@ -26,6 +26,13 @@ impl MnemonicSecret {
         Self(s)
     }
 
+    /// Build a secret from caller-supplied input (e.g. an imported phrase),
+    /// collapsing every run of whitespace to a single space. The caller is
+    /// responsible for wiping the original buffer if it outlives this call.
+    pub fn from_input(raw: &str) -> Self {
+        Self(normalize_whitespace(raw))
+    }
+
     pub fn as_str(&self) -> &str {
         &self.0
     }
@@ -178,10 +185,9 @@ pub fn store_seed(secret: &MnemonicSecret, dest: Option<&Path>, force: bool) -> 
             return Ok(path); // idempotent: identical contents need no --force
         }
         if !force {
-            return Err(Error::Wallet(format!(
-                "seed file {} already exists with a different seed; pass --force to overwrite",
-                path.display(),
-            )));
+            return Err(Error::SeedExists {
+                path: path.display().to_string(),
+            });
         }
     }
 

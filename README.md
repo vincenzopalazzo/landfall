@@ -206,9 +206,20 @@ Endpoints (all JSON; all but `/health` need the bearer token):
 | method + path | body | returns |
 |---|---|---|
 | `GET /health` | — | `{"status":"ok"}` |
+| `POST /generate` | `{force?}` | `{mnemonic, mining_address}` |
+| `POST /import` | `{mnemonic, force?}` | `{mining_address}` |
 | `POST /payout` | `{message, offer?, description?, min_amount?, path?}` | `{address, offer, message, signature}` |
 | `POST /offer` | `{description?, min_amount?}` | `{offer}` |
 | `POST /init` | `{path?}` | `{mining_address, provisioned}` |
+
+`/generate` and `/import` exist for the onboarding wizard and are the deliberate
+exceptions to "the seed never crosses the wire": `/generate` creates a fresh
+24-word phrase, persists it to the seed file, and **reveals it exactly once** in
+the response so the user can back it up; `/import` accepts an existing phrase.
+Both **refuse with `409` if a seed file already exists** (unless `{"force":true}`),
+so a new phrase can't silently clobber a configured wallet. They stay gated by
+the loopback bind + bearer token + Origin allowlist; everything else (signing,
+wallet ops) keeps the seed server-side.
 
 `/payout` mirrors the CLI: pass `offer` to sign for an existing offer fully
 offline (it must be embedded in `message`), or omit it to have the configured

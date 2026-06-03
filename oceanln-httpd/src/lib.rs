@@ -3,11 +3,13 @@
 //! A thin transport over [`oceanln_common`] so a web app or desktop shell can
 //! drive the same operations the `oceanln` CLI does, over `127.0.0.1` only.
 //!
-//! The BIP39 seed never crosses the HTTP boundary: the server reads it from a
-//! locally configured [`SeedSource`] for each request that needs to sign or
-//! touch the wallet, and never echoes it back. Seed *generation* stays a
-//! human-witnessed CLI operation (`oceanln generate` / `oceanln init
-//! --generate`) and is deliberately not exposed here.
+//! For the signing/wallet endpoints the BIP39 seed never crosses the HTTP
+//! boundary: the server reads it from a locally configured [`SeedSource`] per
+//! request and never echoes it back. The `/generate` and `/import` endpoints
+//! are the deliberate exceptions — they create/accept the phrase for the
+//! onboarding wizard and persist it to the seed file. `/generate` reveals the
+//! new phrase exactly once and refuses to clobber an existing wallet; both stay
+//! gated by the loopback bind + bearer token + Origin allowlist.
 //!
 //! Because a browser is an intended client, the server defends the loopback
 //! port: it binds loopback only, requires a bearer token on every endpoint
@@ -33,7 +35,7 @@ use tower_http::cors::CorsLayer;
 use oceanln_common::client::{CreateOfferReq, SidecarClient};
 use oceanln_common::error::{Error, Result};
 use oceanln_common::seed::SeedSource;
-use oceanln_common::sign;
+use oceanln_common::sign::{self, MnemonicSecret};
 
 // ── wallet seam ─────────────────────────────────────────────────
 
@@ -126,6 +128,7 @@ impl IntoResponse for ApiError {
             | Error::InvalidMnemonic(_)
             | Error::AddressNotP2wpkh(_)
             | Error::InvalidBip32Path(_) => StatusCode::BAD_REQUEST,
+            Error::SeedExists { .. } => StatusCode::CONFLICT,
             Error::SidecarUnreachable { .. } => StatusCode::BAD_GATEWAY,
             Error::Api { code, .. } => {
                 StatusCode::from_u16(*code).unwrap_or(StatusCode::BAD_GATEWAY)
@@ -268,8 +271,8 @@ struct InitResp {
 }
 
 /// Provision the onchain wallet for the configured seed and return the mining
-/// address to register with OCEAN. Idempotent. Does not generate a new seed —
-/// that stays a CLI-only, human-witnessed operation.
+/// address to register with OCEAN. Idempotent. Operates on the already-stored
+/// seed — use `/generate` or `/import` first to create one.
 async fn init(
     State(state): State<Arc<AppState>>,
     Json(req): Json<InitReq>,
@@ -283,6 +286,82 @@ async fn init(
         mining_address,
         provisioned: true,
     }))
+}
+
+#[derive(Deserialize)]
+struct GenerateReq {
+    /// Overwrite an existing seed file. Off by default so a fresh phrase can
+    /// never silently destroy a configured wallet.
+    #[serde(default)]
+    force: bool,
+}
+
+#[derive(Serialize)]
+struct GenerateResp {
+    /// The freshly generated 24-word phrase — revealed exactly once so the user
+    /// can back it up. (Persisted server-side; not re-readable afterwards.)
+    mnemonic: String,
+    mining_address: String,
+}
+
+/// Generate a fresh 24-word recovery phrase, persist it to the configured
+/// seed file, derive the mining address, and reveal the phrase once.
+///
+/// Refuses with 409 if a seed file already exists (unless `force`), so a new
+/// phrase can't clobber an existing wallet — and we never reveal a phrase we
+/// then fail to persist. This deliberately relaxes the "seed never crosses the
+/// wire" rule for the generate step; it stays gated by the loopback bind +
+/// bearer token + Origin allowlist.
+async fn generate(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<GenerateReq>,
+) -> std::result::Result<Json<GenerateResp>, ApiError> {
+    let dest = state.cfg.seed.path();
+    // Fail before generating so a refusal never strands a revealed phrase.
+    if dest.exists() && !req.force {
+        return Err(Error::SeedExists {
+            path: dest.display().to_string(),
+        }
+        .into());
+    }
+    let path = sign::parse_bip32_path(&state.cfg.default_path)?;
+    let secret = sign::generate_mnemonic()?;
+    let mnemonic = sign::parse_mnemonic(&secret)?;
+    let mining_address = sign::derive_address(&mnemonic, &path)?;
+    sign::store_seed(&secret, Some(dest), req.force)?;
+    eprintln!("oceanln-httpd: generated a new recovery phrase (revealed once via /generate)");
+    Ok(Json(GenerateResp {
+        mnemonic: secret.as_str().to_string(),
+        mining_address,
+    }))
+}
+
+#[derive(Deserialize)]
+struct ImportReq {
+    /// The 24-word recovery phrase to import.
+    mnemonic: String,
+    #[serde(default)]
+    force: bool,
+}
+
+#[derive(Serialize)]
+struct ImportResp {
+    mining_address: String,
+}
+
+/// Import an existing 24-word phrase: validate it, persist it to the configured
+/// seed file (409 if one already exists unless `force`), and return the derived
+/// mining address. The phrase crosses the wire once, by design.
+async fn import(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<ImportReq>,
+) -> std::result::Result<Json<ImportResp>, ApiError> {
+    let path = sign::parse_bip32_path(&state.cfg.default_path)?;
+    let secret = MnemonicSecret::from_input(&req.mnemonic);
+    let mnemonic = sign::parse_mnemonic(&secret)?; // 400 on a non-24-word phrase
+    let mining_address = sign::derive_address(&mnemonic, &path)?;
+    sign::store_seed(&secret, Some(state.cfg.seed.path()), req.force)?;
+    Ok(Json(ImportResp { mining_address }))
 }
 
 // ── guard middleware ────────────────────────────────────────────
@@ -373,11 +452,14 @@ fn cors_layer(allowed_origins: &[String]) -> CorsLayer {
         .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE])
 }
 
-/// Build the router for `state`: `/health` is open; `/payout`, `/offer`, and
-/// `/init` sit behind the [`guard`] (token + origin + host) and the CORS layer.
+/// Build the router for `state`: `/health` is open; `/generate`, `/import`,
+/// `/payout`, `/offer`, and `/init` sit behind the [`guard`] (token + origin +
+/// host) and the CORS layer.
 pub fn build_app(state: Arc<AppState>) -> Router {
     let cors = cors_layer(&state.cfg.allowed_origins);
     let protected = Router::new()
+        .route("/generate", post(generate))
+        .route("/import", post(import))
         .route("/payout", post(payout))
         .route("/offer", post(offer))
         .route("/init", post(init))

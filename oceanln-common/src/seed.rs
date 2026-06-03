@@ -6,7 +6,7 @@
 //! sign or touch the wallet. The 24 words go from this source straight into a
 //! [`MnemonicSecret`] (zeroed on drop) and are never echoed back to the caller.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::error::Result;
 use crate::sign::{parse_mnemonic, resolve_seed, MnemonicSecret};
@@ -24,6 +24,15 @@ pub enum SeedSource {
 }
 
 impl SeedSource {
+    /// The on-disk path this source reads/writes. Used by the server to write a
+    /// freshly generated/imported seed to the *configured* `--seed-file` rather
+    /// than the default config location.
+    pub fn path(&self) -> &Path {
+        match self {
+            SeedSource::File(p) => p,
+        }
+    }
+
     /// Resolve the mnemonic, validating it is a well-formed 24-word BIP39
     /// phrase. Reading is delegated to [`resolve_seed`] so the server inherits
     /// the same `0600` owner-only permission check the CLI enforces (rejecting

@@ -23,6 +23,9 @@ pub enum Error {
     #[error("invalid BIP32 path '{0}'")]
     InvalidBip32Path(String),
 
+    #[error("seed file {path} already exists with a different seed; pass force to overwrite")]
+    SeedExists { path: String },
+
     #[error("BIP-322 signing failed: {0}")]
     SigningFailed(String),
 
