@@ -8,10 +8,8 @@
 
 use std::path::PathBuf;
 
-use zeroize::Zeroize;
-
-use crate::error::{Error, Result};
-use crate::sign::{parse_mnemonic, MnemonicSecret};
+use crate::error::Result;
+use crate::sign::{parse_mnemonic, resolve_seed, MnemonicSecret};
 
 /// A local source the server reads the mnemonic from.
 ///
@@ -27,18 +25,15 @@ pub enum SeedSource {
 
 impl SeedSource {
     /// Resolve the mnemonic, validating it is a well-formed 24-word BIP39
-    /// phrase. The on-disk bytes are read into a buffer that is wiped before
-    /// returning, so only the zeroizing [`MnemonicSecret`] survives.
+    /// phrase. Reading is delegated to [`resolve_seed`] so the server inherits
+    /// the same `0600` owner-only permission check the CLI enforces (rejecting
+    /// a group/world-readable seed file) and we keep a single seed-file reader.
     pub fn load(&self) -> Result<MnemonicSecret> {
         match self {
             SeedSource::File(path) => {
-                let mut raw = std::fs::read_to_string(path).map_err(|e| {
-                    Error::Wallet(format!("reading seed file {}: {e}", path.display()))
-                })?;
-                let secret = MnemonicSecret::from_input(&raw);
-                raw.zeroize();
-                // Validate before handing the secret to a signer so a malformed
-                // seed file fails loudly here rather than deep in derivation.
+                let secret = resolve_seed(Some(path))?;
+                // Enforce the 24-word count before handing the secret to a
+                // signer, so a malformed seed file fails loudly here.
                 parse_mnemonic(&secret)?;
                 Ok(secret)
             }

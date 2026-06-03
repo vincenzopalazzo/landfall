@@ -273,18 +273,44 @@ fn deny(status: StatusCode, msg: &str) -> Response {
     (status, Json(json!({ "error": msg }))).into_response()
 }
 
+/// Constant-time byte-slice equality, so the bearer-token comparison does not
+/// leak how many leading bytes matched via early-exit timing. The length is not
+/// secret (the token length is fixed), so an early length mismatch is fine.
+fn ct_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for (x, y) in a.iter().zip(b.iter()) {
+        diff |= x ^ y;
+    }
+    diff == 0
+}
+
 /// True if `host` (a `Host` header value, possibly `host:port`) names the
 /// local machine. Anything else is rejected to blunt DNS-rebinding attacks
 /// that resolve an attacker-controlled name to `127.0.0.1`.
 fn host_is_loopback(host: &str) -> bool {
     // Strip an optional port. `[::1]:7762` and `127.0.0.1:7762` both supported.
     let hostname = if let Some(rest) = host.strip_prefix('[') {
-        // IPv6 literal: take up to the closing bracket.
+        // Bracketed IPv6 literal: take up to the closing bracket.
         rest.split(']').next().unwrap_or(rest)
+    } else if host.matches(':').count() > 1 {
+        // Bare IPv6 (e.g. `::1`) — multiple colons, no brackets, no port.
+        host
     } else {
         host.split(':').next().unwrap_or(host)
     };
-    matches!(hostname, "localhost" | "127.0.0.1" | "::1") || hostname.starts_with("127.")
+    // `localhost` is not an IP literal; everything else must parse to a
+    // loopback IP. A prefix test like `starts_with("127.")` would wrongly
+    // accept names such as `127.evil.com` that resolve off-loopback.
+    if hostname == "localhost" {
+        return true;
+    }
+    hostname
+        .parse::<std::net::IpAddr>()
+        .map(|ip| ip.is_loopback())
+        .unwrap_or(false)
 }
 
 /// Auth + origin + host guard applied to every route except `/health`.
@@ -307,7 +333,7 @@ async fn guard(State(state): State<Arc<AppState>>, req: Request, next: Next) -> 
     let authorized = headers
         .get(header::AUTHORIZATION)
         .and_then(|v| v.to_str().ok())
-        .map(|v| v == expected)
+        .map(|v| ct_eq(v.as_bytes(), expected.as_bytes()))
         .unwrap_or(false);
     if !authorized {
         return deny(StatusCode::UNAUTHORIZED, "missing or invalid bearer token");
@@ -416,6 +442,14 @@ cream dune";
     fn state_with(seed_name: &str, allowed: &[&str]) -> Arc<AppState> {
         let path = std::env::temp_dir().join(format!("oceanln-httpd_{seed_name}.seed"));
         std::fs::write(&path, TEST_MNEMONIC).expect("write seed file");
+        // `SeedSource::load` rejects group/world-readable seed files, so the
+        // test fixture must be 0600 like a real one.
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))
+                .expect("chmod 600 seed file");
+        }
         Arc::new(AppState {
             seed: SeedSource::File(path),
             token: TOKEN.to_string(),
@@ -536,5 +570,41 @@ cream dune";
             .await
             .unwrap();
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[test]
+    fn host_is_loopback_accepts_loopback_only() {
+        // Loopback names/IPs, with and without a port.
+        for ok in [
+            "localhost",
+            "localhost:7762",
+            "127.0.0.1",
+            "127.0.0.1:7762",
+            "127.0.0.2", // all of 127.0.0.0/8 is loopback
+            "::1",
+            "[::1]:7762",
+        ] {
+            assert!(host_is_loopback(ok), "{ok} should be loopback");
+        }
+        // The bug this test guards: a name that merely *starts with* "127."
+        // must not pass, nor any routable host.
+        for bad in [
+            "127.evil.com",
+            "127.0.0.1.evil.com",
+            "evil.com",
+            "10.0.0.1",
+            "0.0.0.0",
+            "192.168.1.1",
+        ] {
+            assert!(!host_is_loopback(bad), "{bad} must not be loopback");
+        }
+    }
+
+    #[test]
+    fn ct_eq_matches_only_identical_slices() {
+        assert!(ct_eq(b"Bearer abc", b"Bearer abc"));
+        assert!(!ct_eq(b"Bearer abc", b"Bearer abd"));
+        assert!(!ct_eq(b"short", b"longer value"));
+        assert!(ct_eq(b"", b""));
     }
 }
