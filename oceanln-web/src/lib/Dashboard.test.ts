@@ -38,6 +38,24 @@ describe("Dashboard (live OCEAN data)", () => {
     expect(screen.getByText("2.00")).toBeInTheDocument(); // Th/s
   });
 
+  it("flags a payout-history failure instead of silently showing 'no payouts'", async () => {
+    // statsnap succeeds but earnpay genuinely fails: the payouts table must say
+    // it couldn't load, not imply an accurate empty history.
+    globalThis.fetch = vi.fn(async (url: string | URL | Request) => {
+      const u = String(url);
+      if (u.includes("/statsnap/"))
+        return res({ result: { snap_ts: "1700000000", hashrate_60s: "0", hashrate_300s: "2000000000000", shares_in_tides: "0", estimated_payout_next_block: "0.0002", unpaid: "0.001", lastest_share_ts: "1700000000" } });
+      if (u.includes("/earnpay/")) return res({ error: "internal server error" });
+      if (u.includes("/pool_stat")) return res({ result: { active_users: "1" } });
+      return new Response("not found", { status: 404 });
+    }) as typeof fetch;
+    render(Dashboard);
+    expect(await screen.findByText(/Couldn't load payout history/i)).toBeInTheDocument();
+    expect(screen.queryByText(/No payouts yet/i)).toBeNull();
+    // stats still rendered (statsnap was fine)
+    expect(screen.getByText("100,000")).toBeInTheDocument();
+  });
+
   it("shows an empty state for an address with no OCEAN history", async () => {
     globalThis.fetch = vi.fn(async (url: string | URL | Request) => {
       const u = String(url);

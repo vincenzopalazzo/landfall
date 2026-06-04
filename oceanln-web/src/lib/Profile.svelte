@@ -44,7 +44,12 @@
       <h1 class="pf-name">My OCEAN wallet</h1>
       <p class="pf-id">
         {app.miningAddress.slice(0, 14)}…{app.miningAddress.slice(-6)}
-        <span class="db-chip ok"><span class="db-dot"></span>Verified</span>
+        <!-- We can't claim "Verified": OCEAN confirms the signature on its side,
+             and there's no API here to read that back. Reflect only what we know
+             locally — whether the user has submitted their details to OCEAN. -->
+        {#if app.submitted}
+          <span class="db-chip muted"><span class="db-dot"></span>Submitted to OCEAN</span>
+        {/if}
       </p>
     </div>
   </div>

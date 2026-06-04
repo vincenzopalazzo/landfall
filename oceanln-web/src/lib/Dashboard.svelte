@@ -17,6 +17,7 @@
   // ── OCEAN payout data, keyed by the user's payout address(es) ──
   let loading = $state(true);
   let netError = $state("");
+  let payoutsError = $state(false); // earnpay failed (independently of statsnap)
   let unpaidSats = $state(0);
   let totalPaidSats = $state(0);
   let estNextSats = $state(0);
@@ -48,6 +49,7 @@
     const myId = ++reqId;
     loading = true;
     netError = "";
+    payoutsError = false;
     try {
       const [snaps, eps] = await Promise.all([
         Promise.allSettled(addrs.map((a) => ocean.statsnap(a))),
@@ -57,22 +59,25 @@
 
       let unpaid = 0,
         hr = 0,
-        est = 0,
-        netFail = false;
+        est = 0;
+      // Track stats and payout failures separately: earnpay can fail while
+      // statsnap succeeds (and vice versa), and each drives a different state.
+      let statFail = false,
+        payoutFail = false;
       for (const s of snaps) {
         if (s.status === "fulfilled") {
           unpaid += btcToSats(s.value.unpaid);
           hr += hashesToThs(s.value.hashrate_300s);
           est += btcToSats(s.value.estimated_payout_next_block);
         } else if (!isNoSuchUser(s.reason)) {
-          netFail = true;
+          statFail = true;
         }
       }
 
       const all: Payout[] = [];
       for (const e of eps) {
         if (e.status === "fulfilled") all.push(...(e.value.payouts ?? []));
-        else if (!isNoSuchUser(e.reason)) netFail = true;
+        else if (!isNoSuchUser(e.reason)) payoutFail = true;
       }
       all.sort((a, b) => num(b.ts) - num(a.ts));
 
@@ -85,10 +90,13 @@
 
       // Only a genuine network/server failure is an error; "no such user yet"
       // (a brand-new address with no OCEAN history) renders as an empty state.
-      if (netFail && snaps.every((s) => s.status === "rejected")) {
+      if (statFail && snaps.every((s) => s.status === "rejected")) {
         const r = snaps.find((s) => s.status === "rejected") as PromiseRejectedResult | undefined;
         netError = r?.reason instanceof Error ? r.reason.message : "couldn't reach OCEAN";
       }
+      // earnpay can fail independently — surface it so an empty/partial payouts
+      // table isn't silently mistaken for an accurate "no payouts yet".
+      payoutsError = payoutFail;
       try {
         const ps = await ocean.poolStat();
         if (myId === reqId) pool = ps;
@@ -160,6 +168,11 @@
       <h3><Icon name="bolt" size={15} /> Recent payouts</h3>
       <span class="meta">past 30 days · OCEAN TIDES</span>
     </div>
+    {#if payoutsError}
+      <div class="db-panel-b" style="color:#FFB300;font-size:12.5px;display:flex;gap:7px;align-items:center">
+        <Icon name="warn" size={14} /> Couldn't load payout history from OCEAN — this list may be incomplete. Try Refresh.
+      </div>
+    {/if}
     {#if payouts.length}
       <table class="db-table">
         <thead><tr><th>Time (UTC)</th><th>Transaction</th><th class="r">Amount</th></tr></thead>
@@ -178,7 +191,7 @@
           {/each}
         </tbody>
       </table>
-    {:else if !loading}
+    {:else if !loading && !payoutsError}
       <div class="db-panel-b" style="color:#71717a;font-size:13px">
         No payouts yet. Once OCEAN pays your address, transactions appear here.
       </div>
