@@ -45,6 +45,18 @@
       Add a short description so you (and OCEAN) can recognize this payout destination. It's
       saved inside your <strong>BOLT12 offer</strong> and shown on every payment.
     </p>
+    {#if app.miningAddress}
+      <CopyField label="Your payout address" chip="bc1q" value={app.miningAddress}>
+        {#snippet tip()}
+          <Tooltip enabled={guided()}>
+            {#snippet children()}
+              Derived from your recovery phrase — this is the address OCEAN pays out to. The offer
+              you're about to create is for this wallet, so you can reference it in the description.
+            {/snippet}
+          </Tooltip>
+        {/snippet}
+      </CopyField>
+    {/if}
     <div class="wz-field">
       <label>
         Offer description
