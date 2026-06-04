@@ -72,11 +72,20 @@ async fn main() {
     }
 
     let seed = SeedSource::File(cli.seed_file.clone());
-    // Fail fast: validate the seed file is present and well-formed before we
-    // start accepting requests, rather than 500-ing on the first call.
-    if let Err(e) = seed.load() {
-        eprintln!("error: {e}");
-        std::process::exit(1);
+    // If a seed file is already present, validate it now (fail fast on a
+    // malformed or insecure-permission file rather than 500-ing on first use).
+    // If it is absent, that's fine — the wizard's `/generate` or `/import`
+    // creates it; only the seed-touching endpoints error until then.
+    if cli.seed_file.exists() {
+        if let Err(e) = seed.load() {
+            eprintln!("error: {e}");
+            std::process::exit(1);
+        }
+    } else {
+        eprintln!(
+            "note: seed file {} does not exist yet — POST /generate or /import to create a wallet.",
+            cli.seed_file.display()
+        );
     }
 
     // A generated token must be revealed once so the operator can use it; an

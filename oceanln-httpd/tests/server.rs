@@ -40,9 +40,14 @@ impl WalletProvider for MockWallet {
     }
 }
 
+/// A uniquely-named temp seed-file path for a test.
+fn seed_path(name: &str) -> std::path::PathBuf {
+    std::env::temp_dir().join(format!("oceanln-httpd-it-{name}.seed"))
+}
+
 /// Write the test seed to a uniquely-named 0600 temp file.
 fn write_seed(name: &str) -> std::path::PathBuf {
-    let path = std::env::temp_dir().join(format!("oceanln-httpd-it-{name}.seed"));
+    let path = seed_path(name);
     std::fs::write(&path, TEST_MNEMONIC).expect("write seed file");
     #[cfg(unix)]
     {
@@ -52,11 +57,11 @@ fn write_seed(name: &str) -> std::path::PathBuf {
     path
 }
 
-/// Spawn the server on an ephemeral loopback port; returns its base URL.
-async fn spawn(name: &str, allowed_origins: &[&str]) -> String {
+/// Spawn the server for a given seed source on an ephemeral loopback port.
+async fn spawn_with(seed: SeedSource, allowed_origins: &[&str]) -> String {
     let state = Arc::new(AppState::new(
         ServerConfig {
-            seed: SeedSource::File(write_seed(name)),
+            seed,
             token: TOKEN.to_string(),
             allowed_origins: allowed_origins.iter().map(|s| s.to_string()).collect(),
             sidecar_url: oceanln_common::client::DEFAULT_BASE_URL.to_string(),
@@ -74,6 +79,20 @@ async fn spawn(name: &str, allowed_origins: &[&str]) -> String {
         let _ = axum::serve(listener, app).await;
     });
     format!("http://{addr}")
+}
+
+/// Spawn with a pre-existing 0600 seed file.
+async fn spawn(name: &str, allowed_origins: &[&str]) -> String {
+    spawn_with(SeedSource::File(write_seed(name)), allowed_origins).await
+}
+
+/// Spawn with a seed-file path that does NOT yet exist — for `/generate` and
+/// `/import`, which create it. Returns the base URL and the seed path.
+async fn spawn_no_seed(name: &str, allowed_origins: &[&str]) -> (String, std::path::PathBuf) {
+    let path = seed_path(name);
+    let _ = std::fs::remove_file(&path); // ensure a clean slate across re-runs
+    let url = spawn_with(SeedSource::File(path.clone()), allowed_origins).await;
+    (url, path)
 }
 
 fn client() -> reqwest::Client {
@@ -225,4 +244,129 @@ async fn init_endpoint_provisions_and_returns_address() {
         v["mining_address"],
         "bc1qpstw48j7j9gjugw25jmjvd96jlwgdnedk5pr6r"
     );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn generate_creates_wallet_and_reveals_phrase_once() {
+    let (base, seed_path) = spawn_no_seed("generate", &[]).await;
+    assert!(!seed_path.exists(), "precondition: no seed file");
+    let resp = client()
+        .post(format!("{base}/generate"))
+        .header("Authorization", format!("Bearer {TOKEN}"))
+        .json(&serde_json::json!({}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let v: serde_json::Value = resp.json().await.unwrap();
+    assert_eq!(
+        v["mnemonic"].as_str().unwrap().split_whitespace().count(),
+        24,
+        "a fresh 24-word phrase is revealed once"
+    );
+    assert!(v["mining_address"].as_str().unwrap().starts_with("bc1q"));
+    assert!(
+        seed_path.exists(),
+        "the phrase was persisted to the seed file"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn generate_refuses_to_clobber_existing_seed() {
+    // `spawn` writes a seed file first, so /generate must 409. There is no
+    // `force` on /generate (it would destroy the wallet) — sending one must be
+    // ignored, so this still 409s and must NOT reveal a new phrase.
+    let base = spawn("generate-conflict", &[]).await;
+    let resp = client()
+        .post(format!("{base}/generate"))
+        .header("Authorization", format!("Bearer {TOKEN}"))
+        .json(&serde_json::json!({ "force": true }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 409);
+    let v: serde_json::Value = resp.json().await.unwrap();
+    assert!(
+        v.get("mnemonic").is_none(),
+        "must not reveal a phrase on conflict"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn import_valid_phrase_returns_address() {
+    let (base, seed_path) = spawn_no_seed("import", &[]).await;
+    let resp = client()
+        .post(format!("{base}/import"))
+        .header("Authorization", format!("Bearer {TOKEN}"))
+        .json(&serde_json::json!({ "mnemonic": TEST_MNEMONIC }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let v: serde_json::Value = resp.json().await.unwrap();
+    assert_eq!(
+        v["mining_address"],
+        "bc1qpstw48j7j9gjugw25jmjvd96jlwgdnedk5pr6r"
+    );
+    assert!(seed_path.exists());
+    // The imported phrase is not echoed back.
+    assert!(v.get("mnemonic").is_none());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn import_invalid_phrase_is_bad_request() {
+    let (base, _) = spawn_no_seed("import-bad", &[]).await;
+    let resp = client()
+        .post(format!("{base}/import"))
+        .header("Authorization", format!("Bearer {TOKEN}"))
+        .json(&serde_json::json!({ "mnemonic": "abandon abandon abandon" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 400);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn payout_with_wrong_token_is_unauthorized() {
+    // A present-but-wrong bearer token must be rejected (the constant-time
+    // compare returns false), not just a missing one.
+    let base = spawn("badtoken", &[]).await;
+    let resp = client()
+        .post(format!("{base}/payout"))
+        .header("Authorization", "Bearer not-the-real-token")
+        .json(&serde_json::json!({ "message": "x" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 401);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn payout_with_nonloopback_host_is_forbidden() {
+    // DNS-rebinding defense end-to-end: a request whose Host header names a
+    // non-loopback host is rejected by the guard even with a valid token,
+    // before the handler runs. (The unit test covers `host_is_loopback`; this
+    // exercises the guard wiring on a real socket.)
+    let base = spawn("badhost", &[]).await;
+    let resp = client()
+        .post(format!("{base}/payout"))
+        .header("Authorization", format!("Bearer {TOKEN}"))
+        .header("Host", "evil.example")
+        .json(&serde_json::json!({ "message": "x" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 403);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn generate_requires_token() {
+    let (base, _) = spawn_no_seed("generate-noauth", &[]).await;
+    let resp = client()
+        .post(format!("{base}/generate"))
+        .json(&serde_json::json!({}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 401);
 }

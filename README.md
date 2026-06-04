@@ -206,9 +206,22 @@ Endpoints (all JSON; all but `/health` need the bearer token):
 | method + path | body | returns |
 |---|---|---|
 | `GET /health` | — | `{"status":"ok"}` |
+| `POST /generate` | — | `{mnemonic, mining_address}` |
+| `POST /import` | `{mnemonic, force?}` | `{mining_address}` |
 | `POST /payout` | `{message, offer?, description?, min_amount?, path?}` | `{address, offer, message, signature}` |
 | `POST /offer` | `{description?, min_amount?}` | `{offer}` |
 | `POST /init` | `{path?}` | `{mining_address, provisioned}` |
+
+`/generate` and `/import` exist for the onboarding wizard and are the deliberate
+exceptions to "the seed never crosses the wire": `/generate` creates a fresh
+24-word phrase, persists it to the seed file, and **reveals it exactly once** in
+the response so the user can back it up; `/import` accepts an existing phrase.
+Both **refuse with `409` if a seed file already exists**. `/generate` has no
+`force` — generating over an existing wallet would irreversibly destroy it, so
+replacing a wallet must go through `/import` (`{"force":true}`), a deliberate
+user-supplied action. They stay gated by the loopback bind + bearer token +
+Origin allowlist; everything else (signing, wallet ops) keeps the seed
+server-side.
 
 `/payout` mirrors the CLI: pass `offer` to sign for an existing offer fully
 offline (it must be embedded in `message`), or omit it to have the configured
@@ -219,6 +232,40 @@ curl -s http://127.0.0.1:7762/payout \
   -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
   -d '{"message":"<exact OCEAN message embedding the offer>","offer":"lno1..."}'
 ```
+
+## Web wizard (`oceanln-web`)
+
+`oceanln-web/` is the Svelte onboarding wizard that drives `oceanln-httpd` from a
+browser: create/import a recovery phrase → back up → confirm → create wallet
+(description → BOLT12 offer) → BIP-322 sign → copy the three artifacts. It also
+has a profile (1→n payout addresses linked to offers, reveal phrase) and a
+**live payout dashboard** that reads the public OCEAN API
+(`https://api.ocean.xyz/v1`, browser-direct via CORS) keyed by the user's payout
+address(es) — real hashrate, unpaid balance, and the on-chain payouts table (see
+`src/lib/ocean.ts`). The **MCP** panel describes a **local** stdio server
+(`oceanln mcp serve`, not yet built) — nothing hosted or exposed. It's a static
+SPA, structured so a later Tauri shell can bundle it unchanged.
+
+Run both with the dev script:
+
+```sh
+scripts/dev.sh          # builds + runs oceanln-httpd, then `npm run dev` in oceanln-web
+# open http://localhost:5173
+```
+
+Or manually:
+
+```sh
+oceanln-httpd --seed-file ./seed --token <tok> --allow-origin http://localhost:5173 &
+cd oceanln-web && npm install
+VITE_OCEANLN_BASE=http://127.0.0.1:7762 VITE_OCEANLN_TOKEN=<tok> npm run dev
+```
+
+The wizard reaches the server cross-origin, so the server's `--allow-origin`
+must include the Vite origin (`http://localhost:5173`); the bearer token is
+injected via `VITE_OCEANLN_TOKEN` (or pasted into the in-app settings panel).
+The phrase-generation and signing steps work offline; the wallet/offer steps
+need `oceanln-httpd` to reach a Lexe node. `npm run build` emits static assets.
 
 ### The Lexe sidecar
 

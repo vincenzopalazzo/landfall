@@ -35,5 +35,10 @@ jobs:
       - name: Test
         run: cargo test --all-targets --all-features
 
+      # Run the thin-build test suite too, not just clippy — the sidecar-client
+      # path (no in-process Lexe SDK) must keep passing its own tests.
+      - name: Test (thin build, no Lexe SDK)
+        run: cargo test --no-default-features -p oceanln-common -p oceanln-cli
+
       - name: Build release
         run: cargo build --release --workspace

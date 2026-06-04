@@ -26,6 +26,13 @@ impl MnemonicSecret {
         Self(s)
     }
 
+    /// Build a secret from caller-supplied input (e.g. an imported phrase),
+    /// collapsing every run of whitespace to a single space. The caller is
+    /// responsible for wiping the original buffer if it outlives this call.
+    pub fn from_input(raw: &str) -> Self {
+        Self(normalize_whitespace(raw))
+    }
+
     pub fn as_str(&self) -> &str {
         &self.0
     }
@@ -157,7 +164,8 @@ pub fn store_seed(secret: &MnemonicSecret, dest: Option<&Path>, force: bool) -> 
         })?,
     };
 
-    if path.exists() {
+    let existed = path.exists();
+    if existed {
         let existing = Zeroizing::new(std::fs::read_to_string(&path).map_err(|e| {
             Error::Wallet(format!(
                 "cannot read existing seed file {}: {e}",
@@ -178,10 +186,9 @@ pub fn store_seed(secret: &MnemonicSecret, dest: Option<&Path>, force: bool) -> 
             return Ok(path); // idempotent: identical contents need no --force
         }
         if !force {
-            return Err(Error::Wallet(format!(
-                "seed file {} already exists with a different seed; pass --force to overwrite",
-                path.display(),
-            )));
+            return Err(Error::SeedExists {
+                path: path.display().to_string(),
+            });
         }
     }
 
@@ -197,24 +204,50 @@ pub fn store_seed(secret: &MnemonicSecret, dest: Option<&Path>, force: bool) -> 
         }
     }
 
-    write_secret_file(&path, secret.as_str())?;
+    // Fresh create → exclusive (atomic `O_EXCL`): if another writer created the
+    // seed file after our `exists()` check above (two `/generate` or `/import`
+    // requests racing on a new wallet), the open fails with `SeedExists` rather
+    // than clobbering it, so two clients can never persist diverging seeds and
+    // back up a phrase that doesn't match disk. Force-overwrite truncates.
+    write_secret_file(&path, secret.as_str(), !existed)?;
     Ok(path)
 }
 
-/// Write `contents` to `path` as a `0600` file, truncating any existing one.
+/// Write `contents` to `path` as a `0600` file.
+///
+/// `exclusive` selects atomic create-new (`O_EXCL`, fails if the file already
+/// exists) for the fresh-wallet path; otherwise truncates an existing file
+/// (the explicit `--force`/`force:true` overwrite).
 #[cfg(feature = "lexe-sdk")]
-fn write_secret_file(path: &Path, contents: &str) -> Result<()> {
+fn write_secret_file(path: &Path, contents: &str, exclusive: bool) -> Result<()> {
     use std::io::Write;
     let mut opts = std::fs::OpenOptions::new();
-    opts.write(true).create(true).truncate(true);
+    opts.write(true);
+    if exclusive {
+        opts.create_new(true);
+    } else {
+        opts.create(true).truncate(true);
+    }
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt;
         opts.mode(0o600); // applies only when the file is freshly created
     }
-    let mut f = opts
-        .open(path)
-        .map_err(|e| Error::Wallet(format!("cannot write seed file {}: {e}", path.display())))?;
+    let mut f = match opts.open(path) {
+        Ok(f) => f,
+        Err(e) if exclusive && e.kind() == std::io::ErrorKind::AlreadyExists => {
+            // Lost a create race: another writer persisted a seed first.
+            return Err(Error::SeedExists {
+                path: path.display().to_string(),
+            });
+        }
+        Err(e) => {
+            return Err(Error::Wallet(format!(
+                "cannot write seed file {}: {e}",
+                path.display()
+            )))
+        }
+    };
     // Re-assert 0600 so a --force overwrite of a pre-existing (possibly looser)
     // file is also tightened, not just freshly-created ones.
     #[cfg(unix)]

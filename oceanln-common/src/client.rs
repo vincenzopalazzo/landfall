@@ -3,6 +3,8 @@
 //! Scoped to what the `payout` flow needs: creating a payable BOLT12 offer
 //! on the node via `POST /v2/node/create_offer`.
 
+use std::time::Duration;
+
 use crate::error::{Error, Result};
 use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION, CONTENT_TYPE};
 use reqwest::{Client, Method, RequestBuilder, StatusCode};
@@ -10,6 +12,13 @@ use serde::{Deserialize, Serialize};
 use zeroize::Zeroizing;
 
 pub const DEFAULT_BASE_URL: &str = "http://127.0.0.1:5393";
+
+/// Cap on a whole create-offer round-trip. The sidecar is local, but a wedged
+/// node must surface as a timeout error rather than hanging the CLI/server
+/// (and any HTTP client waiting on it) indefinitely.
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+/// Tighter cap on just establishing the TCP/TLS connection.
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 
 pub struct SidecarClient {
     http: Client,
@@ -48,7 +57,24 @@ struct ApiErrorBody {
 
 impl SidecarClient {
     pub fn new(base_url: String, credentials: Option<String>) -> Result<Self> {
-        let http = Client::builder().build()?;
+        // Fail fast if the credentials can't form a valid HTTP header value
+        // (e.g. a stray newline/control char): otherwise `headers()` would
+        // silently drop the Authorization header and send an unauthenticated
+        // request that the sidecar rejects with a confusing 401.
+        if let Some(c) = &credentials {
+            let probe = Zeroizing::new(format!("Bearer {c}"));
+            HeaderValue::from_str(&probe).map_err(|_| {
+                Error::Wallet(
+                    "sidecar credentials contain characters that are not valid in an \
+                     HTTP header (e.g. a newline or control character)"
+                        .into(),
+                )
+            })?;
+        }
+        let http = Client::builder()
+            .timeout(REQUEST_TIMEOUT)
+            .connect_timeout(CONNECT_TIMEOUT)
+            .build()?;
         Ok(Self {
             http,
             base_url,
@@ -129,5 +155,24 @@ fn api_error(status: StatusCode, bytes: &[u8]) -> Error {
             code: status.as_u16(),
             msg: String::from_utf8_lossy(bytes).into_owned(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn accepts_valid_credentials_and_no_credentials() {
+        assert!(SidecarClient::new(DEFAULT_BASE_URL.into(), None).is_ok());
+        assert!(SidecarClient::new(DEFAULT_BASE_URL.into(), Some("a-normal-token".into())).is_ok());
+    }
+
+    #[test]
+    fn rejects_credentials_with_invalid_header_chars() {
+        // A newline can't go in an HTTP header value — fail fast instead of
+        // silently dropping the Authorization header and sending unauthenticated.
+        let bad = SidecarClient::new(DEFAULT_BASE_URL.into(), Some("tok\nen".into()));
+        assert!(matches!(bad, Err(Error::Wallet(_))));
     }
 }
