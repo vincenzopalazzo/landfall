@@ -64,6 +64,22 @@ describe("App (UI)", () => {
     expect(await screen.findByText("Use existing wallet")).toBeInTheDocument();
   });
 
+  it("does not loop /generate on a 409 (regression: request-storm guard)", async () => {
+    let genCalls = 0;
+    routeFetch({
+      "/generate": () => {
+        genCalls += 1;
+        return new Response(JSON.stringify({ error: "seed exists" }), { status: 409 });
+      },
+    });
+    render(App);
+    await fireEvent.click(screen.getByText("Create a new wallet"));
+    await screen.findByText("Use existing wallet");
+    // Let any stray effect re-runs flush; the guard must keep this at exactly one call.
+    await new Promise((r) => setTimeout(r, 60));
+    expect(genCalls).toBe(1);
+  });
+
   it("import flow renders 24 word inputs", async () => {
     render(App);
     await fireEvent.click(screen.getByText("I already have a phrase"));

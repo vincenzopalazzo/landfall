@@ -54,6 +54,9 @@ export const app = $state({
   offerDescription: "",
 
   // real artifacts
+  // NOTE: `phrase` holds the generated words in JS memory for the session (for
+  // the reveal + Profile). JS strings can't be reliably zeroized — inherent to
+  // a browser wizard. `restart()` clears it; a native (Tauri) host could do better.
   phrase: [] as string[], // generated words (create mode), revealed once
   miningAddress: "",
   offer: "",

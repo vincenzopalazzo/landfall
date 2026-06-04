@@ -5,8 +5,11 @@
   import { app, guided, isImport, generateWallet, useExistingWallet } from "../store.svelte";
 
   // Create mode: generate the phrase once when this step is first shown.
+  // Must also stop when `walletExists` is set — a 409 (seed already on the
+  // server) leaves `phrase`/`error` empty, so without this guard the effect
+  // re-fires on every `busy` toggle and loops `/generate` forever.
   $effect(() => {
-    if (!isImport() && app.phrase.length === 0 && !app.busy && !app.error) {
+    if (!isImport() && app.phrase.length === 0 && !app.busy && !app.error && !app.walletExists) {
       generateWallet();
     }
   });

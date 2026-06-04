@@ -5,4 +5,9 @@
 export const DEFAULT_BASE =
   import.meta.env.VITE_OCEANLN_BASE ?? "http://127.0.0.1:7762";
 
+// DEV ONLY. `import.meta.env.VITE_OCEANLN_TOKEN` is inlined at build time, so a
+// production `npm run build` with it set would embed the bearer token in the
+// static bundle (readable by anyone with the assets). Use it only for local
+// dev; in production leave it unset and enter the token via the in-app settings
+// panel (or rely on a same-process Tauri host later).
 export const DEFAULT_TOKEN = import.meta.env.VITE_OCEANLN_TOKEN ?? "";
