@@ -35,12 +35,17 @@
 
   const isNoSuchUser = (e: unknown) => e instanceof Error && /no such user/i.test(e.message);
 
+  // Monotonic request id: a newer load() supersedes an in-flight older one so a
+  // slow response (or an address change mid-flight) can't clobber fresh state.
+  let reqId = 0;
+
   async function load() {
     const addrs = addresses();
     if (!addrs.length) {
       loading = false;
       return;
     }
+    const myId = ++reqId;
     loading = true;
     netError = "";
     try {
@@ -48,6 +53,7 @@
         Promise.allSettled(addrs.map((a) => ocean.statsnap(a))),
         Promise.allSettled(addrs.map((a) => ocean.earnpay(a))),
       ]);
+      if (myId !== reqId) return; // superseded
 
       let unpaid = 0,
         hr = 0,
@@ -84,14 +90,15 @@
         netError = r?.reason instanceof Error ? r.reason.message : "couldn't reach OCEAN";
       }
       try {
-        pool = await ocean.poolStat();
+        const ps = await ocean.poolStat();
+        if (myId === reqId) pool = ps;
       } catch {
         /* pool context is best-effort */
       }
     } catch (e) {
-      netError = e instanceof Error ? e.message : String(e);
+      if (myId === reqId) netError = e instanceof Error ? e.message : String(e);
     } finally {
-      loading = false;
+      if (myId === reqId) loading = false;
     }
   }
 
@@ -123,13 +130,18 @@
         {#if pool}· <span style="color:#52525b">{Number(pool.active_users).toLocaleString()} miners on the pool</span>{/if}
       </p>
     </div>
-    {#if loading}
-      <span class="db-chip muted"><span class="wz-spinner"></span> Loading</span>
-    {:else if active}
-      <span class="db-chip live"><span class="db-dot pulse"></span>Mining</span>
-    {:else}
-      <span class="db-chip muted"><span class="db-dot"></span>Idle</span>
-    {/if}
+    <div style="display:flex;align-items:center;gap:10px">
+      {#if loading}
+        <span class="db-chip muted"><span class="wz-spinner"></span> Loading</span>
+      {:else if active}
+        <span class="db-chip live"><span class="db-dot pulse"></span>Mining</span>
+      {:else}
+        <span class="db-chip muted"><span class="db-dot"></span>Idle</span>
+      {/if}
+      <button class="wz-copybtn" onclick={() => load()} disabled={loading} title="Refresh">
+        <Icon name="refresh" size={13} /> Refresh
+      </button>
+    </div>
   </div>
 
   {#if netError}

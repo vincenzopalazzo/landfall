@@ -50,6 +50,11 @@ async function get<T>(path: string): Promise<T> {
     throw new Error(String((body as { error: unknown }).error));
   }
   if (!resp.ok) throw new Error(`OCEAN API ${resp.status}`);
+  // Require the `{ result }` envelope — a 200 with any other shape (or a parse
+  // fallback) must error, not hand back `undefined` for callers to deref.
+  if (!body || typeof body !== "object" || !("result" in body)) {
+    throw new Error(`OCEAN API: unexpected response for ${path}`);
+  }
   return (body as { result: T }).result;
 }
 
