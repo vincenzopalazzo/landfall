@@ -1,13 +1,17 @@
 <script lang="ts">
+  import { onMount } from "svelte";
   import Icon from "../ui/Icon.svelte";
   import Tooltip from "../ui/Tooltip.svelte";
   import Callout from "../ui/Callout.svelte";
   import Button from "../ui/Button.svelte";
   import CopyField from "../ui/CopyField.svelte";
   import { app, guided, createWalletAndOffer } from "../store.svelte";
-  import { PROVISION_TASKS, OFFER_SUGGESTIONS } from "../data";
+  import { PROVISION_TASKS } from "../data";
 
-  let phase = $state<"input" | "running" | "done">(app.offer ? "done" : "input");
+  // No "describe" step: the offer description is derived from the payout address
+  // (OCEAN Payouts for <addr>) inside createWalletAndOffer. This step just
+  // provisions the wallet + creates the offer, automatically.
+  let phase = $state<"running" | "done" | "error">(app.offer ? "done" : "running");
   let taskIndex = $state(app.offer ? PROVISION_TASKS.length : 0);
   let timer: ReturnType<typeof setInterval> | undefined;
 
@@ -25,7 +29,7 @@
         taskIndex = PROVISION_TASKS.length;
         phase = "done";
       } else {
-        phase = "input"; // error is shown via app.error
+        phase = "error"; // app.error has the detail
       }
     });
   }
@@ -35,68 +39,25 @@
     if (i === taskIndex) return "active";
     return "";
   }
+
+  // Auto-start once on mount (skips the manual "describe + create" step).
+  // onMount runs exactly once — no reactive re-entrancy.
+  onMount(() => {
+    if (!app.offer) start();
+  });
 </script>
 
-{#if phase === "input"}
+{#if phase === "error"}
   <div class="wz-fade">
     <p class="wz-eyebrow"><Icon name="wallet" size={13} /> Create your wallet</p>
-    <h1 class="wz-h">Describe your Lightning offer</h1>
-    <p class="wz-sub">
-      Add a short description so you (and OCEAN) can recognize this payout destination. It's
-      saved inside your <strong>BOLT12 offer</strong> and shown on every payment.
-    </p>
-    {#if app.miningAddress}
-      <CopyField label="Your payout address" chip="bc1q" value={app.miningAddress}>
-        {#snippet tip()}
-          <Tooltip enabled={guided()}>
-            {#snippet children()}
-              Derived from your recovery phrase — this is the address OCEAN pays out to. The offer
-              you're about to create is for this wallet, so you can reference it in the description.
-            {/snippet}
-          </Tooltip>
-        {/snippet}
-      </CopyField>
-    {/if}
-    <div class="wz-field">
-      <label>
-        Offer description
-        <Tooltip enabled={guided()}>
-          {#snippet children()}
-            This label is encoded into your <b>BOLT12 offer</b>. It travels with the offer so any
-            payment to it carries this note — handy for bookkeeping.
-          {/snippet}
-        </Tooltip>
-      </label>
-      <input
-        class="wz-input"
-        bind:value={app.offerDescription}
-        maxlength="64"
-        placeholder="e.g. OCEAN mining payouts"
-      />
-      <div class="wz-suggest">
-        {#each OFFER_SUGGESTIONS as s}
-          <button class="wz-chip-btn" type="button" onclick={() => (app.offerDescription = s)}>{s}</button>
-        {/each}
-      </div>
-    </div>
-    {#if app.error}
-      <Callout kind="danger" icon="warn">
-        {#snippet children()}
-          Couldn't create your wallet: {app.error}. Check that oceanln-httpd can reach your Lexe
-          node, then try again.
-        {/snippet}
-      </Callout>
-    {:else}
-      <Callout kind="info" icon="enclave">
-        {#snippet children()}
-          When you continue, we start your node in a sealed enclave and generate your offer and
-          payout address — this happens once and takes a few seconds.
-        {/snippet}
-      </Callout>
-    {/if}
-    <Button icon="spark" disabled={!app.offerDescription.trim() || app.busy} onclick={start}>
-      {#snippet children()}Create wallet &amp; offer{/snippet}
-    </Button>
+    <h1 class="wz-h">Couldn't create your wallet</h1>
+    <p class="wz-sub">We hit a problem provisioning your node and creating the offer.</p>
+    <Callout kind="danger" icon="warn">
+      {#snippet children()}
+        {app.error}. Check that oceanln-httpd can reach your Lexe node, then try again.
+      {/snippet}
+    </Callout>
+    <Button icon="refresh" disabled={app.busy} onclick={start}>{#snippet children()}Try again{/snippet}</Button>
   </div>
 {:else}
   <div class="wz-fade">

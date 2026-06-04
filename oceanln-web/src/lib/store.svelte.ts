@@ -211,6 +211,12 @@ export async function createWalletAndOffer(): Promise<boolean> {
   try {
     const init = await client().init();
     if (init.mining_address) app.miningAddress = init.mining_address;
+    // The description is derived from the payout address (no manual step) unless
+    // the user set one. Done after /init so the address is definitive (covers
+    // the reuse path, where it isn't known until provisioning).
+    if (!app.offerDescription.trim()) {
+      app.offerDescription = `OCEAN Payouts for ${app.miningAddress}`;
+    }
     const offer = await client().offer(app.offerDescription.trim());
     app.offer = offer.offer;
     return true;
