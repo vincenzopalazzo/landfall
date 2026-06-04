@@ -2,7 +2,7 @@
   import Icon from "./ui/Icon.svelte";
   import { app } from "./store.svelte";
   import { MCP } from "./data";
-  import { ocean, btcToSats, hashesToThs, type Payout, type PoolStat } from "./ocean";
+  import { ocean, btcToSats, hashesToThs, num, type Payout, type PoolStat } from "./ocean";
 
   // ── MCP (local stdio server) ──
   let mcpOn = $state(true);
@@ -74,13 +74,13 @@
         if (e.status === "fulfilled") all.push(...(e.value.payouts ?? []));
         else if (!isNoSuchUser(e.reason)) netFail = true;
       }
-      all.sort((a, b) => Number(b.ts) - Number(a.ts));
+      all.sort((a, b) => num(b.ts) - num(a.ts));
 
       unpaidSats = unpaid;
       hashrateThs = hr;
       estNextSats = est;
       payouts = all;
-      totalPaidSats = all.reduce((sum, p) => sum + Number(p.total_satoshis_net_paid), 0);
+      totalPaidSats = all.reduce((sum, p) => sum + num(p.total_satoshis_net_paid), 0);
       active = hr > 0;
 
       // Only a genuine network/server failure is an error; "no such user yet"
@@ -173,7 +173,7 @@
                 {:else}—{/if}
                 {#if p.is_generation_txn}<span class="db-status settled" style="margin-left:8px">coinbase</span>{/if}
               </td>
-              <td class="r amt">{fmtSats(Number(p.total_satoshis_net_paid))} sats</td>
+              <td class="r amt">{fmtSats(num(p.total_satoshis_net_paid))} sats</td>
             </tr>
           {/each}
         </tbody>

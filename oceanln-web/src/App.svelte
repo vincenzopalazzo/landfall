@@ -96,7 +96,7 @@
           <span class="spacer"></span>
           <span class="wz-progress-text">Step {Math.min(humanIndex(), visibleSteps())} of {visibleSteps()}</span>
           {#if stepKey() === "done"}
-            {#if app.verifyState === "verified"}
+            {#if app.submitted}
               <Button icon="refresh" onclick={restart}>{#snippet children()}Start over{/snippet}</Button>
             {/if}
           {:else if stepKey() !== "welcome"}

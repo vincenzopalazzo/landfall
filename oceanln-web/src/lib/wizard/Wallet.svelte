@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, onDestroy } from "svelte";
   import Icon from "../ui/Icon.svelte";
   import Tooltip from "../ui/Tooltip.svelte";
   import Callout from "../ui/Callout.svelte";
@@ -45,6 +45,10 @@
   onMount(() => {
     if (!app.offer) start();
   });
+
+  // Don't leak the cosmetic-progress interval if the user navigates away
+  // (e.g. steps back) while provisioning is still in flight.
+  onDestroy(() => clearInterval(timer));
 </script>
 
 {#if phase === "error"}

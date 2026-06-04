@@ -327,6 +327,39 @@ async fn import_invalid_phrase_is_bad_request() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn payout_with_wrong_token_is_unauthorized() {
+    // A present-but-wrong bearer token must be rejected (the constant-time
+    // compare returns false), not just a missing one.
+    let base = spawn("badtoken", &[]).await;
+    let resp = client()
+        .post(format!("{base}/payout"))
+        .header("Authorization", "Bearer not-the-real-token")
+        .json(&serde_json::json!({ "message": "x" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 401);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn payout_with_nonloopback_host_is_forbidden() {
+    // DNS-rebinding defense end-to-end: a request whose Host header names a
+    // non-loopback host is rejected by the guard even with a valid token,
+    // before the handler runs. (The unit test covers `host_is_loopback`; this
+    // exercises the guard wiring on a real socket.)
+    let base = spawn("badhost", &[]).await;
+    let resp = client()
+        .post(format!("{base}/payout"))
+        .header("Authorization", format!("Bearer {TOKEN}"))
+        .header("Host", "evil.example")
+        .json(&serde_json::json!({ "message": "x" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 403);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn generate_requires_token() {
     let (base, _) = spawn_no_seed("generate-noauth", &[]).await;
     let resp = client()

@@ -65,5 +65,13 @@ export const ocean = {
 };
 
 // ── helpers ──
-export const btcToSats = (btc: string | number): number => Math.round(Number(btc) * 1e8);
-export const hashesToThs = (hps: string | number): number => Number(hps) / 1e12;
+// OCEAN returns numbers as strings; coerce defensively so a missing/garbage
+// field (null, "", "NaN") reads as 0 instead of poisoning the dashboard totals
+// with NaN (which would render as "NaN sats").
+export const num = (v: string | number | null | undefined): number => {
+  const n = typeof v === "number" ? v : Number(v);
+  return Number.isFinite(n) ? n : 0;
+};
+export const btcToSats = (btc: string | number | null | undefined): number =>
+  Math.round(num(btc) * 1e8);
+export const hashesToThs = (hps: string | number | null | undefined): number => num(hps) / 1e12;

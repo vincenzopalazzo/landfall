@@ -143,6 +143,17 @@ describe("sign gating", () => {
   });
 });
 
+describe("OCEAN hand-off", () => {
+  it("markSubmittedToOcean is a local ack, not a fake network verify", () => {
+    expect(app.submitted).toBe(false);
+    S.markSubmittedToOcean();
+    // Flips synchronously — no setTimeout, no pretended "verifying" round-trip.
+    expect(app.submitted).toBe(true);
+    S.restart();
+    expect(app.submitted).toBe(false);
+  });
+});
+
 describe("navigation math", () => {
   it("create flow shows 6 steps, import shows 5", () => {
     S.chooseMode("create");

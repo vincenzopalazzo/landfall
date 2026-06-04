@@ -64,8 +64,11 @@ export const app = $state({
   message: "", // the message that was signed (echoed back by /payout)
   oceanMessage: "", // the verification message the user pastes from OCEAN
 
-  // OCEAN verification (simulated — there is no OCEAN API here)
-  verifyState: "idle" as "idle" | "verifying" | "verified",
+  // Whether the user has confirmed they handed their details to OCEAN. There is
+  // no OCEAN-side verification API to call — OCEAN checks the BIP-322 signature
+  // on its own servers — so this is a local "I've submitted" acknowledgement,
+  // not a network round-trip we can honestly claim to perform.
+  submitted: false,
 
   // post-setup profile
   profile: null as null | { offers: Offer[]; addresses: Address[] },
@@ -258,11 +261,13 @@ export async function signForOcean(): Promise<boolean> {
   }
 }
 
-// Simulated final hand-off. There is no OCEAN backend here, so "verify" just
-// confirms the three artifacts are present and flips to the success screen.
-export function verifyOcean() {
-  app.verifyState = "verifying";
-  setTimeout(() => (app.verifyState = "verified"), 1500);
+// Final hand-off. The user copies their address + offer + signature into
+// OCEAN's payout settings on ocean.xyz; OCEAN verifies the signature on its
+// side. We can't (and shouldn't pretend to) verify it here — this just records
+// that the user has submitted, and shows the honest "OCEAN will enable payouts
+// once it accepts your signature" success screen.
+export function markSubmittedToOcean() {
+  app.submitted = true;
 }
 
 // ── post-setup profile ──
@@ -298,7 +303,7 @@ export function restart() {
   app.signature = "";
   app.message = "";
   app.oceanMessage = "";
-  app.verifyState = "idle";
+  app.submitted = false;
   app.profile = null;
   app.error = "";
 }

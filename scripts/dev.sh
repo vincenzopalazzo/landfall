@@ -61,8 +61,7 @@ if [ -f oceanln-web/package.json ]; then
     VITE_OCEANLN_TOKEN="$TOKEN" VITE_OCEANLN_BASE="http://$BIND" npm run dev )
 else
   echo
-  echo "oceanln-web/ not present yet (frontend is PR B). Server is running;"
-  echo "drive it directly, e.g.:"
+  echo "oceanln-web/ not found here. Server is running; drive it directly, e.g.:"
   echo "  curl -fsS http://$BIND/health"
   echo "  curl -fsS -X POST http://$BIND/generate -H \"Authorization: Bearer $TOKEN\""
   echo "Press Ctrl-C to stop the server."
