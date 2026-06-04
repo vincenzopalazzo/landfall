@@ -4,35 +4,58 @@
   import Callout from "../ui/Callout.svelte";
   import Button from "../ui/Button.svelte";
   import CopyField from "../ui/CopyField.svelte";
-  import { app, guided, signForOcean } from "../store.svelte";
+  import { app, guided, canSign, signForOcean } from "../store.svelte";
+
+  // The Sign button is gated on the pasted message embedding the offer.
+  const offerMissing = $derived(app.oceanMessage.trim().length > 0 && !app.oceanMessage.includes(app.offer));
 </script>
 
 <div class="wz-fade">
   <p class="wz-eyebrow"><Icon name="pen" size={13} /> Prove it's you</p>
   <h1 class="wz-h">Sign OCEAN's verification message</h1>
   <p class="wz-sub">
-    To switch on payouts, OCEAN needs proof you control your payout address. You'll sign a short
-    message with your wallet — like a digital signature.{guided() ? " It costs nothing and moves no money." : ""}
+    OCEAN's flow is offer-first: register your payout address and offer on ocean.xyz, OCEAN
+    gives you a short <strong>verification message</strong>, and you sign it here to prove you
+    control the address.{guided() ? " Signing costs nothing and moves no money." : ""}
   </p>
 
-  <p class="wz-section-label">
-    Message to sign
-    <Tooltip enabled={guided()} label=" what's a signature?">
+  <!-- Step 1: the details to register with OCEAN -->
+  <p class="wz-section-label">1 · Give these to OCEAN</p>
+  <CopyField label="Payout address" chip="bc1q" value={app.miningAddress}>
+    {#snippet tip()}
+      <Tooltip enabled={guided()}>
+        {#snippet children()}
+          Your Bitcoin payout address — this is your OCEAN username. Register it on ocean.xyz to
+          get your verification message.
+        {/snippet}
+      </Tooltip>
+    {/snippet}
+  </CopyField>
+  <CopyField label="Lightning offer" chip="BOLT12" value={app.offer} />
+
+  <!-- Step 2: paste OCEAN's message and sign it -->
+  <p class="wz-section-label" style="margin-top:22px">
+    2 · Paste the message OCEAN gave you
+    <Tooltip enabled={guided()} label=" what's this?">
       {#snippet children()}
-        A <b>BIP-322 signature</b> proves you hold the private key for your address without
-        revealing it. It's math, not a password — and it can't be used to spend your funds.
+        After you register, OCEAN shows a verification message that embeds your offer. Paste it
+        here exactly — a <b>BIP-322 signature</b> over it proves you hold the address's key
+        without revealing it, and can't move your funds.
       {/snippet}
     </Tooltip>
   </p>
-  <div class="wz-copy" style="margin-bottom:18px">
-    <div class="val" style="white-space:pre-wrap;color:#a1a1aa">
-      {#if app.message}{app.message}{:else}OCEAN Lightning Payout Authorization
-Pool: ocean.xyz
-Payout address: {app.miningAddress}
-Offer: {app.offer}
-…issued + nonce added when you sign{/if}
-    </div>
-  </div>
+  <textarea
+    class="wz-input"
+    style="min-height:96px;font-family:var(--font-mono);font-size:12.5px;line-height:1.5;resize:vertical"
+    placeholder="Paste OCEAN's verification message here (it includes your lno1… offer)"
+    bind:value={app.oceanMessage}
+    disabled={!!app.signature}
+  ></textarea>
+  {#if offerMissing}
+    <p style="font-size:12px;color:#FFB300;margin:8px 0 0;display:flex;gap:7px;align-items:center">
+      <Icon name="warn" size={13} /> This message doesn't contain your offer — make sure you pasted the one OCEAN generated for this offer.
+    </p>
+  {/if}
 
   {#if app.error}
     <Callout kind="danger" icon="warn">{#snippet children()}Signing failed: {app.error}{/snippet}</Callout>
@@ -43,13 +66,13 @@ Offer: {app.offer}
       {#if app.busy}
         <div class="wz-verifying"><span class="wz-spinner"></span> Signing with your wallet…</div>
       {:else}
-        <Button icon="pen" onclick={signForOcean}>{#snippet children()}Sign message{/snippet}</Button>
+        <Button icon="pen" disabled={!canSign()} onclick={signForOcean}>{#snippet children()}Sign message{/snippet}</Button>
       {/if}
     </div>
   {:else}
-    <div class="wz-fade">
+    <div class="wz-fade" style="margin-top:6px">
       <Callout kind="ok" icon="check">
-        {#snippet children()}<b>Signed.</b> Here's your signature — OCEAN will check it against your payout address.{/snippet}
+        {#snippet children()}<b>Signed.</b> Paste this signature back into OCEAN — it'll check it against your payout address.{/snippet}
       </Callout>
       <CopyField label="Your signature" chip="BIP-322" value={app.signature}>
         {#snippet tip()}

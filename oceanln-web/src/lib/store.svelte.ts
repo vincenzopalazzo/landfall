@@ -61,7 +61,8 @@ export const app = $state({
   miningAddress: "",
   offer: "",
   signature: "",
-  message: "",
+  message: "", // the message that was signed (echoed back by /payout)
+  oceanMessage: "", // the verification message the user pastes from OCEAN
 
   // OCEAN verification (simulated — there is no OCEAN API here)
   verifyState: "idle" as "idle" | "verifying" | "verified",
@@ -221,27 +222,24 @@ export async function createWalletAndOffer(): Promise<boolean> {
   }
 }
 
-// Build an OCEAN-style verification message embedding the offer, then sign it
-// (offline). In the real flow OCEAN issues the message; the wizard constructs an
-// equivalent so the offer-in-message guard is satisfied.
+// The offer must appear in OCEAN's verification message — same invariant the
+// server's offline /payout guard enforces, checked here for a clean UI gate.
+export function canSign(): boolean {
+  return !!app.offer && app.oceanMessage.trim().length > 0 && app.oceanMessage.includes(app.offer);
+}
+
+// Sign the verification message the user pasted from OCEAN (offer-first flow):
+// OCEAN issues the message after the user registers their payout address + offer,
+// and it embeds the offer. We sign it verbatim via /payout.
 export async function signForOcean(): Promise<boolean> {
+  if (!canSign()) {
+    app.error = "Paste the verification message OCEAN gave you — it must contain your offer.";
+    return false;
+  }
   app.busy = true;
   app.error = "";
   try {
-    const issued = new Date().toISOString();
-    const nonce =
-      typeof crypto !== "undefined" && "randomUUID" in crypto
-        ? crypto.randomUUID()
-        : Math.random().toString(16).slice(2);
-    const message = [
-      "OCEAN Lightning Payout Authorization",
-      "Pool: ocean.xyz",
-      `Payout address: ${app.miningAddress}`,
-      `Offer: ${app.offer}`,
-      `Issued: ${issued}`,
-      `Nonce: ${nonce}`,
-    ].join("\n");
-    const r = await client().payout(message, app.offer);
+    const r = await client().payout(app.oceanMessage, app.offer);
     app.message = r.message;
     app.signature = r.signature;
     app.miningAddress = r.address;
@@ -293,6 +291,7 @@ export function restart() {
   app.offer = "";
   app.signature = "";
   app.message = "";
+  app.oceanMessage = "";
   app.verifyState = "idle";
   app.profile = null;
   app.error = "";

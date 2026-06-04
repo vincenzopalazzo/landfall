@@ -73,10 +73,14 @@ describe("wizard happy path (create)", () => {
 
     await S.continueStep();
     expect(S.stepKey()).toBe("sign");
+    // Can't sign until OCEAN's message (embedding the offer) is pasted.
+    expect(S.canSign()).toBe(false);
+    app.oceanMessage = `Authorize payout to ${ADDR} via ${OFFER}`;
+    expect(S.canSign()).toBe(true);
     const signed = await S.signForOcean();
     expect(signed).toBe(true);
     expect(app.signature).toBe(SIG);
-    expect(app.message).toContain(OFFER); // offer embedded in the signed message
+    expect(app.message).toContain(OFFER); // the pasted message is signed verbatim
     expect(app.message).toContain(ADDR);
     expect(S.canContinue()).toBe(true);
 
@@ -124,6 +128,18 @@ describe("error handling", () => {
     expect(ok).toBe(false);
     expect(app.error).toContain("lexe unreachable");
     expect(app.offer).toBe("");
+  });
+});
+
+describe("sign gating", () => {
+  it("refuses to sign a message that doesn't embed the offer", async () => {
+    app.offer = "lno1realoffer";
+    app.oceanMessage = "a message that forgot the offer";
+    expect(S.canSign()).toBe(false);
+    const ok = await S.signForOcean();
+    expect(ok).toBe(false);
+    expect(app.error).toMatch(/must contain your offer/i);
+    expect(app.signature).toBe("");
   });
 });
 
