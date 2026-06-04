@@ -238,9 +238,13 @@ curl -s http://127.0.0.1:7762/payout \
 `oceanln-web/` is the Svelte onboarding wizard that drives `oceanln-httpd` from a
 browser: create/import a recovery phrase → back up → confirm → create wallet
 (description → BOLT12 offer) → BIP-322 sign → copy the three artifacts. It also
-has a profile (1→n payout addresses linked to offers, reveal phrase) and an
-illustrative payout dashboard + MCP panel (those are mocks — no backend yet).
-It's a static SPA, structured so a later Tauri shell can bundle it unchanged.
+has a profile (1→n payout addresses linked to offers, reveal phrase) and a
+**live payout dashboard** that reads the public OCEAN API
+(`https://api.ocean.xyz/v1`, browser-direct via CORS) keyed by the user's payout
+address(es) — real hashrate, unpaid balance, and the on-chain payouts table (see
+`src/lib/ocean.ts`). The **MCP** panel describes a **local** stdio server
+(`oceanln mcp serve`, not yet built) — nothing hosted or exposed. It's a static
+SPA, structured so a later Tauri shell can bundle it unchanged.
 
 Run both with the dev script:
 

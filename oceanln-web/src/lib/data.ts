@@ -1,6 +1,7 @@
-// Static content ported from the design's wizard/data.jsx.
-// The DASH and MCP blocks are ILLUSTRATIVE mocks — the backend has no payout
-// monitoring or MCP server yet (clearly labelled in the UI).
+// Static UI content ported from the design's wizard/data.jsx.
+// Dashboard payout data is now REAL (fetched live from the OCEAN API — see
+// ocean.ts). The MCP block describes a local stdio server (`oceanln mcp serve`)
+// that isn't built yet — labelled "coming soon" in the UI.
 
 export const WORD_POOL = [
   "anchor", "tide", "copper", "signal", "forest", "cabin", "jacket", "puzzle",
@@ -20,31 +21,6 @@ export const PROVISION_TASKS = [
   { t: "Creating your Lightning address", s: "Embedding your description into a BOLT12 offer (lno1…)" },
   { t: "Deriving your payout address", s: "Native SegWit Bitcoin address (bc1q…)" },
 ];
-
-export interface DashData {
-  node: { status: string; enclave: string; uptime: string; peers: number };
-  pendingSats: string;
-  totalBtc: string;
-  payoutsCount: number;
-  nextEta: string;
-  payouts: { time: string; sats: string; status: "settled" | "in-flight" }[];
-}
-
-export const DASH: DashData = {
-  node: { status: "Online", enclave: "SGX enclave · us-east-1", uptime: "4d 02h", peers: 6 },
-  pendingSats: "18,420",
-  totalBtc: "0.04123",
-  payoutsCount: 7,
-  nextEta: "~6h 12m",
-  payouts: [
-    { time: "2026-06-03 13:58", sats: "—", status: "in-flight" },
-    { time: "2026-06-03 09:14", sats: "12,084", status: "settled" },
-    { time: "2026-06-02 21:50", sats: "9,732", status: "settled" },
-    { time: "2026-06-02 08:31", sats: "11,640", status: "settled" },
-    { time: "2026-06-01 19:07", sats: "8,905", status: "settled" },
-    { time: "2026-06-01 06:42", sats: "10,318", status: "settled" },
-  ],
-};
 
 export const MCP = {
   addCmd: "claude mcp add oceanln -- oceanln mcp serve",
