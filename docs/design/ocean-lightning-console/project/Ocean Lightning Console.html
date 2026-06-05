@@ -1,0 +1,278 @@
+<!doctype html>
+<html lang="en" data-theme="dashboard">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OCEAN · Lightning Console</title>
+<link rel="stylesheet" href="colors_and_type.css">
+<link href="https://fonts.googleapis.com/icon?family=Material+Symbols+Sharp:opsz,wght,FILL,GRAD@24,400,0,0" rel="stylesheet">
+<link rel="stylesheet" href="console/console.css">
+</head>
+<body>
+<div class="app">
+  <!-- ───────────── Sidebar ───────────── -->
+  <aside class="side">
+    <div class="side-brand">
+      <img src="assets/OCEAN-icon-white.svg" alt="OCEAN">
+      <div class="side-brand-txt">
+        <span class="nm">OCEAN</span>
+        <span class="tg">Lightning</span>
+      </div>
+    </div>
+
+    <nav class="side-nav">
+      <p class="side-grp">Overview</p>
+      <button class="nav-item active" data-view="home"><span class="material-symbols-sharp">grid_view</span>Home</button>
+      <button class="nav-item" data-view="setup"><span class="material-symbols-sharp">rocket_launch</span>Setup<span class="nav-badge" id="setupBadge">2/4</span></button>
+
+      <p class="side-grp">Payouts</p>
+      <button class="nav-item" data-view="lightning"><span class="material-symbols-sharp">bolt</span>Lightning</button>
+      <button class="nav-item" data-view="addresses"><span class="material-symbols-sharp">account_balance_wallet</span>Addresses</button>
+
+      <p class="side-grp">Account</p>
+      <button class="nav-item" data-view="ai"><span class="material-symbols-sharp">smart_toy</span>AI access</button>
+      <button class="nav-item" data-view="recovery"><span class="material-symbols-sharp">shield</span>Recovery</button>
+    </nav>
+
+    <div class="side-foot">
+      <div class="node-status">
+        <span class="dot pulse"></span>
+        <div>
+          <span class="ns-t">Node online</span>
+          <span class="ns-s">SGX enclave · us-east-1</span>
+        </div>
+      </div>
+      <div class="acct">
+        <span class="acct-av">M</span>
+        <div class="acct-txt"><span class="acct-n">OCEAN Miner</span><span class="acct-id">03f9a4c1…b21c</span></div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ───────────── Main ───────────── -->
+  <main class="main">
+    <header class="topbar">
+      <div>
+        <h1 class="tb-title" id="tbTitle">Home</h1>
+        <p class="tb-sub" id="tbSub">Your Lightning payout control center</p>
+      </div>
+      <div class="tb-actions">
+        <span class="chip ok"><span class="dot pulse"></span>Payouts on</span>
+      </div>
+    </header>
+
+    <div class="scroll">
+      <!-- ========== HOME ========== -->
+      <section class="view active" data-view="home">
+        <div class="setup-card" id="homeSetup">
+          <div class="setup-card-h">
+            <div>
+              <p class="eyebrow">Get started</p>
+              <h2 class="sc-title">Finish setting up Lightning payouts</h2>
+            </div>
+            <div class="ring" id="homeRing"><span id="homeRingTxt">2/4</span></div>
+          </div>
+          <div class="setup-mini">
+            <div class="mini done"><span class="material-symbols-sharp">check</span>Recovery phrase secured</div>
+            <div class="mini done"><span class="material-symbols-sharp">check</span>Wallet &amp; offer created</div>
+            <div class="mini"><span class="material-symbols-sharp">radio_button_unchecked</span>Sign OCEAN message</div>
+            <div class="mini"><span class="material-symbols-sharp">radio_button_unchecked</span>Turn on payouts</div>
+          </div>
+          <button class="btn" data-goto="setup">Continue setup<span class="material-symbols-sharp">arrow_forward</span></button>
+        </div>
+
+        <div class="stat-row">
+          <div class="stat">
+            <span class="stat-l"><span class="material-symbols-sharp">bolt</span>Pending balance</span>
+            <span class="stat-v">18,420<span class="u">sats</span></span>
+          </div>
+          <div class="stat">
+            <span class="stat-l"><span class="material-symbols-sharp">savings</span>Total received</span>
+            <span class="stat-v">0.04123<span class="u">BTC</span></span>
+          </div>
+          <div class="stat">
+            <span class="stat-l"><span class="material-symbols-sharp">receipt_long</span>Payouts</span>
+            <span class="stat-v">7</span>
+          </div>
+          <div class="stat">
+            <span class="stat-l"><span class="material-symbols-sharp">schedule</span>Next payout</span>
+            <span class="stat-v accent">~6h 12m</span>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-h"><h3>Recent activity</h3><button class="link" data-goto="lightning">View all</button></div>
+          <table class="tbl">
+            <tbody>
+              <tr><td class="ico"><span class="material-symbols-sharp">bolt</span></td><td>Payout in-flight</td><td class="t">2026-06-04 13:58</td><td class="r">—</td></tr>
+              <tr><td class="ico"><span class="material-symbols-sharp">check_circle</span></td><td>Payout settled</td><td class="t">2026-06-04 09:14</td><td class="r amt">12,084 sats</td></tr>
+              <tr><td class="ico"><span class="material-symbols-sharp">check_circle</span></td><td>Payout settled</td><td class="t">2026-06-03 21:50</td><td class="r amt">9,732 sats</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- ========== SETUP ========== -->
+      <section class="view" data-view="setup">
+        <div class="setup-head">
+          <p class="setup-progress-txt"><b id="setupCount">2</b> of 4 steps complete</p>
+          <div class="bar"><span class="bar-fill" id="setupBar" style="width:50%"></span></div>
+        </div>
+
+        <div class="steps" id="steps">
+          <!-- step 1 -->
+          <div class="step done" data-step="1">
+            <button class="step-h">
+              <span class="step-num"><span class="material-symbols-sharp">check</span></span>
+              <span class="step-meta"><span class="step-t">Secure your recovery phrase</span><span class="step-s">24 words — the master key to your wallet and payouts</span></span>
+              <span class="material-symbols-sharp chev">expand_more</span>
+            </button>
+          </div>
+          <!-- step 2 -->
+          <div class="step done" data-step="2">
+            <button class="step-h">
+              <span class="step-num"><span class="material-symbols-sharp">check</span></span>
+              <span class="step-meta"><span class="step-t">Create wallet &amp; Lightning offer</span><span class="step-s">Description embedded into your BOLT12 offer</span></span>
+              <span class="material-symbols-sharp chev">expand_more</span>
+            </button>
+          </div>
+          <!-- step 3 (active) -->
+          <div class="step open" data-step="3">
+            <button class="step-h">
+              <span class="step-num">3</span>
+              <span class="step-meta"><span class="step-t">Sign OCEAN's verification message</span><span class="step-s">Prove you control your payout address (BIP-322)</span></span>
+              <span class="material-symbols-sharp chev">expand_more</span>
+            </button>
+            <div class="step-body">
+              <p class="step-copy">OCEAN needs proof you control your payout address. Signing costs nothing and moves no money.</p>
+              <div class="msgbox" id="oceanMsg">OCEAN Lightning Payout Authorization
+Pool: ocean.xyz
+Payout address: bc1q9x7…6h7j
+Issued: 2026-06-04T14:22:09Z
+Nonce: a3f9c1e8-72b4-4d10-9c6e-1f55ed90b3a2</div>
+              <div class="sign-row" id="signRow">
+                <button class="btn" id="signBtn"><span class="material-symbols-sharp">draw</span>Sign message</button>
+              </div>
+            </div>
+          </div>
+          <!-- step 4 -->
+          <div class="step locked" data-step="4">
+            <button class="step-h">
+              <span class="step-num">4</span>
+              <span class="step-meta"><span class="step-t">Turn on payouts</span><span class="step-s">Send your verified details to OCEAN</span></span>
+              <span class="material-symbols-sharp chev">expand_more</span>
+            </button>
+            <div class="step-body">
+              <p class="step-copy">Submit your three artifacts to OCEAN, or copy each into your payout settings manually.</p>
+              <div class="artifact"><div class="af-l"><span class="af-lbl">Payout address</span><span class="af-chip">bc1q</span></div><div class="af-v">bc1q9x7k2m4p8v3wq5r6t7y8u9i0a2s3d4f5g6h7j</div></div>
+              <div class="artifact"><div class="af-l"><span class="af-lbl">Lightning offer</span><span class="af-chip">BOLT12</span></div><div class="af-v">lno1pgsqvgnwgcg35z6ee2h3yczraddm72xrfua9uve2rlrm9deu7xyfzr5g3q…</div></div>
+              <div class="artifact"><div class="af-l"><span class="af-lbl">Signature</span><span class="af-chip">BIP-322</span></div><div class="af-v">AkcwRAIgY8b3pNq1Ld5fK0vRr2xH9wEoP6mZ2sT1uVcXa7nQ8k…</div></div>
+              <button class="btn" id="verifyBtn"><span class="material-symbols-sharp">bolt</span>Verify &amp; turn on payouts</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ========== LIGHTNING ========== -->
+      <section class="view" data-view="lightning">
+        <div class="stat-row">
+          <div class="stat"><span class="stat-l"><span class="material-symbols-sharp">bolt</span>Pending balance</span><span class="stat-v">18,420<span class="u">sats</span></span></div>
+          <div class="stat"><span class="stat-l"><span class="material-symbols-sharp">savings</span>Total received</span><span class="stat-v">0.04123<span class="u">BTC</span></span></div>
+          <div class="stat"><span class="stat-l"><span class="material-symbols-sharp">receipt_long</span>Payouts</span><span class="stat-v">7</span></div>
+          <div class="stat"><span class="stat-l"><span class="material-symbols-sharp">schedule</span>Next payout</span><span class="stat-v accent">~6h 12m</span></div>
+        </div>
+        <div class="panel">
+          <div class="panel-h"><h3>Payout history</h3><span class="meta">up 4d 02h · 6 peers</span></div>
+          <table class="tbl head">
+            <thead><tr><th>Time</th><th>Status</th><th class="r">Amount</th></tr></thead>
+            <tbody>
+              <tr><td class="t">2026-06-04 13:58</td><td><span class="pill-st inflight"><span class="dot"></span>In-flight</span></td><td class="r">—</td></tr>
+              <tr><td class="t">2026-06-04 09:14</td><td><span class="pill-st settled"><span class="dot"></span>Settled</span></td><td class="r amt">12,084 sats</td></tr>
+              <tr><td class="t">2026-06-03 21:50</td><td><span class="pill-st settled"><span class="dot"></span>Settled</span></td><td class="r amt">9,732 sats</td></tr>
+              <tr><td class="t">2026-06-03 08:31</td><td><span class="pill-st settled"><span class="dot"></span>Settled</span></td><td class="r amt">11,640 sats</td></tr>
+              <tr><td class="t">2026-06-02 19:07</td><td><span class="pill-st settled"><span class="dot"></span>Settled</span></td><td class="r amt">8,905 sats</td></tr>
+              <tr><td class="t">2026-06-02 06:42</td><td><span class="pill-st settled"><span class="dot"></span>Settled</span></td><td class="r amt">10,318 sats</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- ========== ADDRESSES ========== -->
+      <section class="view" data-view="addresses">
+        <div class="panel">
+          <div class="panel-h">
+            <h3>Onchain payout addresses</h3>
+            <button class="btn-sm" id="addAddrBtn"><span class="material-symbols-sharp">add</span>Derive address</button>
+          </div>
+          <div id="addrList"></div>
+        </div>
+        <div class="panel">
+          <div class="panel-h">
+            <h3>Lightning offers</h3>
+            <button class="btn-sm" id="addOfferBtn"><span class="material-symbols-sharp">add</span>New offer</button>
+          </div>
+          <div id="offerList"></div>
+        </div>
+      </section>
+
+      <!-- ========== AI ACCESS (MCP) ========== -->
+      <section class="view" data-view="ai">
+        <div class="panel">
+          <div class="panel-h">
+            <h3><span class="material-symbols-sharp h-ico">smart_toy</span>Connect an AI assistant · MCP</h3>
+            <div class="mcp-toggle-wrap">
+              <span class="chip live" id="mcpChip"><span class="dot pulse"></span>Serving</span>
+              <button class="toggle on" id="mcpToggle"><span class="knob"></span></button>
+            </div>
+          </div>
+          <div class="panel-b" id="mcpBody">
+            <p class="mcp-intro">Connect your payout node to <b>Claude Code</b> or any MCP-compatible assistant. It runs a local, self-hosted server so an AI can read your payout status and help you manage your setup.</p>
+
+            <p class="micro-h">Add to Claude Code</p>
+            <div class="code"><code><span class="pre">$ </span>claude mcp add oceanln -- oceanln mcp serve</code><button class="copy" data-copy="claude mcp add oceanln -- oceanln mcp serve"><span class="material-symbols-sharp">content_copy</span></button></div>
+
+            <p class="micro-h">What the assistant can do</p>
+            <ul class="caps">
+              <li><span class="material-symbols-sharp">check</span>Check your payout status and history</li>
+              <li><span class="material-symbols-sharp">check</span>Read your BOLT12 offer and payout address</li>
+              <li><span class="material-symbols-sharp">check</span>Report node health and pending balance</li>
+              <li><span class="material-symbols-sharp">check</span>Re-sign OCEAN's verification message on request</li>
+            </ul>
+            <p class="cannot"><span class="material-symbols-sharp">lock</span>Read-only by default — the assistant can never move or spend your funds.</p>
+            <div class="clients"><span class="dot pulse" style="color:var(--success)"></span>1 client connected · Claude Code</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ========== RECOVERY ========== -->
+      <section class="view" data-view="recovery">
+        <div class="panel">
+          <div class="panel-h"><h3><span class="material-symbols-sharp h-ico">shield</span>Recovery phrase</h3>
+            <button class="link" id="revealBtn"><span class="material-symbols-sharp">visibility</span>Reveal</button>
+          </div>
+          <div class="panel-b">
+            <p class="mcp-intro">This 24-word phrase is the master backup for your wallet and every payout address. Never share it and never take a screenshot.</p>
+            <div class="words-wrap">
+              <div class="words" id="words"></div>
+              <div class="blur" id="phraseBlur">
+                <span class="material-symbols-sharp">visibility</span>
+                <span class="bt">Tap to reveal</span>
+                <span class="bs">Make sure no one is watching</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="tiles">
+          <button class="tile" data-goto="lightning"><span class="t-ico"><span class="material-symbols-sharp">bolt</span></span><div><h4>Lightning dashboard</h4><p>Track payout status and balances</p></div><span class="material-symbols-sharp arr">arrow_forward</span></button>
+          <button class="tile" data-goto="setup"><span class="t-ico"><span class="material-symbols-sharp">restart_alt</span></span><div><h4>Re-run setup</h4><p>Step back through configuration</p></div><span class="material-symbols-sharp arr">arrow_forward</span></button>
+        </div>
+      </section>
+    </div>
+  </main>
+</div>
+
+<div class="toast" id="toast"></div>
+<script src="console/icons.js"></script>
+<script src="console/console.js"></script>
+</body>
+</html>
