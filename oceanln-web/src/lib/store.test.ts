@@ -154,6 +154,17 @@ describe("bootstrap (skip the wizard when a wallet exists)", () => {
     expect(app.profile).not.toBeNull();
   });
 
+  it("resumes at the create-wallet step when configured but no offer yet", async () => {
+    // Setup was interrupted (seed exists, /offer never completed): don't drop
+    // the user on an empty profile — resume provisioning at the wallet step.
+    routeFetch({ "/status": () => json({ configured: true, mining_address: ADDR, offer: null }) });
+    await S.bootstrap();
+    expect(app.surface).toBe("wizard");
+    expect(S.stepKey()).toBe("wallet");
+    expect(app.miningAddress).toBe(ADDR);
+    expect(app.offer).toBe(""); // no offer restored
+  });
+
   it("stays on the wizard for a fresh install (not configured)", async () => {
     routeFetch({ "/status": () => json({ configured: false }) });
     await S.bootstrap();

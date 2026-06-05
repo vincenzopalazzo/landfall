@@ -164,22 +164,30 @@ export async function refreshHealth() {
   app.serverUp = await client().health();
 }
 
-// Run once on launch: if a wallet is already configured (seed present), skip the
-// onboarding wizard and land on the profile with the restored address + offer.
-// A fresh install (or an unreachable/unauthenticated server) just stays on the
-// wizard, so first-run onboarding is unaffected.
+// Run once on launch, branching on how complete the existing wallet is:
+//   - seed + offer  → fully set up, land on the profile.
+//   - seed, NO offer → setup was interrupted (e.g. /offer failed or the app
+//     closed before provisioning). Resume at the create-wallet step, which
+//     auto-provisions and creates the offer — rather than dropping the user on
+//     a profile with no offer and no way to finish (sign/turn-on-payouts).
+//   - no seed (or unreachable/unauthorized) → fresh onboarding from the top.
 export async function bootstrap() {
   try {
     const s = await client().status();
-    if (s.configured && s.mining_address) {
-      app.miningAddress = s.mining_address;
-      if (s.offer) app.offer = s.offer;
+    if (!s.configured || !s.mining_address) return; // fresh install → wizard
+    app.miningAddress = s.mining_address;
+    app.reuse = true; // existing wallet: skip the create-only reveal/confirm steps
+    if (s.offer) {
+      app.offer = s.offer;
       if (!app.offerDescription.trim()) {
         app.offerDescription = `OCEAN Payouts for ${s.mining_address}`;
       }
-      app.reuse = true; // skip the create-only reveal/confirm steps if they go back
       seedProfile();
       app.surface = "profile";
+    } else {
+      // Configured but no offer yet — finish provisioning at the wallet step.
+      app.surface = "wizard";
+      app.stepIndex = STEPS.findIndex((st) => st.key === "wallet");
     }
   } catch {
     /* not configured / unreachable / no token → stay on the wizard */
