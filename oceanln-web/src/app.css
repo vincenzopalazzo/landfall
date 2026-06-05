@@ -222,6 +222,11 @@ body{
 .db-stat .v{font-family:var(--font-mono);font-size:24px;font-weight:500;color:#fafafa;letter-spacing:-0.02em;margin-top:8px;display:flex;align-items:baseline;gap:6px}
 .db-stat .v.accent{color:var(--wiz-accent)}
 .db-stat .v .u{font-size:12px;color:#71717a;font-weight:400}
+/* Secondary real metrics (workers, 1h/24h hashrate, TIDES shares, last share). */
+.db-substats{display:flex;flex-wrap:wrap;gap:18px;margin:-10px 0 22px;padding:0 2px}
+.db-substats .ss{display:flex;align-items:baseline;gap:7px}
+.db-substats .ss-l{font-size:10px;color:#63636e;text-transform:uppercase;letter-spacing:.05em;font-weight:600}
+.db-substats .ss-v{font-family:var(--font-mono);font-size:12px;color:#a1a1aa}
 .db-panel{background:#131316;border:1px solid #1e1e23;border-radius:var(--radius-lg);overflow:hidden;margin-bottom:18px}
 .db-panel-h{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:15px 18px;border-bottom:1px solid #1e1e23}
 .db-panel-h h3{font-size:13px;font-weight:600;color:#d4d4d8;margin:0;letter-spacing:-0.01em;display:flex;align-items:center;gap:9px}
@@ -270,6 +275,11 @@ table.db-table td.amt{color:#fafafa}
 .pf-name{font-family:var(--font-display);font-size:22px;font-weight:700;letter-spacing:-0.02em;color:#fafafa;margin:0}
 .pf-id{font-family:var(--font-mono);font-size:12px;color:#71717a;margin:5px 0 0;display:flex;align-items:center;gap:8px}
 .pf-section{margin-bottom:22px}
+/* Profile-embedded stats (compact StatsGrid): tighter than the full dashboard. */
+.pf-stats .db-top{margin-bottom:16px}
+.pf-stats-title{font-family:var(--font-display);font-size:18px;font-weight:700;letter-spacing:-0.01em;color:#fafafa;margin:0 0 4px}
+.pf-stats-link{margin-top:2px;background:transparent;border:0;color:var(--wiz-accent);font-family:var(--font-sans);font-size:12.5px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:6px;padding:6px 0}
+.pf-stats-link:hover{text-decoration:underline}
 .pf-section-h{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}
 .pf-section-h h2{font-size:13px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:#a1a1aa;margin:0;display:flex;align-items:center;gap:9px}
 .pf-add{font-family:var(--font-sans);font-size:12.5px;font-weight:600;color:var(--wiz-accent);background:transparent;border:1px solid var(--wiz-accent-line);border-radius:var(--radius-pill);padding:6px 13px;cursor:pointer;display:flex;align-items:center;gap:6px}

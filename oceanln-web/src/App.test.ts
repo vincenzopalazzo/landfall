@@ -18,6 +18,7 @@ function routeFetch(overrides: Record<string, () => Response> = {}) {
     const path = u.slice(u.lastIndexOf("/"));
     if (overrides[path]) return overrides[path]();
     if (path === "/health") return new Response("{}", { status: 200 });
+    if (path === "/status") return json({ configured: false }); // fresh install → wizard
     if (path === "/generate") return json({ mnemonic: PHRASE.join(" "), mining_address: ADDR });
     if (path === "/import") return json({ mining_address: ADDR });
     return new Response("not found", { status: 404 });

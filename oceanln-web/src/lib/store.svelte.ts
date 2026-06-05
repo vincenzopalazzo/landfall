@@ -1,4 +1,5 @@
-import { OceanlnClient, ApiError } from "./api";
+import { OceanlnClient, ApiError, type Backend } from "./api";
+import { TauriClient, isTauri } from "./tauri";
 import { DEFAULT_BASE, DEFAULT_TOKEN } from "./config";
 
 export type Surface = "wizard" | "profile" | "dashboard";
@@ -78,8 +79,10 @@ export const app = $state({
   error: "",
 });
 
-export function client(): OceanlnClient {
-  return new OceanlnClient(app.base.replace(/\/$/, ""), app.token);
+// Pick the transport at runtime: native IPC under the Tauri desktop shell (no
+// base URL / token), HTTP to oceanln-httpd in the browser.
+export function client(): Backend {
+  return isTauri() ? new TauriClient() : new OceanlnClient(app.base.replace(/\/$/, ""), app.token);
 }
 
 export const guided = () => app.density === "guided";
@@ -159,6 +162,65 @@ export function stepState(i: number): "done" | "active" | "skip" | "" {
 // ── server actions (real endpoints) ──
 export async function refreshHealth() {
   app.serverUp = await client().health();
+}
+
+// Local "submitted to OCEAN" marker, keyed by payout address. This is a
+// cosmetic completion flag (OCEAN verifies the signature on its own side); the
+// signature itself isn't persisted, so if the marker is ever lost the user is
+// simply routed to re-sign, which is harmless. Kept in localStorage rather than
+// a backend file because it's per-user UX state, not a wallet artifact.
+function submittedKey(addr: string): string {
+  return `oceanln:submitted:${addr}`;
+}
+function isSubmitted(addr: string): boolean {
+  try {
+    return typeof localStorage !== "undefined" && localStorage.getItem(submittedKey(addr)) === "1";
+  } catch {
+    return false;
+  }
+}
+
+// Run once on launch, branching on how complete the existing wallet is:
+//   - seed + offer + submitted → fully set up, land on the profile.
+//   - seed + offer, NOT submitted → the offer was created but OCEAN's message was
+//     never signed/submitted (app closed mid-setup). The profile doesn't expose
+//     the signing flow, so resume at the Sign step instead of stranding them.
+//   - seed, NO offer → setup was interrupted before provisioning. We can't prove
+//     the recovery phrase was backed up (not held in this session), so route to
+//     Import: re-supplying the 24 words (idempotent if it matches the stored
+//     seed) proves the backup before we provision.
+//   - no seed (or unreachable/unauthorized) → fresh onboarding from the top.
+export async function bootstrap() {
+  try {
+    const s = await client().status();
+    if (!s.configured || !s.mining_address) return; // fresh install → wizard
+    app.miningAddress = s.mining_address;
+    if (s.offer) {
+      app.offer = s.offer;
+      if (!app.offerDescription.trim()) {
+        app.offerDescription = `OCEAN Payouts for ${s.mining_address}`;
+      }
+      app.reuse = true; // skip the create-only reveal/confirm steps
+      if (isSubmitted(s.mining_address)) {
+        app.submitted = true;
+        seedProfile();
+        app.surface = "profile";
+      } else {
+        // Finish OCEAN verification: resume at the Sign step (offer + address
+        // restored; the user pastes OCEAN's message and signs).
+        app.surface = "wizard";
+        app.stepIndex = STEPS.findIndex((st) => st.key === "sign");
+      }
+    } else {
+      // Require the recovery phrase before provisioning an un-finished wallet.
+      app.reuse = false;
+      app.mode = "import";
+      app.surface = "wizard";
+      app.stepIndex = STEPS.findIndex((st) => st.key === "phrase");
+    }
+  } catch {
+    /* not configured / unreachable / no token → stay on the wizard */
+  }
 }
 
 export async function generateWallet() {
@@ -268,6 +330,13 @@ export async function signForOcean(): Promise<boolean> {
 // once it accepts your signature" success screen.
 export function markSubmittedToOcean() {
   app.submitted = true;
+  // Persist the completion marker so a relaunch lands on the profile rather than
+  // resuming the Sign step (see bootstrap).
+  try {
+    localStorage?.setItem(submittedKey(app.miningAddress), "1");
+  } catch {
+    /* localStorage unavailable — non-fatal; worst case is re-signing on restart */
+  }
 }
 
 // ── post-setup profile ──

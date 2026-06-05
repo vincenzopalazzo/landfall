@@ -20,6 +20,10 @@ cream dune";
 const MOCK_OFFER: &str = "lno1qgsqvgnwgcg35z6ee2h3yczraddm72xrfua9uve2rlrm9deu7xyfzrcgqp0s";
 const TOKEN: &str = "integration-token";
 const MOCK_PROVISIONED_OFFER: &str = "lno1mockprovideroffer";
+/// A different valid 24-word phrase, for the forced-seed-replacement test.
+const OTHER_MNEMONIC: &str = "abandon abandon abandon abandon abandon abandon abandon abandon \
+abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon \
+abandon abandon abandon art";
 
 /// A `WalletProvider` that never touches the network, so `/offer` and `/init`
 /// can be tested without a Lexe backend.
@@ -227,6 +231,34 @@ async fn offer_endpoint_uses_wallet_provider() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn create_offer_preserves_existing_primary() {
+    // A primary offer is already persisted (onboarding). Minting another offer
+    // (Profile "New offer") must NOT overwrite it, or a restart would restore a
+    // secondary offer as the primary payout offer.
+    let seed = write_seed("preserve-primary");
+    let offer_file = seed.with_extension("offer");
+    std::fs::write(&offer_file, "lno1primaryfromonboarding").unwrap();
+
+    let base = spawn_with(SeedSource::File(seed.clone()), &[]).await;
+    let resp = client()
+        .post(format!("{base}/offer"))
+        .header("Authorization", format!("Bearer {TOKEN}"))
+        .json(&serde_json::json!({ "description": "an extra offer" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    assert_eq!(
+        std::fs::read_to_string(&offer_file).unwrap().trim(),
+        "lno1primaryfromonboarding",
+        "minting an extra offer must not overwrite the persisted primary"
+    );
+
+    let _ = std::fs::remove_file(&seed);
+    let _ = std::fs::remove_file(&offer_file);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn init_endpoint_provisions_and_returns_address() {
     let base = spawn("init", &[]).await;
     let resp = client()
@@ -369,4 +401,72 @@ async fn generate_requires_token() {
         .await
         .unwrap();
     assert_eq!(resp.status(), 401);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn status_reports_configured_wallet_offline() {
+    // A configured wallet: /status returns the derived address with no Lexe call,
+    // so a frontend can skip onboarding on launch. Seed must not leak.
+    let base = spawn("status-configured", &[]).await;
+    let resp = client()
+        .get(format!("{base}/status"))
+        .header("Authorization", format!("Bearer {TOKEN}"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let body = resp.text().await.unwrap();
+    assert!(
+        !body.contains("music mystery deliver"),
+        "status leaked the seed"
+    );
+    let v: serde_json::Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(v["configured"], true);
+    assert_eq!(
+        v["mining_address"],
+        "bc1qpstw48j7j9gjugw25jmjvd96jlwgdnedk5pr6r"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn status_reports_unconfigured_without_seed() {
+    // A fresh install (no seed yet) reports unconfigured, so onboarding still runs.
+    let (base, _) = spawn_no_seed("status-empty", &[]).await;
+    let resp = client()
+        .get(format!("{base}/status"))
+        .header("Authorization", format!("Bearer {TOKEN}"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let v: serde_json::Value = resp.json().await.unwrap();
+    assert_eq!(v["configured"], false);
+    assert_eq!(v["mining_address"], serde_json::Value::Null);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn forced_import_clears_stale_offer() {
+    // A wallet with a persisted offer, then a force-import of a DIFFERENT seed:
+    // the old offer belonged to the previous wallet, so it must be removed (else
+    // status() would pair the new address with the stale offer).
+    let seed = write_seed("force-clears-offer");
+    let offer_file = seed.with_extension("offer");
+    std::fs::write(&offer_file, "lno1staleofferfromoldwallet").unwrap();
+    assert!(offer_file.exists());
+
+    let base = spawn_with(SeedSource::File(seed.clone()), &[]).await;
+    let resp = client()
+        .post(format!("{base}/import"))
+        .header("Authorization", format!("Bearer {TOKEN}"))
+        .json(&serde_json::json!({ "mnemonic": OTHER_MNEMONIC, "force": true }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    assert!(
+        !offer_file.exists(),
+        "stale offer must be removed when the seed is force-replaced"
+    );
+
+    let _ = std::fs::remove_file(&seed);
 }

@@ -35,6 +35,11 @@ function routeFetch(overrides: Record<string, () => Response> = {}) {
 
 beforeEach(() => {
   S.restart();
+  try {
+    localStorage.clear();
+  } catch {
+    /* jsdom always has localStorage; guard anyway */
+  }
   app.base = "http://x";
   app.token = "tok";
   routeFetch();
@@ -140,6 +145,55 @@ describe("sign gating", () => {
     expect(ok).toBe(false);
     expect(app.error).toMatch(/must contain your offer/i);
     expect(app.signature).toBe("");
+  });
+});
+
+describe("bootstrap (skip the wizard when a wallet exists)", () => {
+  it("lands on the profile when configured + offer + already submitted", async () => {
+    localStorage.setItem(`oceanln:submitted:${ADDR}`, "1"); // completed OCEAN hand-off
+    routeFetch({ "/status": () => json({ configured: true, mining_address: ADDR, offer: OFFER }) });
+    expect(app.surface).toBe("wizard");
+    await S.bootstrap();
+    expect(app.surface).toBe("profile");
+    expect(app.miningAddress).toBe(ADDR);
+    expect(app.offer).toBe(OFFER);
+    expect(app.profile).not.toBeNull();
+  });
+
+  it("resumes at the Sign step when the offer exists but OCEAN wasn't submitted", async () => {
+    // No submitted marker → setup was interrupted before signing; don't strand
+    // the user on a profile with no way to finish OCEAN verification.
+    routeFetch({ "/status": () => json({ configured: true, mining_address: ADDR, offer: OFFER }) });
+    await S.bootstrap();
+    expect(app.surface).toBe("wizard");
+    expect(S.stepKey()).toBe("sign");
+    expect(app.offer).toBe(OFFER); // restored so the sign step has it
+  });
+
+  it("routes to Import (not provisioning) when configured but no offer yet", async () => {
+    // Setup was interrupted (seed exists, /offer never completed). We can't prove
+    // the phrase was backed up, so require re-entry via Import before provisioning
+    // — don't skip the backup and drop the user on an empty profile.
+    routeFetch({ "/status": () => json({ configured: true, mining_address: ADDR, offer: null }) });
+    await S.bootstrap();
+    expect(app.surface).toBe("wizard");
+    expect(S.stepKey()).toBe("phrase");
+    expect(S.isImport()).toBe(true); // must re-supply the recovery phrase
+    expect(app.reuse).toBe(false); // backup/confirm not skipped
+    expect(app.miningAddress).toBe(ADDR);
+    expect(app.offer).toBe(""); // no offer restored
+  });
+
+  it("stays on the wizard for a fresh install (not configured)", async () => {
+    routeFetch({ "/status": () => json({ configured: false }) });
+    await S.bootstrap();
+    expect(app.surface).toBe("wizard");
+  });
+
+  it("stays on the wizard if the server is unreachable", async () => {
+    routeFetch({ "/status": () => new Response("nope", { status: 401 }) });
+    await S.bootstrap();
+    expect(app.surface).toBe("wizard");
   });
 });
 

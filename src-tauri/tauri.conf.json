@@ -1,0 +1,43 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "OCEAN Lightning",
+  "version": "0.3.0",
+  "identifier": "xyz.oceanln.desktop",
+  "build": {
+    "frontendDist": "../oceanln-web/dist",
+    "devUrl": "http://localhost:5173",
+    "beforeDevCommand": "npm --prefix ../oceanln-web run dev",
+    "beforeBuildCommand": "npm --prefix ../oceanln-web run build"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "OCEAN Lightning",
+        "width": 1100,
+        "height": 820,
+        "minWidth": 880,
+        "minHeight": 680,
+        "resizable": true,
+        "fullscreen": false
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: data:; font-src 'self'; connect-src 'self' ipc: http://ipc.localhost https://api.ocean.xyz; object-src 'none'; base-uri 'self'; frame-ancestors 'none'",
+      "devCsp": "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: data:; font-src 'self'; connect-src 'self' ipc: http://ipc.localhost https://api.ocean.xyz ws://localhost:5173 http://localhost:5173; object-src 'none'"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "android": {
+      "debugApplicationIdSuffix": ".debug"
+    }
+  }
+}

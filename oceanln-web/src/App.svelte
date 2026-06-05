@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from "svelte";
   import Icon from "./lib/ui/Icon.svelte";
   import Button from "./lib/ui/Button.svelte";
   import Settings from "./lib/Settings.svelte";
@@ -12,7 +13,7 @@
   import Dashboard from "./lib/Dashboard.svelte";
   import {
     app, STEPS, stepKey, canContinue, continueStep, goBack, railClick,
-    stepState, restart, go, visibleSteps, humanIndex, refreshHealth,
+    stepState, restart, go, visibleSteps, humanIndex, refreshHealth, bootstrap,
   } from "./lib/store.svelte";
 
   const ACCENTS = {
@@ -33,6 +34,11 @@
   $effect(() => {
     void app.base;
     refreshHealth();
+  });
+
+  // On launch, skip the wizard if a wallet is already configured (seed present).
+  onMount(() => {
+    void bootstrap();
   });
 </script>
 

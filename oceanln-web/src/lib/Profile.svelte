@@ -1,6 +1,7 @@
 <script lang="ts">
   import Icon from "./ui/Icon.svelte";
   import Callout from "./ui/Callout.svelte";
+  import StatsGrid from "./StatsGrid.svelte";
   import { app, go, restart, client } from "./store.svelte";
 
   // profile is seeded before navigating here.
@@ -57,6 +58,15 @@
   {#if app.error}
     <Callout kind="danger" icon="warn">{#snippet children()}{app.error}{/snippet}</Callout>
   {/if}
+
+  <!-- Live payout stats — the profile doubles as the control center (stats +
+       profile in one view). Full Lightning view (offer + MCP) is one tap away. -->
+  <div class="pf-section pf-stats">
+    <StatsGrid compact title="Your payout stats" sub="Live from OCEAN" />
+    <button class="pf-stats-link" onclick={() => go("dashboard")}>
+      Open full Lightning dashboard <Icon name="arrowR" size={14} />
+    </button>
+  </div>
 
   <!-- Onchain payout addresses -->
   <div class="pf-section">

@@ -81,8 +81,8 @@ import json, sys
 want_msg = sys.argv[1]
 d = json.load(sys.stdin)
 assert d["message"] == want_msg, "message not signed verbatim"
-assert d["address"].startswith("bc1q"), f"bad address: {d[\"address\"]}"
-assert d["offer"].startswith("lno1"), f"bad offer: {d[\"offer\"]}"
+assert d["address"].startswith("bc1q"), "bad address: " + d["address"]
+assert d["offer"].startswith("lno1"), "bad offer: " + d["offer"]
 assert d["signature"], "empty signature"
 print("        address:   " + d["address"])
 print("        signature: " + d["signature"][:24] + "... (" + str(len(d["signature"])) + " chars)")

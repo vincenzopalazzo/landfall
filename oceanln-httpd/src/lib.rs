@@ -28,15 +28,14 @@ use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::json;
 use tower_http::cors::CorsLayer;
-use zeroize::Zeroize;
 
-use oceanln_common::client::{CreateOfferReq, SidecarClient};
 use oceanln_common::error::{Error, Result};
 use oceanln_common::seed::SeedSource;
-use oceanln_common::sign::{self, MnemonicSecret};
+
+pub mod service;
 
 // ── wallet seam ─────────────────────────────────────────────────
 
@@ -124,18 +123,10 @@ impl From<Error> for ApiError {
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
-        let status = match &self.0 {
-            Error::InvalidOffer(_)
-            | Error::InvalidMnemonic(_)
-            | Error::AddressNotP2wpkh(_)
-            | Error::InvalidBip32Path(_) => StatusCode::BAD_REQUEST,
-            Error::SeedExists { .. } => StatusCode::CONFLICT,
-            Error::SidecarUnreachable { .. } => StatusCode::BAD_GATEWAY,
-            Error::Api { code, .. } => {
-                StatusCode::from_u16(*code).unwrap_or(StatusCode::BAD_GATEWAY)
-            }
-            _ => StatusCode::INTERNAL_SERVER_ERROR,
-        };
+        // Single source of truth for Error → status, shared with the desktop
+        // transport via `service::http_status`.
+        let status = StatusCode::from_u16(service::http_status(&self.0))
+            .unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
         (status, Json(json!({ "error": self.0.to_string() }))).into_response()
     }
 }
@@ -162,71 +153,24 @@ struct PayoutReq {
     path: Option<String>,
 }
 
-#[derive(Serialize)]
-struct PayoutResp {
-    address: String,
-    offer: String,
-    message: String,
-    signature: String,
-}
-
-/// End-to-end payout: resolve the offer, then derive the address and BIP-322
-/// sign the message with the seed read from the configured source. Mirrors the
-/// CLI's `payout` ordering — the offer is resolved before the seed is touched.
+/// Thin adapter over [`service::payout`].
 async fn payout(
     State(state): State<Arc<AppState>>,
     Json(req): Json<PayoutReq>,
-) -> std::result::Result<Json<PayoutResp>, ApiError> {
-    let path = sign::parse_bip32_path(req.path.as_deref().unwrap_or(&state.cfg.default_path))?;
-
-    // 1. Resolve the offer first (the only network call, and only when creating).
-    let offer = match req.offer {
-        Some(offer) => {
-            if !offer.starts_with("lno1") {
-                return Err(Error::InvalidOffer(format!(
-                    "expected a BOLT12 offer starting with 'lno1': {offer}"
-                ))
-                .into());
-            }
-            if !req.message.contains(&offer) {
-                return Err(Error::InvalidOffer(
-                    "offer is not present in message; OCEAN's message must embed the \
-                     offer it authorizes (wrong offer or stale message?)"
-                        .to_string(),
-                )
-                .into());
-            }
-            offer
-        }
-        None => {
-            let client = SidecarClient::new(
-                state.cfg.sidecar_url.clone(),
-                state.cfg.sidecar_credentials.clone(),
-            )?;
-            client
-                .create_offer(CreateOfferReq {
-                    description: req.description.as_deref(),
-                    min_amount: req.min_amount.as_deref(),
-                })
-                .await?
-                .offer
-        }
-    };
-
-    // 2. Read the seed locally, derive the key once, sign, then wipe the key.
-    let secret = state.cfg.seed.load()?;
-    let mnemonic = sign::parse_mnemonic(&secret)?;
-    let mut key = sign::derive_private_key(&mnemonic, &path)?;
-    let address = sign::address_from_key(&key)?;
-    let signature = sign::sign_bip322(&key, &address, &req.message)?;
-    key.inner.non_secure_erase();
-
-    Ok(Json(PayoutResp {
-        address,
-        offer,
-        message: req.message,
-        signature,
-    }))
+) -> std::result::Result<Json<service::PayoutResp>, ApiError> {
+    let resp = service::payout(
+        &state.cfg.seed,
+        &state.cfg.default_path,
+        &state.cfg.sidecar_url,
+        state.cfg.sidecar_credentials.as_deref(),
+        req.message,
+        req.offer,
+        req.description.as_deref(),
+        req.min_amount.as_deref(),
+        req.path.as_deref(),
+    )
+    .await?;
+    Ok(Json(resp))
 }
 
 #[derive(Deserialize)]
@@ -237,26 +181,19 @@ struct OfferReq {
     min_amount: Option<String>,
 }
 
-#[derive(Serialize)]
-struct OfferResp {
-    offer: String,
-}
-
-/// Create a payable BOLT12 offer in-process from the configured seed.
+/// Thin adapter over [`service::create_offer`].
 async fn offer(
     State(state): State<Arc<AppState>>,
     Json(req): Json<OfferReq>,
-) -> std::result::Result<Json<OfferResp>, ApiError> {
-    let secret = state.cfg.seed.load()?;
-    let offer = state
-        .wallet
-        .create_offer(
-            secret.as_str(),
-            req.description.as_deref(),
-            req.min_amount.as_deref(),
-        )
-        .await?;
-    Ok(Json(OfferResp { offer }))
+) -> std::result::Result<Json<service::OfferResp>, ApiError> {
+    let resp = service::create_offer(
+        &state.cfg.seed,
+        state.wallet.as_ref(),
+        req.description.as_deref(),
+        req.min_amount.as_deref(),
+    )
+    .await?;
+    Ok(Json(resp))
 }
 
 #[derive(Deserialize)]
@@ -265,70 +202,39 @@ struct InitReq {
     path: Option<String>,
 }
 
-#[derive(Serialize)]
-struct InitResp {
-    mining_address: String,
-    provisioned: bool,
-}
-
-/// Provision the onchain wallet for the configured seed and return the mining
-/// address to register with OCEAN. Idempotent. Operates on the already-stored
-/// seed — use `/generate` or `/import` first to create one.
+/// Thin adapter over [`service::init`].
 async fn init(
     State(state): State<Arc<AppState>>,
     Json(req): Json<InitReq>,
-) -> std::result::Result<Json<InitResp>, ApiError> {
-    let path = sign::parse_bip32_path(req.path.as_deref().unwrap_or(&state.cfg.default_path))?;
-    let secret = state.cfg.seed.load()?;
-    let mnemonic = sign::parse_mnemonic(&secret)?;
-    let mining_address = sign::derive_address(&mnemonic, &path)?;
-    state.wallet.provision(secret.as_str()).await?;
-    Ok(Json(InitResp {
-        mining_address,
-        provisioned: true,
-    }))
+) -> std::result::Result<Json<service::InitResp>, ApiError> {
+    let resp = service::init(
+        &state.cfg.seed,
+        &state.cfg.default_path,
+        state.wallet.as_ref(),
+        req.path.as_deref(),
+    )
+    .await?;
+    Ok(Json(resp))
 }
 
-#[derive(Serialize)]
-struct GenerateResp {
-    /// The freshly generated 24-word phrase — revealed exactly once so the user
-    /// can back it up. (Persisted server-side; not re-readable afterwards.)
-    mnemonic: String,
-    mining_address: String,
+/// Offline wallet status (does a wallet exist + its address/offer) so a client
+/// can skip onboarding on launch. Touches the seed but makes no network call.
+async fn status(
+    State(state): State<Arc<AppState>>,
+) -> std::result::Result<Json<service::StatusResp>, ApiError> {
+    let resp = service::status(&state.cfg.seed, &state.cfg.default_path)?;
+    Ok(Json(resp))
 }
 
-/// Generate a fresh 24-word recovery phrase, persist it to the configured
-/// seed file, derive the mining address, and reveal the phrase once.
-///
-/// Refuses with 409 if a seed file already exists — there is deliberately no
-/// `force`: generating a new phrase over an existing wallet would irreversibly
-/// destroy it, so replacing a wallet must go through `/import` (an explicit,
-/// user-supplied phrase). Checking existence before generating also means a
-/// refusal never strands a revealed phrase. This relaxes the "seed never
-/// crosses the wire" rule for the generate step; it stays gated by the loopback
-/// bind + bearer token + Origin allowlist.
+/// Thin adapter over [`service::generate`]. The "revealed once" semantics, the
+/// no-`force` rule, and the atomic create all live in the service layer; this
+/// just logs the operator-facing note and serializes.
 async fn generate(
     State(state): State<Arc<AppState>>,
-) -> std::result::Result<Json<GenerateResp>, ApiError> {
-    let dest = state.cfg.seed.path();
-    // Never overwrite an existing wallet from /generate; fail before generating
-    // so a refusal never strands a revealed phrase.
-    if dest.exists() {
-        return Err(Error::SeedExists {
-            path: dest.display().to_string(),
-        }
-        .into());
-    }
-    let path = sign::parse_bip32_path(&state.cfg.default_path)?;
-    let secret = sign::generate_mnemonic()?;
-    let mnemonic = sign::parse_mnemonic(&secret)?;
-    let mining_address = sign::derive_address(&mnemonic, &path)?;
-    sign::store_seed(&secret, Some(dest), false)?;
+) -> std::result::Result<Json<service::GenerateResp>, ApiError> {
+    let resp = service::generate(&state.cfg.seed, &state.cfg.default_path)?;
     eprintln!("oceanln-httpd: generated a new recovery phrase (revealed once via /generate)");
-    Ok(Json(GenerateResp {
-        mnemonic: secret.as_str().to_string(),
-        mining_address,
-    }))
+    Ok(Json(resp))
 }
 
 #[derive(Deserialize)]
@@ -339,27 +245,19 @@ struct ImportReq {
     force: bool,
 }
 
-#[derive(Serialize)]
-struct ImportResp {
-    mining_address: String,
-}
-
-/// Import an existing 24-word phrase: validate it, persist it to the configured
-/// seed file (409 if one already exists unless `force`), and return the derived
-/// mining address. The phrase crosses the wire once, by design.
+/// Thin adapter over [`service::import`]. The phrase crosses the wire once, by
+/// design; the service wipes the buffer after taking a zeroizing copy.
 async fn import(
     State(state): State<Arc<AppState>>,
     Json(mut req): Json<ImportReq>,
-) -> std::result::Result<Json<ImportResp>, ApiError> {
-    let path = sign::parse_bip32_path(&state.cfg.default_path)?;
-    let secret = MnemonicSecret::from_input(&req.mnemonic);
-    // We hold a zeroizing copy now; wipe the request-body phrase. (The transport
-    // buffers upstream are out of our control, but don't keep a second copy.)
-    req.mnemonic.zeroize();
-    let mnemonic = sign::parse_mnemonic(&secret)?; // 400 on a non-24-word phrase
-    let mining_address = sign::derive_address(&mnemonic, &path)?;
-    sign::store_seed(&secret, Some(state.cfg.seed.path()), req.force)?;
-    Ok(Json(ImportResp { mining_address }))
+) -> std::result::Result<Json<service::ImportResp>, ApiError> {
+    let resp = service::import(
+        &state.cfg.seed,
+        &state.cfg.default_path,
+        &mut req.mnemonic,
+        req.force,
+    )?;
+    Ok(Json(resp))
 }
 
 // ── guard middleware ────────────────────────────────────────────
@@ -450,12 +348,13 @@ fn cors_layer(allowed_origins: &[String]) -> CorsLayer {
         .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE])
 }
 
-/// Build the router for `state`: `/health` is open; `/generate`, `/import`,
-/// `/payout`, `/offer`, and `/init` sit behind the [`guard`] (token + origin +
-/// host) and the CORS layer.
+/// Build the router for `state`: `/health` is open; `/status`, `/generate`,
+/// `/import`, `/payout`, `/offer`, and `/init` sit behind the [`guard`] (token +
+/// origin + host) and the CORS layer.
 pub fn build_app(state: Arc<AppState>) -> Router {
     let cors = cors_layer(&state.cfg.allowed_origins);
     let protected = Router::new()
+        .route("/status", get(status))
         .route("/generate", post(generate))
         .route("/import", post(import))
         .route("/payout", post(payout))

@@ -18,6 +18,13 @@ A Cargo workspace with three crates over one shared core:
 `oceanln-common`; neither depends on the other. The CLI keeps its offline,
 in-process path; the server is what a UI talks to.
 
+Two more frontends sit alongside the workspace: `oceanln-web/` (the Svelte
+wizard) and `src-tauri/` (a Tauri desktop shell — its own workspace/Cargo.lock,
+excluded from the root so the core CI stays fast). Both share one orchestration
+core: `oceanln-httpd::service` holds the actual flow (resolve offer → load seed
+→ derive → BIP-322 sign → provision), and the HTTP handlers and the desktop IPC
+commands are thin adapters over it.
+
 ## Build
 
 ```sh
@@ -244,7 +251,8 @@ has a profile (1→n payout addresses linked to offers, reveal phrase) and a
 address(es) — real hashrate, unpaid balance, and the on-chain payouts table (see
 `src/lib/ocean.ts`). The **MCP** panel describes a **local** stdio server
 (`oceanln mcp serve`, not yet built) — nothing hosted or exposed. It's a static
-SPA, structured so a later Tauri shell can bundle it unchanged.
+SPA, bundled unchanged by the Tauri desktop shell (see below); the transport is
+chosen at runtime (`src/lib/api.ts` HTTP vs `src/lib/tauri.ts` IPC).
 
 Run both with the dev script:
 
@@ -266,6 +274,27 @@ must include the Vite origin (`http://localhost:5173`); the bearer token is
 injected via `VITE_OCEANLN_TOKEN` (or pasted into the in-app settings panel).
 The phrase-generation and signing steps work offline; the wallet/offer steps
 need `oceanln-httpd` to reach a Lexe node. `npm run build` emits static assets.
+
+## Desktop app (`src-tauri`)
+
+`src-tauri/` wraps the same `oceanln-web` wizard in a [Tauri](https://tauri.app)
+v2 window. There is **no** HTTP server, loopback port, or bearer token in the
+desktop build: the webview reaches the Rust backend over **native IPC**
+(`#[tauri::command]` ↔ `invoke`), and the seed lives in the OS app-data dir
+(e.g. `~/Library/Application Support/xyz.oceanln.desktop/seed`, `0600`). The
+commands are thin adapters over `oceanln_httpd::service`, so signing/seed logic
+is identical to the HTTP path. The web app picks the transport at runtime via
+`isTauri()`, so the same SPA runs in a browser or the shell unchanged.
+
+```sh
+cargo install tauri-cli --version "^2.0" --locked   # one-time
+cargo tauri dev                                      # from the repo root (finds src-tauri/)
+```
+
+`cargo tauri dev` builds `oceanln-web`, opens the window, and hot-reloads. It's
+its own Cargo workspace (heavy native deps), excluded from the root so the core
+Rust CI is unaffected. Packaged/signed installers and a cross-OS build matrix
+are not wired yet.
 
 ### The Lexe sidecar
 
