@@ -217,6 +217,15 @@ async fn init(
     Ok(Json(resp))
 }
 
+/// Offline wallet status (does a wallet exist + its address/offer) so a client
+/// can skip onboarding on launch. Touches the seed but makes no network call.
+async fn status(
+    State(state): State<Arc<AppState>>,
+) -> std::result::Result<Json<service::StatusResp>, ApiError> {
+    let resp = service::status(&state.cfg.seed, &state.cfg.default_path)?;
+    Ok(Json(resp))
+}
+
 /// Thin adapter over [`service::generate`]. The "revealed once" semantics, the
 /// no-`force` rule, and the atomic create all live in the service layer; this
 /// just logs the operator-facing note and serializes.
@@ -339,12 +348,13 @@ fn cors_layer(allowed_origins: &[String]) -> CorsLayer {
         .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE])
 }
 
-/// Build the router for `state`: `/health` is open; `/generate`, `/import`,
-/// `/payout`, `/offer`, and `/init` sit behind the [`guard`] (token + origin +
-/// host) and the CORS layer.
+/// Build the router for `state`: `/health` is open; `/status`, `/generate`,
+/// `/import`, `/payout`, `/offer`, and `/init` sit behind the [`guard`] (token +
+/// origin + host) and the CORS layer.
 pub fn build_app(state: Arc<AppState>) -> Router {
     let cors = cors_layer(&state.cfg.allowed_origins);
     let protected = Router::new()
+        .route("/status", get(status))
         .route("/generate", post(generate))
         .route("/import", post(import))
         .route("/payout", post(payout))

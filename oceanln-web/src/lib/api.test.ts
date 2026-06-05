@@ -40,6 +40,17 @@ describe("OceanlnClient", () => {
     expect(body.min_amount).toBeUndefined();
   });
 
+  it("status GETs /status with the bearer token", async () => {
+    const f = vi.fn().mockResolvedValue(jsonResponse(200, { configured: true, mining_address: "bc1qx", offer: "lno1x" }));
+    globalThis.fetch = f;
+    const s = await new OceanlnClient("http://x", "tok").status();
+    expect(s.configured).toBe(true);
+    expect(s.mining_address).toBe("bc1qx");
+    const [url, init] = f.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("http://x/status");
+    expect((init.headers as Record<string, string>).Authorization).toBe("Bearer tok");
+  });
+
   it("payout posts message + offer", async () => {
     const f = vi.fn().mockResolvedValue(jsonResponse(200, { address: "bc1q", offer: "lno1", message: "m", signature: "sig" }));
     globalThis.fetch = f;

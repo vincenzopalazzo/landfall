@@ -11,6 +11,7 @@ import {
   type OfferResp,
   type InitResp,
   type PayoutResp,
+  type StatusResp,
 } from "./api";
 
 /// True when running inside the Tauri webview (v2 exposes `__TAURI_INTERNALS__`).
@@ -37,6 +38,9 @@ export class TauriClient implements Backend {
   // In-process: the backend is available as soon as the window is up.
   health(): Promise<boolean> {
     return Promise.resolve(true);
+  }
+  status(): Promise<StatusResp> {
+    return call<StatusResp>("wallet_status");
   }
   generate(): Promise<GenerateResp> {
     return call<GenerateResp>("generate");

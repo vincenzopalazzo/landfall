@@ -30,12 +30,18 @@ export interface PayoutResp {
   message: string;
   signature: string;
 }
+export interface StatusResp {
+  configured: boolean;
+  mining_address?: string | null;
+  offer?: string | null;
+}
 
 /// The operations the wizard needs, independent of transport. The browser uses
 /// `OceanlnClient` (HTTP → oceanln-httpd); the Tauri desktop shell uses
 /// `TauriClient` (native IPC). `store.svelte.ts#client()` picks one at runtime.
 export interface Backend {
   health(): Promise<boolean>;
+  status(): Promise<StatusResp>;
   generate(): Promise<GenerateResp>;
   importSeed(mnemonic: string, force?: boolean): Promise<ImportResp>;
   offer(description?: string, minAmount?: string): Promise<OfferResp>;
@@ -80,6 +86,18 @@ export class OceanlnClient implements Backend {
     return (text ? JSON.parse(text) : {}) as T;
   }
 
+  private async get<T>(path: string): Promise<T> {
+    let resp: Response;
+    try {
+      resp = await fetch(this.base + path, {
+        headers: { Authorization: `Bearer ${this.token}` },
+      });
+    } catch (e) {
+      throw new ApiError(0, `cannot reach the server at ${this.base} — is oceanln-httpd running?`);
+    }
+    return this.parse<T>(resp);
+  }
+
   async health(): Promise<boolean> {
     try {
       const r = await fetch(this.base + "/health");
@@ -87,6 +105,10 @@ export class OceanlnClient implements Backend {
     } catch {
       return false;
     }
+  }
+
+  status(): Promise<StatusResp> {
+    return this.get<StatusResp>("/status");
   }
 
   generate(): Promise<GenerateResp> {

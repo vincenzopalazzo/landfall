@@ -164,6 +164,28 @@ export async function refreshHealth() {
   app.serverUp = await client().health();
 }
 
+// Run once on launch: if a wallet is already configured (seed present), skip the
+// onboarding wizard and land on the profile with the restored address + offer.
+// A fresh install (or an unreachable/unauthenticated server) just stays on the
+// wizard, so first-run onboarding is unaffected.
+export async function bootstrap() {
+  try {
+    const s = await client().status();
+    if (s.configured && s.mining_address) {
+      app.miningAddress = s.mining_address;
+      if (s.offer) app.offer = s.offer;
+      if (!app.offerDescription.trim()) {
+        app.offerDescription = `OCEAN Payouts for ${s.mining_address}`;
+      }
+      app.reuse = true; // skip the create-only reveal/confirm steps if they go back
+      seedProfile();
+      app.surface = "profile";
+    }
+  } catch {
+    /* not configured / unreachable / no token → stay on the wizard */
+  }
+}
+
 export async function generateWallet() {
   app.busy = true;
   app.error = "";

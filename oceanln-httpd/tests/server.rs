@@ -370,3 +370,41 @@ async fn generate_requires_token() {
         .unwrap();
     assert_eq!(resp.status(), 401);
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn status_reports_configured_wallet_offline() {
+    // A configured wallet: /status returns the derived address with no Lexe call,
+    // so a frontend can skip onboarding on launch. Seed must not leak.
+    let base = spawn("status-configured", &[]).await;
+    let resp = client()
+        .get(format!("{base}/status"))
+        .header("Authorization", format!("Bearer {TOKEN}"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let body = resp.text().await.unwrap();
+    assert!(!body.contains("music mystery deliver"), "status leaked the seed");
+    let v: serde_json::Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(v["configured"], true);
+    assert_eq!(
+        v["mining_address"],
+        "bc1qpstw48j7j9gjugw25jmjvd96jlwgdnedk5pr6r"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn status_reports_unconfigured_without_seed() {
+    // A fresh install (no seed yet) reports unconfigured, so onboarding still runs.
+    let (base, _) = spawn_no_seed("status-empty", &[]).await;
+    let resp = client()
+        .get(format!("{base}/status"))
+        .header("Authorization", format!("Bearer {TOKEN}"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let v: serde_json::Value = resp.json().await.unwrap();
+    assert_eq!(v["configured"], false);
+    assert_eq!(v["mining_address"], serde_json::Value::Null);
+}

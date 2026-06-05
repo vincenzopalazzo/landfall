@@ -46,6 +46,11 @@ struct DesktopState {
 }
 
 #[tauri::command]
+fn wallet_status(state: tauri::State<'_, DesktopState>) -> Result<service::StatusResp, CommandError> {
+    service::status(&state.seed, &state.default_path).map_err(Into::into)
+}
+
+#[tauri::command]
 fn generate(state: tauri::State<'_, DesktopState>) -> Result<service::GenerateResp, CommandError> {
     service::generate(&state.seed, &state.default_path).map_err(Into::into)
 }
@@ -141,6 +146,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            wallet_status,
             generate,
             import_seed,
             create_offer,

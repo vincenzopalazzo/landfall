@@ -8,6 +8,8 @@
 //! signing key wiped right after use, and the atomic `O_EXCL` seed create — live
 //! in exactly one audited place rather than being duplicated per transport.
 
+use std::path::PathBuf;
+
 use serde::Serialize;
 use zeroize::Zeroize;
 
@@ -49,6 +51,17 @@ pub struct GenerateResp {
 #[derive(Serialize)]
 pub struct ImportResp {
     pub mining_address: String,
+}
+
+#[derive(Serialize)]
+pub struct StatusResp {
+    /// Whether a wallet seed is already configured (so a frontend can skip
+    /// onboarding and go straight to the profile/dashboard on launch).
+    pub configured: bool,
+    /// Derived offline from the seed; `None` when not configured.
+    pub mining_address: Option<String>,
+    /// The persisted primary BOLT12 offer, if one was created.
+    pub offer: Option<String>,
 }
 
 /// Map a shared [`Error`] to an HTTP-style status code.
@@ -148,7 +161,52 @@ pub async fn create_offer(
     let offer = wallet
         .create_offer(secret.as_str(), description, min_amount)
         .await?;
+    // Persist as the primary offer so a restart can restore the configured
+    // wallet without re-running the wizard (and without re-hitting Lexe).
+    write_offer(seed, &offer);
     Ok(OfferResp { offer })
+}
+
+/// Sibling of the seed file (e.g. `…/seed` → `…/seed.offer`). The offer is a
+/// public payment destination, not a secret, so it needs no special perms.
+fn offer_path(seed: &SeedSource) -> PathBuf {
+    seed.path().with_extension("offer")
+}
+
+/// The persisted primary BOLT12 offer, if one was created.
+pub fn read_offer(seed: &SeedSource) -> Option<String> {
+    std::fs::read_to_string(offer_path(seed))
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
+fn write_offer(seed: &SeedSource, offer: &str) {
+    // Best-effort: a write failure only means the offer won't be auto-restored
+    // after a restart, not that anything breaks.
+    let _ = std::fs::write(offer_path(seed), offer);
+}
+
+/// Offline wallet status: whether a seed is configured and, if so, the derived
+/// mining address + persisted offer. No Lexe/network — safe to call on launch
+/// so the frontend can skip onboarding when a wallet already exists.
+pub fn status(seed: &SeedSource, default_path: &str) -> Result<StatusResp> {
+    if !seed.path().exists() {
+        return Ok(StatusResp {
+            configured: false,
+            mining_address: None,
+            offer: None,
+        });
+    }
+    let path = sign::parse_bip32_path(default_path)?;
+    let secret = seed.load()?;
+    let mnemonic = sign::parse_mnemonic(&secret)?;
+    let mining_address = sign::derive_address(&mnemonic, &path)?;
+    Ok(StatusResp {
+        configured: true,
+        mining_address: Some(mining_address),
+        offer: read_offer(seed),
+    })
 }
 
 /// Provision the onchain wallet for the configured seed and return the mining

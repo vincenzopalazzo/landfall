@@ -35,6 +35,14 @@ describe("TauriClient (desktop IPC transport)", () => {
     expect(err.message).toBe("seed exists");
   });
 
+  it("status invokes wallet_status (skip-the-wizard check)", async () => {
+    invokeMock.mockResolvedValueOnce({ configured: true, mining_address: "bc1qx", offer: "lno1x" });
+    const s = await new TauriClient().status();
+    expect(invokeMock.mock.calls[0][0]).toBe("wallet_status");
+    expect(s.configured).toBe(true);
+    expect(s.mining_address).toBe("bc1qx");
+  });
+
   it("import_seed forwards the phrase + force flag", async () => {
     invokeMock.mockResolvedValueOnce({ mining_address: "bc1qxyz" });
     await new TauriClient().importSeed("word1 word2", true);

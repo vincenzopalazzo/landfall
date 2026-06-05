@@ -143,6 +143,30 @@ describe("sign gating", () => {
   });
 });
 
+describe("bootstrap (skip the wizard when a wallet exists)", () => {
+  it("lands on the profile and restores address + offer when configured", async () => {
+    routeFetch({ "/status": () => json({ configured: true, mining_address: ADDR, offer: OFFER }) });
+    expect(app.surface).toBe("wizard");
+    await S.bootstrap();
+    expect(app.surface).toBe("profile");
+    expect(app.miningAddress).toBe(ADDR);
+    expect(app.offer).toBe(OFFER);
+    expect(app.profile).not.toBeNull();
+  });
+
+  it("stays on the wizard for a fresh install (not configured)", async () => {
+    routeFetch({ "/status": () => json({ configured: false }) });
+    await S.bootstrap();
+    expect(app.surface).toBe("wizard");
+  });
+
+  it("stays on the wizard if the server is unreachable", async () => {
+    routeFetch({ "/status": () => new Response("nope", { status: 401 }) });
+    await S.bootstrap();
+    expect(app.surface).toBe("wizard");
+  });
+});
+
 describe("OCEAN hand-off", () => {
   it("markSubmittedToOcean is a local ack, not a fake network verify", () => {
     expect(app.submitted).toBe(false);
