@@ -1,0 +1,60 @@
+// Desktop transport: when running inside the Tauri shell, the wizard reaches the
+// Rust backend over native IPC (`invoke`) instead of HTTP. No base URL, no bearer
+// token — the commands run in-process. Selected by `store.svelte.ts#client()`.
+
+import { invoke } from "@tauri-apps/api/core";
+import {
+  ApiError,
+  type Backend,
+  type GenerateResp,
+  type ImportResp,
+  type OfferResp,
+  type InitResp,
+  type PayoutResp,
+} from "./api";
+
+/// True when running inside the Tauri webview (v2 exposes `__TAURI_INTERNALS__`).
+export function isTauri(): boolean {
+  return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+}
+
+// Tauri commands return `Err(CommandError { status, message })`; `invoke` rejects
+// with that serialized object. Map it back to `ApiError` so the store's status
+// checks (notably 409 → "wallet exists") behave identically to the HTTP path.
+async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+  try {
+    return await invoke<T>(cmd, args);
+  } catch (e) {
+    if (e && typeof e === "object" && "status" in e) {
+      const ce = e as { status: number; message?: string };
+      throw new ApiError(ce.status, ce.message ?? `command ${cmd} failed`);
+    }
+    throw new ApiError(0, e instanceof Error ? e.message : String(e));
+  }
+}
+
+export class TauriClient implements Backend {
+  // In-process: the backend is available as soon as the window is up.
+  health(): Promise<boolean> {
+    return Promise.resolve(true);
+  }
+  generate(): Promise<GenerateResp> {
+    return call<GenerateResp>("generate");
+  }
+  importSeed(mnemonic: string, force = false): Promise<ImportResp> {
+    return call<ImportResp>("import_seed", { mnemonic, force });
+  }
+  offer(description?: string, minAmount?: string): Promise<OfferResp> {
+    // camelCase keys map to the Rust command's snake_case args (Tauri v2).
+    return call<OfferResp>("create_offer", {
+      description: description || null,
+      minAmount: minAmount || null,
+    });
+  }
+  init(): Promise<InitResp> {
+    return call<InitResp>("init_wallet", { path: null });
+  }
+  payout(message: string, offer: string): Promise<PayoutResp> {
+    return call<PayoutResp>("payout", { message, offer });
+  }
+}

@@ -1,4 +1,5 @@
-import { OceanlnClient, ApiError } from "./api";
+import { OceanlnClient, ApiError, type Backend } from "./api";
+import { TauriClient, isTauri } from "./tauri";
 import { DEFAULT_BASE, DEFAULT_TOKEN } from "./config";
 
 export type Surface = "wizard" | "profile" | "dashboard";
@@ -78,8 +79,10 @@ export const app = $state({
   error: "",
 });
 
-export function client(): OceanlnClient {
-  return new OceanlnClient(app.base.replace(/\/$/, ""), app.token);
+// Pick the transport at runtime: native IPC under the Tauri desktop shell (no
+// base URL / token), HTTP to oceanln-httpd in the browser.
+export function client(): Backend {
+  return isTauri() ? new TauriClient() : new OceanlnClient(app.base.replace(/\/$/, ""), app.token);
 }
 
 export const guided = () => app.density === "guided";

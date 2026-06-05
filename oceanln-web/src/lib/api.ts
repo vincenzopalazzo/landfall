@@ -31,7 +31,19 @@ export interface PayoutResp {
   signature: string;
 }
 
-export class OceanlnClient {
+/// The operations the wizard needs, independent of transport. The browser uses
+/// `OceanlnClient` (HTTP → oceanln-httpd); the Tauri desktop shell uses
+/// `TauriClient` (native IPC). `store.svelte.ts#client()` picks one at runtime.
+export interface Backend {
+  health(): Promise<boolean>;
+  generate(): Promise<GenerateResp>;
+  importSeed(mnemonic: string, force?: boolean): Promise<ImportResp>;
+  offer(description?: string, minAmount?: string): Promise<OfferResp>;
+  init(): Promise<InitResp>;
+  payout(message: string, offer: string): Promise<PayoutResp>;
+}
+
+export class OceanlnClient implements Backend {
   constructor(
     private base: string,
     private token: string,
