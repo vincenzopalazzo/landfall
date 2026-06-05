@@ -165,7 +165,19 @@
     if (hps >= 1e6) return { v: (hps / 1e6).toFixed(2), u: "Mh/s" };
     return { v: fmtInt(hps), u: "h/s" };
   }
-  const hr5 = $derived(fmtHr(hr300));
+  // Headline hashrate: show the shortest window that has data (5m → 1h → 24h),
+  // labeled with that window. An intermittently-active miner (e.g. shares this
+  // hour but none in the last 5m) otherwise reads a misleading "0 h/s" here even
+  // though OCEAN's site shows a non-zero longer-window average.
+  const headlineHr = $derived(
+    hr300 > 0
+      ? { label: "Hashrate (5m)", ...fmtHr(hr300) }
+      : hr3600 > 0
+        ? { label: "Hashrate (1h)", ...fmtHr(hr3600) }
+        : hr86400 > 0
+          ? { label: "Hashrate (24h)", ...fmtHr(hr86400) }
+          : { label: "Hashrate (5m)", ...fmtHr(0) },
+  );
 
   function relTime(sec: number): string {
     if (!sec) return "—";
@@ -216,7 +228,7 @@
 {/if}
 
 <div class="db-stats">
-  <div class="db-stat"><div class="l">Hashrate (5m)</div><div class="v">{hr5.v}<span class="u">{hr5.u}</span></div></div>
+  <div class="db-stat"><div class="l">{headlineHr.label}</div><div class="v">{headlineHr.v}<span class="u">{headlineHr.u}</span></div></div>
   <div class="db-stat"><div class="l">Unpaid</div><div class="v accent">{fmtSats(unpaidSats)}<span class="u">sats</span></div></div>
   <div class="db-stat"><div class="l">Total paid</div><div class="v">{fmtSats(totalPaidSats)}<span class="u">sats</span></div></div>
   <div class="db-stat"><div class="l">Est. next block</div><div class="v">{fmtSats(estNextSats)}<span class="u">sats</span></div></div>

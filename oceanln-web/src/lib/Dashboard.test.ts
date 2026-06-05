@@ -44,6 +44,25 @@ describe("Dashboard (live OCEAN data)", () => {
     expect(screen.getByText(/1\.50 Th\/s/)).toBeInTheDocument(); // hashrate_3600s
   });
 
+  it("headlines a longer window when the 5m hashrate is zero (intermittent miner)", async () => {
+    // Real case: idle the last 5m (hashrate_300s=0) but mined this hour. The
+    // headline must show the 1h hashrate, not a misleading "0 h/s".
+    globalThis.fetch = vi.fn(async (url: string | URL | Request) => {
+      const u = String(url);
+      if (u.includes("/statsnap/"))
+        return res({ result: { snap_ts: "1700000000", hashrate_60s: "0", hashrate_300s: "0", shares_in_tides: "262144", estimated_payout_next_block: "0", unpaid: "0", lastest_share_ts: "1700000000" } });
+      if (u.includes("/user_hashrate/"))
+        return res({ result: { snap_ts: "1", db_ts: "1", hashrate_60s: "0", hashrate_300s: "0", hashrate_600s: "0", hashrate_1800s: "0", hashrate_3600s: "625500000000", hashrate_10800s: "0", hashrate_43200s: "0", hashrate_86400s: "0", active_worker_count: 0, lastest_share_ts: "1700000000" } });
+      if (u.includes("/earnpay/")) return res({ result: { earnings: [], payouts: [] } });
+      if (u.includes("/pool_stat")) return res({ result: { active_users: "1" } });
+      return new Response("not found", { status: 404 });
+    }) as typeof fetch;
+    render(Dashboard);
+    expect(await screen.findByText("Hashrate (1h)")).toBeInTheDocument(); // adaptive label
+    expect(screen.getByText("625.50")).toBeInTheDocument(); // 1h value, not 0
+    expect(screen.queryByText("Hashrate (5m)")).toBeNull();
+  });
+
   it("flags a payout-history failure instead of silently showing 'no payouts'", async () => {
     // statsnap succeeds but earnpay genuinely fails: the payouts table must say
     // it couldn't load, not imply an accurate empty history.
