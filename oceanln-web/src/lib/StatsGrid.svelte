@@ -2,11 +2,12 @@
   // Live OCEAN payout stats + recent payouts, keyed by the user's payout
   // address(es). Self-loading and reusable: the full Lightning dashboard renders
   // it expanded; the Profile renders it `compact` so stats sit next to the
-  // profile ("home / control center" — see the Console design). Data is the real
-  // public OCEAN API (see ocean.ts), not mock values.
+  // profile ("home / control center" — see the Console design). Every value is
+  // the real public OCEAN API (statsnap + earnpay + user_hashrate + pool_stat,
+  // see ocean.ts) — no mock data.
   import Icon from "./ui/Icon.svelte";
   import { app } from "./store.svelte";
-  import { ocean, btcToSats, hashesToThs, num, type Payout, type PoolStat } from "./ocean";
+  import { ocean, btcToSats, num, type Payout, type PoolStat } from "./ocean";
 
   let {
     compact = false,
@@ -17,13 +18,22 @@
   let loading = $state(true);
   let netError = $state("");
   let payoutsError = $state(false); // earnpay failed (independently of statsnap)
+  // statsnap-derived
+  let hr300 = $state(0); // hashes/sec, 5m window
   let unpaidSats = $state(0);
-  let totalPaidSats = $state(0);
   let estNextSats = $state(0);
-  let hashrateThs = $state(0);
-  let active = $state(false);
+  let tidesShares = $state(0);
+  // user_hashrate-derived (richer: longer windows + live worker count)
+  let workers = $state(0);
+  let hr3600 = $state(0); // 1h
+  let hr86400 = $state(0); // 24h
+  let lastShareTs = $state(0);
+  // earnpay-derived
+  let totalPaidSats = $state(0);
   let payouts = $state<Payout[]>([]);
+  // pool context
   let pool = $state<PoolStat | null>(null);
+  let active = $state(false);
 
   function addresses(): string[] {
     const fromProfile = (app.profile?.addresses ?? [])
@@ -50,30 +60,49 @@
     netError = "";
     payoutsError = false;
     try {
-      const [snaps, eps] = await Promise.all([
+      const [snaps, eps, hrs] = await Promise.all([
         Promise.allSettled(addrs.map((a) => ocean.statsnap(a))),
         Promise.allSettled(addrs.map((a) => ocean.earnpay(a))),
+        Promise.allSettled(addrs.map((a) => ocean.userHashrate(a))),
       ]);
       if (myId !== reqId) return; // superseded
 
+      // statsnap: balances, 5m hashrate, TIDES shares, last share.
       let unpaid = 0,
-        hr = 0,
-        est = 0;
-      // Track stats and payout failures separately: earnpay can fail while
-      // statsnap succeeds (and vice versa), and each drives a different state.
-      let statFail = false,
-        payoutFail = false;
+        est = 0,
+        tides = 0,
+        h5 = 0,
+        lastShare = 0,
+        statFail = false;
       for (const s of snaps) {
         if (s.status === "fulfilled") {
           unpaid += btcToSats(s.value.unpaid);
-          hr += hashesToThs(s.value.hashrate_300s);
           est += btcToSats(s.value.estimated_payout_next_block);
+          tides += num(s.value.shares_in_tides);
+          h5 += num(s.value.hashrate_300s);
+          lastShare = Math.max(lastShare, num(s.value.lastest_share_ts));
         } else if (!isNoSuchUser(s.reason)) {
           statFail = true;
         }
       }
 
+      // user_hashrate: live worker count + longer windows. Best-effort — a
+      // brand-new address with no history can 404 here; that just yields zeros.
+      let wk = 0,
+        h1h = 0,
+        h24h = 0;
+      for (const h of hrs) {
+        if (h.status === "fulfilled") {
+          wk += h.value.active_worker_count | 0;
+          h1h += num(h.value.hashrate_3600s);
+          h24h += num(h.value.hashrate_86400s);
+          lastShare = Math.max(lastShare, num(h.value.lastest_share_ts));
+        }
+      }
+
+      // earnpay: payout history.
       const all: Payout[] = [];
+      let payoutFail = false;
       for (const e of eps) {
         if (e.status === "fulfilled") all.push(...(e.value.payouts ?? []));
         else if (!isNoSuchUser(e.reason)) payoutFail = true;
@@ -81,11 +110,16 @@
       all.sort((a, b) => num(b.ts) - num(a.ts));
 
       unpaidSats = unpaid;
-      hashrateThs = hr;
       estNextSats = est;
+      tidesShares = tides;
+      hr300 = h5;
+      lastShareTs = lastShare;
+      workers = wk;
+      hr3600 = h1h;
+      hr86400 = h24h;
       payouts = all;
       totalPaidSats = all.reduce((sum, p) => sum + num(p.total_satoshis_net_paid), 0);
-      active = hr > 0;
+      active = wk > 0 || h5 > 0;
 
       // Only a genuine network/server failure is an error; "no such user yet"
       // (a brand-new address with no OCEAN history) renders as an empty state.
@@ -121,6 +155,26 @@
 
   const rowLimit = $derived(compact ? 5 : 12);
   const fmtSats = (n: number) => n.toLocaleString("en-US");
+  const fmtInt = (n: number) => Math.round(n).toLocaleString("en-US");
+
+  // Adaptive hashrate unit so small miners don't read "0.00 Th/s". Value and
+  // unit are separate nodes so callers can style the unit.
+  function fmtHr(hps: number): { v: string; u: string } {
+    if (hps >= 1e12) return { v: (hps / 1e12).toFixed(2), u: "Th/s" };
+    if (hps >= 1e9) return { v: (hps / 1e9).toFixed(2), u: "Gh/s" };
+    if (hps >= 1e6) return { v: (hps / 1e6).toFixed(2), u: "Mh/s" };
+    return { v: fmtInt(hps), u: "h/s" };
+  }
+  const hr5 = $derived(fmtHr(hr300));
+
+  function relTime(sec: number): string {
+    if (!sec) return "—";
+    const d = Math.max(0, Math.floor(Date.now() / 1000 - sec));
+    if (d < 90) return `${d}s ago`;
+    if (d < 5400) return `${Math.round(d / 60)}m ago`;
+    if (d < 129600) return `${Math.round(d / 3600)}h ago`;
+    return `${Math.round(d / 86400)}d ago`;
+  }
   function fmtTs(ts: string | number): string {
     const ms = typeof ts === "number" || /^\d+$/.test(String(ts)) ? Number(ts) * 1000 : Date.parse(String(ts));
     const d = new Date(ms);
@@ -138,7 +192,9 @@
     {/if}
     <p class="sub">
       {sub}
-      {#if pool}· <span style="color:#52525b">{Number(pool.active_users).toLocaleString()} miners on the pool</span>{/if}
+      {#if pool}
+        · <span style="color:#52525b">{fmtInt(num(pool.active_users))} miners · diff {(num(pool.network_difficulty) / 1e12).toFixed(1)}T · block reward {num(pool.current_estimated_block_reward).toFixed(3)} BTC</span>
+      {/if}
     </p>
   </div>
   <div style="display:flex;align-items:center;gap:10px">
@@ -160,10 +216,19 @@
 {/if}
 
 <div class="db-stats">
-  <div class="db-stat"><div class="l">Hashrate (5m)</div><div class="v">{hashrateThs.toFixed(2)}<span class="u">Th/s</span></div></div>
+  <div class="db-stat"><div class="l">Hashrate (5m)</div><div class="v">{hr5.v}<span class="u">{hr5.u}</span></div></div>
   <div class="db-stat"><div class="l">Unpaid</div><div class="v accent">{fmtSats(unpaidSats)}<span class="u">sats</span></div></div>
   <div class="db-stat"><div class="l">Total paid</div><div class="v">{fmtSats(totalPaidSats)}<span class="u">sats</span></div></div>
   <div class="db-stat"><div class="l">Est. next block</div><div class="v">{fmtSats(estNextSats)}<span class="u">sats</span></div></div>
+</div>
+
+<!-- Secondary real metrics from user_hashrate + statsnap. -->
+<div class="db-substats">
+  <span class="ss"><span class="ss-l">Workers</span><span class="ss-v">{fmtInt(workers)}</span></span>
+  <span class="ss"><span class="ss-l">1h avg</span><span class="ss-v">{fmtHr(hr3600).v} {fmtHr(hr3600).u}</span></span>
+  <span class="ss"><span class="ss-l">24h avg</span><span class="ss-v">{fmtHr(hr86400).v} {fmtHr(hr86400).u}</span></span>
+  <span class="ss"><span class="ss-l">TIDES shares</span><span class="ss-v">{fmtInt(tidesShares)}</span></span>
+  <span class="ss"><span class="ss-l">Last share</span><span class="ss-v">{relTime(lastShareTs)}</span></span>
 </div>
 
 <div class="db-panel">

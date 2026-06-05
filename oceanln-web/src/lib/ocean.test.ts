@@ -27,6 +27,17 @@ describe("ocean client", () => {
     expect(String(f.mock.calls[0][0])).toContain("/earnpay/bc1qaddr");
   });
 
+  it("user_hashrate returns the live worker count + windows", async () => {
+    const f = vi.fn().mockResolvedValue(
+      res({ result: { hashrate_300s: "0", hashrate_3600s: "312749974123", active_worker_count: 0, lastest_share_ts: "1780646046" } }),
+    );
+    globalThis.fetch = f;
+    const h = await ocean.userHashrate("bc1qaddr");
+    expect(h.active_worker_count).toBe(0);
+    expect(h.hashrate_3600s).toBe("312749974123");
+    expect(String(f.mock.calls[0][0])).toContain("/user_hashrate/bc1qaddr");
+  });
+
   it("converts BTC→sats and hashes/sec→Th/s", () => {
     expect(btcToSats("0.00004845")).toBe(4845);
     expect(hashesToThs("1000000000000")).toBe(1);
