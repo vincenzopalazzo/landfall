@@ -182,14 +182,22 @@ pub fn read_offer(seed: &SeedSource) -> Option<String> {
 }
 
 fn write_offer(seed: &SeedSource, offer: &str) {
-    // Best-effort: a write failure only means the offer won't be auto-restored
-    // after a restart, not that anything breaks.
+    // Best-effort, and deliberately written with default perms (0644, not the
+    // seed's 0600): a BOLT12 offer is a public payment destination, not a
+    // secret, so world-readable is intentional. A write failure only means the
+    // offer won't be auto-restored after a restart, not that anything breaks.
     let _ = std::fs::write(offer_path(seed), offer);
 }
 
 /// Offline wallet status: whether a seed is configured and, if so, the derived
 /// mining address + persisted offer. No Lexe/network — safe to call on launch
 /// so the frontend can skip onboarding when a wallet already exists.
+///
+/// `configured` means *a seed file exists*, not that the wallet has been
+/// provisioned on Lexe. The wizard always provisions during setup, so the only
+/// way to reach a configured-but-unprovisioned state is `/import` without a
+/// later `/init`; such a wallet still reports `configured: true` (its address
+/// derives fine offline) but will have no persisted offer.
 pub fn status(seed: &SeedSource, default_path: &str) -> Result<StatusResp> {
     if !seed.path().exists() {
         return Ok(StatusResp {
