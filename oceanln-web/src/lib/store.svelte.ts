@@ -164,15 +164,31 @@ export async function refreshHealth() {
   app.serverUp = await client().health();
 }
 
+// Local "submitted to OCEAN" marker, keyed by payout address. This is a
+// cosmetic completion flag (OCEAN verifies the signature on its own side); the
+// signature itself isn't persisted, so if the marker is ever lost the user is
+// simply routed to re-sign, which is harmless. Kept in localStorage rather than
+// a backend file because it's per-user UX state, not a wallet artifact.
+function submittedKey(addr: string): string {
+  return `oceanln:submitted:${addr}`;
+}
+function isSubmitted(addr: string): boolean {
+  try {
+    return typeof localStorage !== "undefined" && localStorage.getItem(submittedKey(addr)) === "1";
+  } catch {
+    return false;
+  }
+}
+
 // Run once on launch, branching on how complete the existing wallet is:
-//   - seed + offer  → fully set up, land on the profile (reuse: skip reveal/confirm).
-//   - seed, NO offer → setup was interrupted. We can't prove the recovery phrase
-//     was ever backed up (it isn't held in this session, and re-revealing the
-//     persisted seed isn't something we do), so DON'T skip the backup and jump
-//     to provisioning — that would let a generated-but-never-backed-up wallet
-//     start receiving payouts with no recoverable backup. Route to Import: the
-//     user re-supplies their 24 words (idempotent if it matches the stored
-//     seed), which proves they hold the backup before we provision.
+//   - seed + offer + submitted → fully set up, land on the profile.
+//   - seed + offer, NOT submitted → the offer was created but OCEAN's message was
+//     never signed/submitted (app closed mid-setup). The profile doesn't expose
+//     the signing flow, so resume at the Sign step instead of stranding them.
+//   - seed, NO offer → setup was interrupted before provisioning. We can't prove
+//     the recovery phrase was backed up (not held in this session), so route to
+//     Import: re-supplying the 24 words (idempotent if it matches the stored
+//     seed) proves the backup before we provision.
 //   - no seed (or unreachable/unauthorized) → fresh onboarding from the top.
 export async function bootstrap() {
   try {
@@ -185,8 +201,16 @@ export async function bootstrap() {
         app.offerDescription = `OCEAN Payouts for ${s.mining_address}`;
       }
       app.reuse = true; // skip the create-only reveal/confirm steps
-      seedProfile();
-      app.surface = "profile";
+      if (isSubmitted(s.mining_address)) {
+        app.submitted = true;
+        seedProfile();
+        app.surface = "profile";
+      } else {
+        // Finish OCEAN verification: resume at the Sign step (offer + address
+        // restored; the user pastes OCEAN's message and signs).
+        app.surface = "wizard";
+        app.stepIndex = STEPS.findIndex((st) => st.key === "sign");
+      }
     } else {
       // Require the recovery phrase before provisioning an un-finished wallet.
       app.reuse = false;
@@ -306,6 +330,13 @@ export async function signForOcean(): Promise<boolean> {
 // once it accepts your signature" success screen.
 export function markSubmittedToOcean() {
   app.submitted = true;
+  // Persist the completion marker so a relaunch lands on the profile rather than
+  // resuming the Sign step (see bootstrap).
+  try {
+    localStorage?.setItem(submittedKey(app.miningAddress), "1");
+  } catch {
+    /* localStorage unavailable — non-fatal; worst case is re-signing on restart */
+  }
 }
 
 // ── post-setup profile ──

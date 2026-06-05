@@ -231,6 +231,34 @@ async fn offer_endpoint_uses_wallet_provider() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn create_offer_preserves_existing_primary() {
+    // A primary offer is already persisted (onboarding). Minting another offer
+    // (Profile "New offer") must NOT overwrite it, or a restart would restore a
+    // secondary offer as the primary payout offer.
+    let seed = write_seed("preserve-primary");
+    let offer_file = seed.with_extension("offer");
+    std::fs::write(&offer_file, "lno1primaryfromonboarding").unwrap();
+
+    let base = spawn_with(SeedSource::File(seed.clone()), &[]).await;
+    let resp = client()
+        .post(format!("{base}/offer"))
+        .header("Authorization", format!("Bearer {TOKEN}"))
+        .json(&serde_json::json!({ "description": "an extra offer" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    assert_eq!(
+        std::fs::read_to_string(&offer_file).unwrap().trim(),
+        "lno1primaryfromonboarding",
+        "minting an extra offer must not overwrite the persisted primary"
+    );
+
+    let _ = std::fs::remove_file(&seed);
+    let _ = std::fs::remove_file(&offer_file);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn init_endpoint_provisions_and_returns_address() {
     let base = spawn("init", &[]).await;
     let resp = client()

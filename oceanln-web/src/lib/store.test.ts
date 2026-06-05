@@ -35,6 +35,11 @@ function routeFetch(overrides: Record<string, () => Response> = {}) {
 
 beforeEach(() => {
   S.restart();
+  try {
+    localStorage.clear();
+  } catch {
+    /* jsdom always has localStorage; guard anyway */
+  }
   app.base = "http://x";
   app.token = "tok";
   routeFetch();
@@ -144,7 +149,8 @@ describe("sign gating", () => {
 });
 
 describe("bootstrap (skip the wizard when a wallet exists)", () => {
-  it("lands on the profile and restores address + offer when configured", async () => {
+  it("lands on the profile when configured + offer + already submitted", async () => {
+    localStorage.setItem(`oceanln:submitted:${ADDR}`, "1"); // completed OCEAN hand-off
     routeFetch({ "/status": () => json({ configured: true, mining_address: ADDR, offer: OFFER }) });
     expect(app.surface).toBe("wizard");
     await S.bootstrap();
@@ -152,6 +158,16 @@ describe("bootstrap (skip the wizard when a wallet exists)", () => {
     expect(app.miningAddress).toBe(ADDR);
     expect(app.offer).toBe(OFFER);
     expect(app.profile).not.toBeNull();
+  });
+
+  it("resumes at the Sign step when the offer exists but OCEAN wasn't submitted", async () => {
+    // No submitted marker → setup was interrupted before signing; don't strand
+    // the user on a profile with no way to finish OCEAN verification.
+    routeFetch({ "/status": () => json({ configured: true, mining_address: ADDR, offer: OFFER }) });
+    await S.bootstrap();
+    expect(app.surface).toBe("wizard");
+    expect(S.stepKey()).toBe("sign");
+    expect(app.offer).toBe(OFFER); // restored so the sign step has it
   });
 
   it("routes to Import (not provisioning) when configured but no offer yet", async () => {

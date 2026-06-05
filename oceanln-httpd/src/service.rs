@@ -161,9 +161,13 @@ pub async fn create_offer(
     let offer = wallet
         .create_offer(secret.as_str(), description, min_amount)
         .await?;
-    // Persist as the primary offer so a restart can restore the configured
-    // wallet without re-running the wizard (and without re-hitting Lexe).
-    write_offer(seed, &offer);
+    // Persist only the FIRST (onboarding) offer as the primary one OCEAN is
+    // configured with, so a restart restores it. Don't overwrite it when the
+    // user mints additional offers later (Profile "New offer"), or a restart
+    // would restore a secondary offer as the primary payout offer.
+    if read_offer(seed).is_none() {
+        write_offer(seed, &offer);
+    }
     Ok(OfferResp { offer })
 }
 
