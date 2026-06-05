@@ -384,7 +384,10 @@ async fn status_reports_configured_wallet_offline() {
         .unwrap();
     assert_eq!(resp.status(), 200);
     let body = resp.text().await.unwrap();
-    assert!(!body.contains("music mystery deliver"), "status leaked the seed");
+    assert!(
+        !body.contains("music mystery deliver"),
+        "status leaked the seed"
+    );
     let v: serde_json::Value = serde_json::from_str(&body).unwrap();
     assert_eq!(v["configured"], true);
     assert_eq!(
