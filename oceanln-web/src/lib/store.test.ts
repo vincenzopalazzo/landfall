@@ -154,13 +154,16 @@ describe("bootstrap (skip the wizard when a wallet exists)", () => {
     expect(app.profile).not.toBeNull();
   });
 
-  it("resumes at the create-wallet step when configured but no offer yet", async () => {
-    // Setup was interrupted (seed exists, /offer never completed): don't drop
-    // the user on an empty profile — resume provisioning at the wallet step.
+  it("routes to Import (not provisioning) when configured but no offer yet", async () => {
+    // Setup was interrupted (seed exists, /offer never completed). We can't prove
+    // the phrase was backed up, so require re-entry via Import before provisioning
+    // — don't skip the backup and drop the user on an empty profile.
     routeFetch({ "/status": () => json({ configured: true, mining_address: ADDR, offer: null }) });
     await S.bootstrap();
     expect(app.surface).toBe("wizard");
-    expect(S.stepKey()).toBe("wallet");
+    expect(S.stepKey()).toBe("phrase");
+    expect(S.isImport()).toBe(true); // must re-supply the recovery phrase
+    expect(app.reuse).toBe(false); // backup/confirm not skipped
     expect(app.miningAddress).toBe(ADDR);
     expect(app.offer).toBe(""); // no offer restored
   });

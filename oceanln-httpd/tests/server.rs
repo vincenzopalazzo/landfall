@@ -20,6 +20,10 @@ cream dune";
 const MOCK_OFFER: &str = "lno1qgsqvgnwgcg35z6ee2h3yczraddm72xrfua9uve2rlrm9deu7xyfzrcgqp0s";
 const TOKEN: &str = "integration-token";
 const MOCK_PROVISIONED_OFFER: &str = "lno1mockprovideroffer";
+/// A different valid 24-word phrase, for the forced-seed-replacement test.
+const OTHER_MNEMONIC: &str = "abandon abandon abandon abandon abandon abandon abandon abandon \
+abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon \
+abandon abandon abandon art";
 
 /// A `WalletProvider` that never touches the network, so `/offer` and `/init`
 /// can be tested without a Lexe backend.
@@ -410,4 +414,31 @@ async fn status_reports_unconfigured_without_seed() {
     let v: serde_json::Value = resp.json().await.unwrap();
     assert_eq!(v["configured"], false);
     assert_eq!(v["mining_address"], serde_json::Value::Null);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn forced_import_clears_stale_offer() {
+    // A wallet with a persisted offer, then a force-import of a DIFFERENT seed:
+    // the old offer belonged to the previous wallet, so it must be removed (else
+    // status() would pair the new address with the stale offer).
+    let seed = write_seed("force-clears-offer");
+    let offer_file = seed.with_extension("offer");
+    std::fs::write(&offer_file, "lno1staleofferfromoldwallet").unwrap();
+    assert!(offer_file.exists());
+
+    let base = spawn_with(SeedSource::File(seed.clone()), &[]).await;
+    let resp = client()
+        .post(format!("{base}/import"))
+        .header("Authorization", format!("Bearer {TOKEN}"))
+        .json(&serde_json::json!({ "mnemonic": OTHER_MNEMONIC, "force": true }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    assert!(
+        !offer_file.exists(),
+        "stale offer must be removed when the seed is force-replaced"
+    );
+
+    let _ = std::fs::remove_file(&seed);
 }

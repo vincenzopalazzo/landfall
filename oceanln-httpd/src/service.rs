@@ -280,6 +280,23 @@ pub fn import(
     mnemonic_input.zeroize();
     let mnemonic = sign::parse_mnemonic(&secret)?; // 400 on a non-24-word phrase
     let mining_address = sign::derive_address(&mnemonic, &path)?;
+    // A forced overwrite that actually swaps in a *different* seed makes the
+    // persisted offer (created for the previous wallet) stale — drop it so a
+    // later `status()` can't pair the new address with the old offer. Detected
+    // before the write, since `store_seed` is idempotent for an identical phrase.
+    let replaced_seed = force && seed_changed(seed, secret.as_str());
     sign::store_seed(&secret, Some(seed.path()), force)?;
+    if replaced_seed {
+        let _ = std::fs::remove_file(offer_path(seed));
+    }
     Ok(ImportResp { mining_address })
+}
+
+/// True when a seed file exists and its (whitespace-normalized) contents differ
+/// from `new_phrase`. `false` when no seed exists (a first write, not a swap).
+fn seed_changed(seed: &SeedSource, new_phrase: &str) -> bool {
+    match std::fs::read_to_string(seed.path()) {
+        Ok(existing) => existing.split_whitespace().collect::<Vec<_>>().join(" ") != new_phrase,
+        Err(_) => false,
+    }
 }

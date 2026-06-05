@@ -165,29 +165,34 @@ export async function refreshHealth() {
 }
 
 // Run once on launch, branching on how complete the existing wallet is:
-//   - seed + offer  → fully set up, land on the profile.
-//   - seed, NO offer → setup was interrupted (e.g. /offer failed or the app
-//     closed before provisioning). Resume at the create-wallet step, which
-//     auto-provisions and creates the offer — rather than dropping the user on
-//     a profile with no offer and no way to finish (sign/turn-on-payouts).
+//   - seed + offer  → fully set up, land on the profile (reuse: skip reveal/confirm).
+//   - seed, NO offer → setup was interrupted. We can't prove the recovery phrase
+//     was ever backed up (it isn't held in this session, and re-revealing the
+//     persisted seed isn't something we do), so DON'T skip the backup and jump
+//     to provisioning — that would let a generated-but-never-backed-up wallet
+//     start receiving payouts with no recoverable backup. Route to Import: the
+//     user re-supplies their 24 words (idempotent if it matches the stored
+//     seed), which proves they hold the backup before we provision.
 //   - no seed (or unreachable/unauthorized) → fresh onboarding from the top.
 export async function bootstrap() {
   try {
     const s = await client().status();
     if (!s.configured || !s.mining_address) return; // fresh install → wizard
     app.miningAddress = s.mining_address;
-    app.reuse = true; // existing wallet: skip the create-only reveal/confirm steps
     if (s.offer) {
       app.offer = s.offer;
       if (!app.offerDescription.trim()) {
         app.offerDescription = `OCEAN Payouts for ${s.mining_address}`;
       }
+      app.reuse = true; // skip the create-only reveal/confirm steps
       seedProfile();
       app.surface = "profile";
     } else {
-      // Configured but no offer yet — finish provisioning at the wallet step.
+      // Require the recovery phrase before provisioning an un-finished wallet.
+      app.reuse = false;
+      app.mode = "import";
       app.surface = "wizard";
-      app.stepIndex = STEPS.findIndex((st) => st.key === "wallet");
+      app.stepIndex = STEPS.findIndex((st) => st.key === "phrase");
     }
   } catch {
     /* not configured / unreachable / no token → stay on the wizard */
