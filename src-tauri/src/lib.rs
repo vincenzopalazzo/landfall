@@ -148,6 +148,63 @@ async fn payout(
     .map_err(Into::into)
 }
 
+/// Live node status + balances (Node wallet cards / "Node online" chip).
+#[tauri::command]
+async fn node_status(
+    state: tauri::State<'_, DesktopState>,
+) -> Result<oceanln_common::lexe_wallet::NodeStatus, CommandError> {
+    service::node_status(&state.seed, state.wallet.as_ref())
+        .await
+        .map_err(Into::into)
+}
+
+/// The node's full payment activity (inbound + outbound, LN + on-chain).
+#[tauri::command]
+async fn list_payments(
+    state: tauri::State<'_, DesktopState>,
+    limit: Option<u16>,
+) -> Result<Vec<oceanln_common::lexe_wallet::Activity>, CommandError> {
+    service::list_payments(&state.seed, state.wallet.as_ref(), limit.unwrap_or(200))
+        .await
+        .map_err(Into::into)
+}
+
+/// Create a BOLT11 invoice to receive a payment (Receive flow).
+#[tauri::command]
+async fn create_invoice(
+    state: tauri::State<'_, DesktopState>,
+    amount_sats: Option<u64>,
+    description: Option<String>,
+) -> Result<serde_json::Value, CommandError> {
+    let bolt11 = service::create_invoice(
+        &state.seed,
+        state.wallet.as_ref(),
+        amount_sats,
+        description.as_deref(),
+    )
+    .await?;
+    Ok(serde_json::json!({ "invoice": bolt11 }))
+}
+
+/// Send a payment to any payable string (Send flow). **Moves real funds.**
+#[tauri::command]
+async fn pay(
+    state: tauri::State<'_, DesktopState>,
+    payable: String,
+    amount_sats: Option<u64>,
+    note: Option<String>,
+) -> Result<oceanln_common::lexe_wallet::PaySummary, CommandError> {
+    service::pay(
+        &state.seed,
+        state.wallet.as_ref(),
+        &payable,
+        amount_sats,
+        note.as_deref(),
+    )
+    .await
+    .map_err(Into::into)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -181,6 +238,10 @@ pub fn run() {
             init_wallet,
             payout,
             list_lightning_payouts,
+            node_status,
+            list_payments,
+            create_invoice,
+            pay,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

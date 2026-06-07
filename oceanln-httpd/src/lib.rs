@@ -276,6 +276,78 @@ async fn payouts(
     Ok(Json(resp))
 }
 
+/// Thin adapter over [`service::node_status`] — live node balances/status.
+async fn node(
+    State(state): State<Arc<AppState>>,
+) -> std::result::Result<Json<oceanln_common::lexe_wallet::NodeStatus>, ApiError> {
+    let resp = service::node_status(&state.cfg.seed, state.wallet.as_ref()).await?;
+    Ok(Json(resp))
+}
+
+/// Thin adapter over [`service::list_payments`] — full node activity.
+async fn activity(
+    State(state): State<Arc<AppState>>,
+    axum::extract::Query(q): axum::extract::Query<PayoutsQuery>,
+) -> std::result::Result<Json<Vec<oceanln_common::lexe_wallet::Activity>>, ApiError> {
+    let resp = service::list_payments(
+        &state.cfg.seed,
+        state.wallet.as_ref(),
+        q.limit.unwrap_or(100),
+    )
+    .await?;
+    Ok(Json(resp))
+}
+
+#[derive(Deserialize)]
+struct InvoiceReq {
+    #[serde(default)]
+    amount_sats: Option<u64>,
+    #[serde(default)]
+    description: Option<String>,
+}
+
+/// Thin adapter over [`service::create_invoice`] — Receive flow.
+async fn invoice(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<InvoiceReq>,
+) -> std::result::Result<Json<serde_json::Value>, ApiError> {
+    let bolt11 = service::create_invoice(
+        &state.cfg.seed,
+        state.wallet.as_ref(),
+        req.amount_sats,
+        req.description.as_deref(),
+    )
+    .await?;
+    Ok(Json(json!({ "invoice": bolt11 })))
+}
+
+#[derive(Deserialize)]
+struct PayReq {
+    /// Any payable string: BOLT11 invoice, BOLT12 offer, LN address,
+    /// LNURL, or on-chain address.
+    payable: String,
+    #[serde(default)]
+    amount_sats: Option<u64>,
+    #[serde(default)]
+    note: Option<String>,
+}
+
+/// Thin adapter over [`service::pay`] — Send flow. **Moves real funds.**
+async fn pay(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<PayReq>,
+) -> std::result::Result<Json<oceanln_common::lexe_wallet::PaySummary>, ApiError> {
+    let resp = service::pay(
+        &state.cfg.seed,
+        state.wallet.as_ref(),
+        &req.payable,
+        req.amount_sats,
+        req.note.as_deref(),
+    )
+    .await?;
+    Ok(Json(resp))
+}
+
 // ── /ocean/* — proxies for OCEAN's public REST API ───────────────
 //
 // These exist so MCP (and any other adapter — Discord bot, custom
@@ -430,6 +502,11 @@ pub fn build_app(state: Arc<AppState>) -> Router {
         .route("/offer", post(offer))
         .route("/init", post(init))
         .route("/payouts", get(payouts))
+        // Node wallet: live balances/status, full activity, receive, send.
+        .route("/node", get(node))
+        .route("/activity", get(activity))
+        .route("/invoice", post(invoice))
+        .route("/pay", post(pay))
         // OCEAN public-API proxy routes. Read-only, no seed touched.
         // MCP's `get_ocean_*` tools proxy these via HTTP — the AI never
         // talks to `api.ocean.xyz` directly through MCP.

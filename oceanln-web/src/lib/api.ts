@@ -64,6 +64,45 @@ export interface OceanPayout {
   block_height: number;
 }
 
+/// Live node status + balances, read from the in-process Lexe node.
+/// Wire-shape mirrors `oceanln_common::lexe_wallet::NodeStatus`. Powers the
+/// dashboard's Node-wallet balance cards and the "Node online" chip.
+export interface NodeStatus {
+  node_pk: string;
+  num_channels: number;
+  num_usable_channels: number;
+  lightning_total_sats: number;
+  lightning_sendable_sats: number;
+  onchain_total_sats: number;
+  onchain_trusted_sats: number;
+  total_balance_sats: number;
+}
+
+/// One row of the node's full payment activity (inbound + outbound, LN +
+/// on-chain). Mirrors `oceanln_common::lexe_wallet::Activity`.
+export interface Activity {
+  id: string;
+  direction: "in" | "out";
+  rail: "ln" | "onchain";
+  amount_sats: number;
+  amount_msat: number;
+  status: "settled" | "pending" | "failed";
+  note: string | null;
+  counterparty: string | null;
+  finalized_at_ms: number;
+  payment_hash: string | null;
+  txid: string | null;
+  is_ocean: boolean;
+  block_height: number | null;
+}
+
+/// Summary of an outbound payment we just sent. Mirrors `PaySummary`.
+export interface PaySummary {
+  id: string;
+  amount_sats: number;
+  created_at_ms: number;
+}
+
 /// The operations the wizard needs, independent of transport. The browser uses
 /// `OceanlnClient` (HTTP → oceanln-httpd); the Tauri desktop shell uses
 /// `TauriClient` (native IPC). `store.svelte.ts#client()` picks one at runtime.
@@ -78,6 +117,14 @@ export interface Backend {
   /// List OCEAN payouts. Same Rust function runs behind both transports;
   /// the result shape is identical.
   payouts(limit?: number): Promise<OceanPayout[]>;
+  /// Live node status + balances (Node-wallet cards).
+  nodeStatus(): Promise<NodeStatus>;
+  /// Full node payment activity (inbound + outbound, LN + on-chain).
+  activity(limit?: number): Promise<Activity[]>;
+  /// Create a BOLT11 invoice to receive (Receive flow).
+  createInvoice(amountSats?: number, description?: string): Promise<string>;
+  /// Send a payment to any payable string (Send flow). Moves real funds.
+  pay(payable: string, amountSats?: number, note?: string): Promise<PaySummary>;
 }
 
 export class OceanlnClient implements Backend {
@@ -163,5 +210,26 @@ export class OceanlnClient implements Backend {
   payouts(limit?: number): Promise<OceanPayout[]> {
     const q = typeof limit === "number" ? `?limit=${limit}` : "";
     return this.get<OceanPayout[]>(`/payouts${q}`);
+  }
+  nodeStatus(): Promise<NodeStatus> {
+    return this.get<NodeStatus>("/node");
+  }
+  activity(limit?: number): Promise<Activity[]> {
+    const q = typeof limit === "number" ? `?limit=${limit}` : "";
+    return this.get<Activity[]>(`/activity${q}`);
+  }
+  async createInvoice(amountSats?: number, description?: string): Promise<string> {
+    const r = await this.post<{ invoice: string }>("/invoice", {
+      amount_sats: amountSats,
+      description: description || undefined,
+    });
+    return r.invoice;
+  }
+  pay(payable: string, amountSats?: number, note?: string): Promise<PaySummary> {
+    return this.post<PaySummary>("/pay", {
+      payable,
+      amount_sats: amountSats,
+      note: note || undefined,
+    });
   }
 }

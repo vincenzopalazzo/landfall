@@ -5,12 +5,15 @@
 import { invoke } from "@tauri-apps/api/core";
 import {
   ApiError,
+  type Activity,
   type Backend,
   type GenerateResp,
   type ImportResp,
+  type NodeStatus,
   type OceanPayout,
   type OfferResp,
   type InitResp,
+  type PaySummary,
   type PayoutResp,
   type StatusResp,
 } from "./api";
@@ -72,5 +75,29 @@ export class TauriClient implements Backend {
       "list_lightning_payouts",
       typeof limit === "number" ? { limit } : undefined,
     );
+  }
+  nodeStatus(): Promise<NodeStatus> {
+    return call<NodeStatus>("node_status");
+  }
+  activity(limit?: number): Promise<Activity[]> {
+    return call<Activity[]>(
+      "list_payments",
+      typeof limit === "number" ? { limit } : undefined,
+    );
+  }
+  async createInvoice(amountSats?: number, description?: string): Promise<string> {
+    // camelCase keys → the Rust command's snake_case args (Tauri v2).
+    const r = await call<{ invoice: string }>("create_invoice", {
+      amountSats: amountSats ?? null,
+      description: description ?? null,
+    });
+    return r.invoice;
+  }
+  pay(payable: string, amountSats?: number, note?: string): Promise<PaySummary> {
+    return call<PaySummary>("pay", {
+      payable,
+      amountSats: amountSats ?? null,
+      note: note ?? null,
+    });
   }
 }

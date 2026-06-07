@@ -12,7 +12,7 @@ use std::str::FromStr;
 use lexe::config::WalletEnvConfig;
 use lexe::types::auth::{CredentialsRef, RootSeed};
 use lexe::types::bitcoin::Amount;
-use lexe::types::command::CreateOfferRequest;
+use lexe::types::command::{CreateInvoiceRequest, CreateOfferRequest, PayRequest};
 use lexe::wallet::LexeWallet;
 use lexe_api_core::def::AppNodeRunApi;
 use lexe_api_core::models::command::GetUpdatedPayments;
@@ -263,6 +263,266 @@ fn ocean_payout_from(p: lexe_api_core::types::payments::BasicPaymentV2) -> Optio
         block_hash,
         block_height,
     })
+}
+
+/// Live node status + balances, read from the in-process Lexe node.
+/// Powers the dashboard's "Node wallet" cards (Lightning channel /
+/// On-chain) and the "Node online" chip. All sat amounts are rounded to
+/// whole sats for display; the wire values are exact node figures (no
+/// mock, no scrape).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NodeStatus {
+    /// The node's public key (hex, the `node_id`) — node identity.
+    pub node_pk: String,
+    /// Total channels (usable or not).
+    pub num_channels: usize,
+    /// Channels currently usable for sending (peer online, channel ready).
+    pub num_usable_channels: usize,
+    /// Total Lightning balance across all channels, in sats.
+    pub lightning_total_sats: u64,
+    /// Conservative upper bound on what we can send over LN right now, in
+    /// sats (channel reserve / pending HTLCs / fees accounted for).
+    pub lightning_sendable_sats: u64,
+    /// Total on-chain balance, including unconfirmed, in sats.
+    pub onchain_total_sats: u64,
+    /// Trusted on-chain balance: confirmed + own unconfirmed, in sats.
+    pub onchain_trusted_sats: u64,
+    /// Sum of Lightning + on-chain balance, in sats.
+    pub total_balance_sats: u64,
+}
+
+/// Read live balances + channel counts from the node.
+pub async fn node_status(mnemonic: &str) -> Result<NodeStatus> {
+    let seed = root_seed(mnemonic)?;
+    let wallet = wallet(&seed)?;
+    let info = wallet
+        .node_info()
+        .await
+        .map_err(|e| Error::Wallet(format!("node info: {e:#}")))?;
+    Ok(NodeStatus {
+        node_pk: info.node_pk.to_string(),
+        num_channels: info.num_channels,
+        num_usable_channels: info.num_usable_channels,
+        lightning_total_sats: info.lightning_balance.round_sat().sats_u64(),
+        lightning_sendable_sats: info.lightning_sendable_balance.round_sat().sats_u64(),
+        onchain_total_sats: info.onchain_balance.round_sat().sats_u64(),
+        onchain_trusted_sats: info.onchain_trusted_balance.round_sat().sats_u64(),
+        total_balance_sats: info.balance.round_sat().sats_u64(),
+    })
+}
+
+/// One row of the node's full payment activity — inbound *and* outbound,
+/// Lightning *and* on-chain — for the dashboard's "Node activity" panel.
+/// Unlike [`OceanPayout`] (OCEAN payouts only), this surfaces *every*
+/// payment, flagging the OCEAN ones via [`Self::is_ocean`].
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Activity {
+    /// Lexe `PaymentId` (`<kind>_<hex>`), unique per payment.
+    pub id: String,
+    /// `"in"` (inbound) or `"out"` (outbound).
+    pub direction: String,
+    /// `"ln"` (Lightning) or `"onchain"`.
+    pub rail: String,
+    /// Net sats, rounded to nearest whole sat. `0` if amount unset.
+    pub amount_sats: u64,
+    /// Net msats — exact wire amount, no rounding.
+    pub amount_msat: u64,
+    /// `"settled"`, `"pending"`, or `"failed"`.
+    pub status: String,
+    /// BOLT12 payer note / on-chain label, if any.
+    pub note: Option<String>,
+    /// Payer's self-reported name, if any.
+    pub counterparty: Option<String>,
+    /// Finalized (or created) time, epoch milliseconds.
+    pub finalized_at_ms: i64,
+    /// Lightning payment hash (hex), if applicable.
+    pub payment_hash: Option<String>,
+    /// On-chain txid (hex), if applicable.
+    pub txid: Option<String>,
+    /// True iff this is a verified OCEAN payout (inbound BOLT12 offer
+    /// payment whose payer note matches OCEAN's exact signature).
+    pub is_ocean: bool,
+    /// Block height parsed from an OCEAN payer note (OCEAN rows only).
+    pub block_height: Option<u64>,
+}
+
+/// List the node's full payment history (newest first), mapped to
+/// [`Activity`] rows. Same pagination + scan-cap discipline as
+/// [`list_offer_payouts`], but WITHOUT the OCEAN-only filter — every
+/// payment is returned, with OCEAN ones flagged.
+pub async fn list_payments(mnemonic: &str, limit: u16) -> Result<Vec<Activity>> {
+    let seed = root_seed(mnemonic)?;
+    let wallet = wallet(&seed)?;
+    const PER_BATCH: u16 = 100;
+    let mut start_index: Option<PaymentUpdatedIndex> = None;
+    let mut out: Vec<Activity> = Vec::new();
+    let limit_total = usize::from(limit);
+    let mut scanned: usize = 0;
+
+    loop {
+        if out.len() >= limit_total || scanned >= MAX_PAYMENTS_SCANNED {
+            break;
+        }
+        let req = GetUpdatedPayments {
+            start_index,
+            limit: Some(PER_BATCH),
+        };
+        let resp = wallet
+            .node_client()
+            .get_updated_payments(req)
+            .await
+            .map_err(|e| Error::Wallet(format!("get_updated_payments: {e:#}")))?;
+        let batch = resp.payments;
+        let batch_len = batch.len();
+        if batch_len == 0 {
+            break;
+        }
+        let last = batch.last().expect("non-empty");
+        start_index = Some(PaymentUpdatedIndex {
+            updated_at: last.updated_at,
+            id: last.id,
+        });
+        scanned += batch_len;
+        for p in batch.into_iter() {
+            out.push(activity_from(p));
+            if out.len() >= limit_total {
+                break;
+            }
+        }
+        if batch_len < usize::from(PER_BATCH) {
+            break;
+        }
+    }
+
+    out.sort_by_key(|a| std::cmp::Reverse(a.finalized_at_ms));
+    Ok(out)
+}
+
+/// Map a raw Lexe payment to an [`Activity`] row (no filtering — every
+/// payment maps to a row).
+fn activity_from(p: lexe_api_core::types::payments::BasicPaymentV2) -> Activity {
+    let inbound = p.direction == PaymentDirection::Inbound;
+    let rail = if p.kind == PaymentKind::Onchain {
+        "onchain"
+    } else {
+        "ln"
+    };
+    let status = match p.status {
+        PaymentStatus::Completed => "settled",
+        PaymentStatus::Failed => "failed",
+        _ => "pending",
+    };
+    let (amount_sats, amount_msat) = p
+        .amount
+        .as_ref()
+        .map(|a| (a.round_sat().sats_u64(), a.msat()))
+        .unwrap_or((0, 0));
+    let ocean = inbound
+        && p.kind == PaymentKind::Offer
+        && p.message
+            .as_deref()
+            .and_then(parse_ocean_payer_note)
+            .is_some();
+    let block_height = p
+        .message
+        .as_deref()
+        .and_then(parse_ocean_payer_note)
+        .map(|(_, h)| h);
+    let finalized_at_ms = p.finalized_at.unwrap_or(p.created_at).to_i64();
+    Activity {
+        id: p.id.to_string(),
+        direction: (if inbound { "in" } else { "out" }).to_string(),
+        rail: rail.to_string(),
+        amount_sats,
+        amount_msat,
+        status: status.to_string(),
+        note: p.message.clone(),
+        counterparty: p.payer_name.clone(),
+        finalized_at_ms,
+        payment_hash: p.hash.map(|h| h.to_string()),
+        // On-chain payments carry their txid in the payment hash slot for
+        // our purposes; if Lexe exposes it separately in future, map it
+        // here. For now LN rows have a hash, on-chain rows may not.
+        txid: None,
+        is_ocean: ocean,
+        block_height,
+    }
+}
+
+/// Summary of an outbound payment we just sent (Send flow).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PaySummary {
+    /// Lexe `PaymentId` of the outbound payment.
+    pub id: String,
+    /// Amount sent, in sats (echoed from the request; `0` if the payable
+    /// carried its own amount and none was supplied).
+    pub amount_sats: u64,
+    /// When we attempted the payment, epoch milliseconds.
+    pub created_at_ms: i64,
+}
+
+/// Create a BOLT11 invoice on the node to RECEIVE a payment (Receive flow).
+/// `amount_sats = None` mints an amountless invoice (payer chooses).
+pub async fn create_invoice(
+    mnemonic: &str,
+    amount_sats: Option<u64>,
+    description: Option<&str>,
+) -> Result<String> {
+    let seed = root_seed(mnemonic)?;
+    let wallet = wallet(&seed)?;
+    let amount = sats_to_amount(amount_sats)?;
+    let resp = wallet
+        .create_invoice(CreateInvoiceRequest {
+            amount,
+            description: description.map(String::from),
+            ..Default::default()
+        })
+        .await
+        .map_err(|e| Error::Wallet(format!("create invoice: {e:#}")))?;
+    Ok(resp.invoice.to_string())
+}
+
+/// Send a payment to any payable string — BOLT11 invoice, BOLT12 offer,
+/// Lightning address, LNURL, or on-chain address — via the Lexe wallet's
+/// universal `pay`. **Moves real funds; irreversible.** `amount_sats` is
+/// required for amountless payables and ignored when the payable already
+/// carries an amount.
+pub async fn pay(
+    mnemonic: &str,
+    payable: &str,
+    amount_sats: Option<u64>,
+    note: Option<&str>,
+) -> Result<PaySummary> {
+    let seed = root_seed(mnemonic)?;
+    let wallet = wallet(&seed)?;
+    let amount = sats_to_amount(amount_sats)?;
+    let resp = wallet
+        .pay(PayRequest {
+            payable: payable.trim().to_string(),
+            amount,
+            message: note.map(String::from),
+            personal_note: None,
+        })
+        .await
+        .map_err(|e| Error::Wallet(format!("pay: {e:#}")))?;
+    Ok(PaySummary {
+        id: resp.index.id.to_string(),
+        amount_sats: amount_sats.unwrap_or(0),
+        created_at_ms: resp.created_at.to_i64(),
+    })
+}
+
+/// Convert an optional whole-sat amount into a Lexe [`Amount`]. The Lexe
+/// `Amount::from_str` parses satoshis (same as `--min-amount`).
+fn sats_to_amount(sats: Option<u64>) -> Result<Option<Amount>> {
+    match sats {
+        Some(s) => {
+            Ok(Some(Amount::from_str(&s.to_string()).map_err(|e| {
+                Error::Wallet(format!("invalid amount: {e}"))
+            })?))
+        }
+        None => Ok(None),
+    }
 }
 
 #[cfg(test)]

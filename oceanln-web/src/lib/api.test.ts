@@ -59,4 +59,40 @@ describe("OceanlnClient", () => {
     expect(body).toEqual({ message: "the message", offer: "lno1" });
     expect(r.signature).toBe("sig");
   });
+
+  it("nodeStatus GETs /node", async () => {
+    const f = vi.fn().mockResolvedValue(jsonResponse(200, { node_pk: "02ab", lightning_total_sats: 1000, onchain_total_sats: 2000 }));
+    globalThis.fetch = f;
+    const s = await new OceanlnClient("http://x", "tok").nodeStatus();
+    expect((f.mock.calls[0][0] as string)).toBe("http://x/node");
+    expect(s.lightning_total_sats).toBe(1000);
+  });
+
+  it("activity GETs /activity with the limit query", async () => {
+    const f = vi.fn().mockResolvedValue(jsonResponse(200, [{ id: "a1", direction: "in", is_ocean: true }]));
+    globalThis.fetch = f;
+    const a = await new OceanlnClient("http://x", "tok").activity(500);
+    expect((f.mock.calls[0][0] as string)).toBe("http://x/activity?limit=500");
+    expect(a[0].is_ocean).toBe(true);
+  });
+
+  it("createInvoice posts amount + description and returns the bolt11", async () => {
+    const f = vi.fn().mockResolvedValue(jsonResponse(200, { invoice: "lnbc1abc" }));
+    globalThis.fetch = f;
+    const inv = await new OceanlnClient("http://x", "tok").createInvoice(1234, "node wallet");
+    expect((f.mock.calls[0][0] as string)).toBe("http://x/invoice");
+    const body = JSON.parse((f.mock.calls[0][1] as RequestInit).body as string);
+    expect(body).toEqual({ amount_sats: 1234, description: "node wallet" });
+    expect(inv).toBe("lnbc1abc");
+  });
+
+  it("pay posts the payable + amount + note", async () => {
+    const f = vi.fn().mockResolvedValue(jsonResponse(200, { id: "pid", amount_sats: 500, created_at_ms: 1 }));
+    globalThis.fetch = f;
+    const r = await new OceanlnClient("http://x", "tok").pay("lnbc1dest", 500, "coffee");
+    expect((f.mock.calls[0][0] as string)).toBe("http://x/pay");
+    const body = JSON.parse((f.mock.calls[0][1] as RequestInit).body as string);
+    expect(body).toEqual({ payable: "lnbc1dest", amount_sats: 500, note: "coffee" });
+    expect(r.id).toBe("pid");
+  });
 });
