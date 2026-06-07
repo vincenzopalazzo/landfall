@@ -41,7 +41,7 @@ pub mod service;
 
 /// The wallet operations the server exposes, abstracted so the HTTP layer does
 /// not depend directly on the in-process Lexe SDK. The real implementation is
-/// [`LexeWalletProvider`]; tests substitute a mock.
+/// [`LexeWalletProvider`]; tests substitute their own implementation.
 #[async_trait::async_trait]
 pub trait WalletProvider: Send + Sync {
     /// Provision the onchain wallet for `mnemonic` (idempotent).
@@ -54,6 +54,15 @@ pub trait WalletProvider: Send + Sync {
         description: Option<&str>,
         min_amount: Option<&str>,
     ) -> Result<String>;
+
+    /// List the wallet's inbound, completed BOLT12 offer payments — i.e.
+    /// OCEAN's Lightning payouts. Empty list = no payouts yet (the Lexe
+    /// node call may still have succeeded). `limit` caps the round-trip.
+    async fn list_offer_payouts(
+        &self,
+        mnemonic: &str,
+        limit: u16,
+    ) -> Result<Vec<oceanln_common::lexe_wallet::OceanPayout>>;
 }
 
 /// Production [`WalletProvider`] backed by the in-process Lexe SDK
@@ -73,6 +82,14 @@ impl WalletProvider for LexeWalletProvider {
         min_amount: Option<&str>,
     ) -> Result<String> {
         oceanln_common::lexe_wallet::create_offer(mnemonic, description, min_amount).await
+    }
+
+    async fn list_offer_payouts(
+        &self,
+        mnemonic: &str,
+        limit: u16,
+    ) -> Result<Vec<oceanln_common::lexe_wallet::OceanPayout>> {
+        oceanln_common::lexe_wallet::list_offer_payouts(mnemonic, limit).await
     }
 }
 

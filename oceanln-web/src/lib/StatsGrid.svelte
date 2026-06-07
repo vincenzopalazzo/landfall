@@ -7,7 +7,8 @@
   // see ocean.ts) — no mock data.
   import Icon from "./ui/Icon.svelte";
   import { app } from "./store.svelte";
-  import { ocean, btcToSats, num, type Earning, type Payout, type PoolStat } from "./ocean";
+  import { ocean, btcToSats, num, type Payout, type PoolStat } from "./ocean";
+  import { fetchLightningPayouts, type LightningPayoutRow } from "./tauri";
 
   let {
     compact = false,
@@ -32,14 +33,11 @@
   let lastShareTs = $state(0);
   // earnpay-derived
   let totalPaidSats = $state(0);
-  let blocksFound = $state(0); // count of payouts that are coinbase (generation) txns
   let payouts = $state<Payout[]>([]);
-  // Per-block earnings credited to this address (separate from payouts:
-  // earnings happen on every block where the user has shares in the TIDES
-  // window; payouts only happen when accumulated unpaid >= the OCEAN
-  // payout threshold). On a brand-new or low-hashrate address you'll see
-  // earnings but no payouts.
-  let earnings = $state<Earning[]>([]);
+  // Lightning payouts scraped from OCEAN's CSV via a Rust IPC command
+  // (the /v1/earnpay endpoint omits these). Empty when not running in
+  // Tauri or when the scrape failed — never throws.
+  let lightningPayouts = $state<LightningPayoutRow[]>([]);
   // pool context
   let pool = $state<PoolStat | null>(null);
   let active = $state(false);
@@ -124,21 +122,20 @@
         }
       }
 
-      // earnpay: payout history + per-block earnings (the OCEAN /stats page
-      // surfaces both — we missed earnings before).
+      // earnpay: payout history. (We deliberately ignore the `earnings`
+      // array on the same response — per-block credits duplicate what's
+      // already implied by the Recent payouts table once LN payouts
+      // are merged in. Keeping one table = less noise.)
       const allPayouts: Payout[] = [];
-      const allEarnings: Earning[] = [];
       let payoutFail = false;
       for (const e of eps) {
         if (e.status === "fulfilled") {
           allPayouts.push(...(e.value.payouts ?? []));
-          allEarnings.push(...(e.value.earnings ?? []));
         } else if (!isNoSuchUser(e.reason)) {
           payoutFail = true;
         }
       }
       allPayouts.sort((a, b) => earnpayTs(b.ts) - earnpayTs(a.ts));
-      allEarnings.sort((a, b) => earnpayTs(b.ts) - earnpayTs(a.ts));
 
       unpaidSats = unpaid;
       estPayoutSats = estPayout;
@@ -151,9 +148,15 @@
       hr10800 = h3h;
       hr86400 = h24h;
       payouts = allPayouts;
-      earnings = allEarnings;
-      totalPaidSats = allPayouts.reduce((sum, p) => sum + num(p.total_satoshis_net_paid), 0);
-      blocksFound = allPayouts.filter((p) => p.is_generation_txn).length;
+      // Lightning payouts come from the user's own Lexe wallet (Tauri-only),
+      // NOT from any ocean.xyz API. One call, not per-address — the wallet
+      // knows all inbound offer payments regardless of mining address.
+      const lnRows = await fetchLightningPayouts();
+      if (myId === reqId) lightningPayouts = lnRows;
+
+      totalPaidSats =
+        allPayouts.reduce((sum, p) => sum + num(p.total_satoshis_net_paid), 0) +
+        lnRows.reduce((sum, p) => sum + p.amount_sats, 0);
       active = wk > 0 || h5 > 0;
 
       // Only a genuine network/server failure is an error; "no such user yet"
@@ -237,25 +240,98 @@
     if (d < 129600) return `${Math.round(d / 3600)}h ago`;
     return `${Math.round(d / 86400)}d ago`;
   }
-  // OCEAN serializes timestamps two different ways across endpoints:
-  //   - payouts (numeric epoch seconds as string): "1700000000"
-  //   - earnings (ISO-8601 datetime string)     : "2026-06-07T03:35:48"
-  // A shared parser keeps sorting + formatting from silently breaking when
-  // the shape differs from what each table expected.
+  // Merged payouts view: /v1/earnpay payouts (onchain) + scraped CSV
+  // Lightning payouts, normalized to a single row shape so the panel can
+  // render them in one chronologically-sorted table. Lightning links go
+  // to OCEAN's own LN info page; onchain links to mempool.space.
+  type MergedPayout = {
+    ts_ms: number;
+    time: string;
+    amount_sats: number;
+    href: string | null;
+    txid_short: string;
+    chip: "lightning" | "coinbase" | null;
+    /// Block height OCEAN settled this payout against (Lightning rows only).
+    block_height: number | null;
+    /// Block-hash hex (Lightning rows only) — links to mempool.space/block/.
+    block_hash: string | null;
+  };
+
+  const mergedPayouts = $derived.by<MergedPayout[]>(() => {
+    const rows: MergedPayout[] = [];
+    for (const p of payouts) {
+      rows.push({
+        ts_ms: earnpayTs(p.ts),
+        time: fmtTs(p.ts),
+        amount_sats: num(p.total_satoshis_net_paid),
+        href: p.on_chain_txid ? `https://mempool.space/tx/${p.on_chain_txid}` : null,
+        txid_short: txidShort(p.on_chain_txid),
+        chip: p.is_generation_txn ? "coinbase" : null,
+        block_height: null,
+        block_hash: null,
+      });
+    }
+    for (const ln of lightningPayouts) {
+      const hash = ln.payment_hash ?? "";
+      rows.push({
+        ts_ms: ln.finalized_at_ms,
+        // Already milliseconds — must NOT route through fmtTs/earnpayTs
+        // (which would multiply by 1000 → year ~55000).
+        time: fmtMs(ln.finalized_at_ms),
+        amount_sats: ln.amount_sats,
+        // OCEAN's own LN info page (we can't deep-link mempool.space for
+        // off-chain payments, and ocean.xyz/info/tx/lightning/<hash> is
+        // the canonical reference for this payout).
+        href: hash ? `https://ocean.xyz/info/tx/lightning/${hash}` : null,
+        txid_short: txidShort(hash),
+        chip: "lightning",
+        block_height: ln.block_height,
+        block_hash: ln.block_hash,
+      });
+    }
+    rows.sort((a, b) => b.ts_ms - a.ts_ms);
+    return rows;
+  });
+
+  // OCEAN's /v1/earnpay serializes payout timestamps two ways across the
+  // endpoint's own shape (numeric epoch *seconds* as a string for
+  // payouts, ISO-8601 datetime for earnings). This helper handles both
+  // and always returns epoch *milliseconds*.
+  //
+  // OCEAN's ISO timestamps come without a timezone marker
+  // (`2026-06-07T03:35:48` — no trailing `Z`, no offset). `Date.parse`
+  // would treat those as the browser's *local* time, then `toISOString()`
+  // renders the result as UTC — so users outside UTC would see times
+  // shifted by their offset. We append `Z` ourselves so the input is
+  // unambiguously UTC before parsing.
+  //
+  // Important: this does NOT accept a number that's already in ms.
+  // Lightning payouts (from the Lexe IPC) come in as ms already, so they
+  // bypass this helper — use `fmtMs` for those instead.
   function earnpayTs(ts: string | number): number {
     if (typeof ts === "number") return ts * 1000;
     const s = String(ts);
     if (/^\d+$/.test(s)) return Number(s) * 1000;
-    const parsed = Date.parse(s);
+    // Already has an explicit timezone (Z, +HH:MM, -HH:MM)? Trust it.
+    // Otherwise force UTC by appending Z.
+    const utcified = /(?:Z|[+\-]\d{2}:?\d{2})$/.test(s) ? s : `${s}Z`;
+    const parsed = Date.parse(utcified);
     return Number.isFinite(parsed) ? parsed : 0;
   }
   function fmtTs(ts: string | number): string {
     const ms = earnpayTs(ts);
-    if (!ms) return String(ts);
-    return new Date(ms).toISOString().slice(0, 16).replace("T", " ");
+    return fmtMs(ms) || String(ts);
+  }
+  // Format an already-millisecond epoch as `YYYY-MM-DD HH:MM` UTC. Used
+  // for Lightning payouts whose `finalized_at_ms` is already in ms — going
+  // through `earnpayTs` would erroneously multiply by 1000 and render the
+  // year ~55000.
+  function fmtMs(ms: number): string {
+    if (!ms) return "";
+    const d = new Date(ms);
+    return Number.isNaN(d.getTime()) ? "" : d.toISOString().slice(0, 16).replace("T", " ");
   }
   const txidShort = (t: string) => (t ? `${t.slice(0, 10)}…${t.slice(-6)}` : "—");
-  const blockShort = (h: string) => (h ? `${h.slice(0, 10)}…${h.slice(-6)}` : "—");
 </script>
 
 <div class="db-top">
@@ -293,10 +369,9 @@
 <!--
   Primary cards. Order mirrors ocean.xyz/stats so a user can scan the two
   side-by-side. "Lifetime" is the headline truth that the user is earning
-  (unpaid + already paid); "Blocks found" is the rare-but-meaningful event.
-  Earn-vs-payout next block: OCEAN exposes both because they differ — earn
-  is what your shares would generate, payout is what gets sent after the
-  TIDES window math.
+  (unpaid + already paid). Earn-vs-payout next block: OCEAN exposes both
+  because they differ — earn is what your shares would generate, payout is
+  what gets sent after the TIDES window math.
 -->
 <div class="db-stats">
   <div class="db-stat"><div class="l">{headlineHr.label}</div><div class="v">{headlineHr.v}<span class="u">{headlineHr.u}</span></div></div>
@@ -305,7 +380,6 @@
   <div class="db-stat"><div class="l">Lifetime</div><div class="v">{fmtSats(lifetimeSats)}<span class="u">sats</span></div></div>
   <div class="db-stat"><div class="l">Est. payout next block</div><div class="v">{fmtSats(estPayoutSats)}<span class="u">sats</span></div></div>
   <div class="db-stat"><div class="l">Est. earn next block</div><div class="v">{fmtSats(estEarnSats)}<span class="u">sats</span></div></div>
-  <div class="db-stat"><div class="l">Blocks found</div><div class="v">{fmtInt(blocksFound)}<span class="u">{blocksFound === 1 ? "block" : "blocks"}</span></div></div>
 </div>
 
 <!-- Secondary real metrics from user_hashrate + statsnap. -->
@@ -319,47 +393,6 @@
   <span class="ss"><span class="ss-l">Last share</span><span class="ss-v">{relTime(lastShareTs)}</span></span>
 </div>
 
-<!--
-  Recent earnings: per-block credits OCEAN attributes to this address.
-  Distinct from payouts: an earning happens every block where the user's
-  shares contributed (TIDES window); a payout only happens when accumulated
-  unpaid clears OCEAN's minimum payout threshold. On a low-hashrate / new
-  address you'll typically see earnings but no payouts for a while.
--->
-<div class="db-panel">
-  <div class="db-panel-h">
-    <h3><Icon name="spark" size={15} /> Recent earnings</h3>
-    <span class="meta">per-block credits · OCEAN TIDES</span>
-  </div>
-  {#if payoutsError}
-    <div class="db-panel-b" style="color:#FFB300;font-size:12.5px;display:flex;gap:7px;align-items:center">
-      <Icon name="warn" size={14} /> Couldn't load earnings history from OCEAN — this list may be incomplete. Try Refresh.
-    </div>
-  {/if}
-  {#if earnings.length}
-    <table class="db-table">
-      <thead><tr><th>Time (UTC)</th><th>Block</th><th class="r">Earned</th></tr></thead>
-      <tbody>
-        {#each earnings.slice(0, rowLimit) as e}
-          <tr>
-            <td>{fmtTs(e.ts)}</td>
-            <td>
-              {#if e.block_hash}
-                <a href={`https://mempool.space/block/${e.block_hash}`} target="_blank" rel="noreferrer" style="color:var(--wiz-accent)">{blockShort(e.block_hash)}</a>
-              {:else}—{/if}
-            </td>
-            <td class="r amt">{fmtSats(num(e.satoshis_net_earned))} sats</td>
-          </tr>
-        {/each}
-      </tbody>
-    </table>
-  {:else if !loading && !payoutsError}
-    <div class="db-panel-b" style="color:#71717a;font-size:13px">
-      No earnings yet. Once your workers contribute shares in OCEAN's reward window, per-block credits will appear here.
-    </div>
-  {/if}
-</div>
-
 <div class="db-panel">
   <div class="db-panel-h">
     <h3><Icon name="bolt" size={15} /> Recent payouts</h3>
@@ -370,31 +403,33 @@
       <Icon name="warn" size={14} /> Couldn't load payout history from OCEAN — this list may be incomplete. Try Refresh.
     </div>
   {/if}
-  {#if payouts.length}
+  {#if mergedPayouts.length}
     <table class="db-table">
-      <thead><tr><th>Time (UTC)</th><th>Transaction</th><th class="r">Amount</th></tr></thead>
+      <thead><tr><th>Time (UTC)</th><th>Transaction</th><th>Block</th><th class="r">Amount</th></tr></thead>
       <tbody>
-        {#each payouts.slice(0, rowLimit) as p}
+        {#each mergedPayouts.slice(0, rowLimit) as p}
           <tr>
-            <td>{fmtTs(p.ts)}</td>
+            <td>{p.time}</td>
             <td>
-              {#if p.on_chain_txid}
-                <a href={`https://mempool.space/tx/${p.on_chain_txid}`} target="_blank" rel="noreferrer" style="color:var(--wiz-accent)">{txidShort(p.on_chain_txid)}</a>
+              {#if p.href}
+                <a href={p.href} target="_blank" rel="noreferrer" style="color:var(--wiz-accent)">{p.txid_short}</a>
               {:else}—{/if}
-              {#if p.is_generation_txn}<span class="db-status settled" style="margin-left:8px">coinbase</span>{/if}
+              {#if p.chip === "lightning"}<span class="db-status inflight" style="margin-left:8px">lightning</span>
+              {:else if p.chip === "coinbase"}<span class="db-status settled" style="margin-left:8px">coinbase</span>{/if}
             </td>
-            <td class="r amt">{fmtSats(num(p.total_satoshis_net_paid))} sats</td>
+            <td>
+              {#if p.block_height && p.block_hash}
+                <a href={`https://mempool.space/block/${p.block_hash}`} target="_blank" rel="noreferrer" style="color:var(--wiz-accent)">{p.block_height.toLocaleString("en-US")}</a>
+              {:else}—{/if}
+            </td>
+            <td class="r amt">{fmtSats(p.amount_sats)} sats</td>
           </tr>
         {/each}
       </tbody>
     </table>
   {:else if !loading && !payoutsError}
     <div class="db-panel-b" style="color:#71717a;font-size:13px">
-      {#if earnings.length}
-        Earnings are accumulating (above), but no payouts yet. OCEAN sends a Lightning payout once your unpaid balance clears the minimum threshold.
-      {:else}
-        No payouts yet. Once OCEAN pays your address, transactions appear here.
-      {/if}
+      No payouts yet. OCEAN sends a Lightning payout once your unpaid balance clears the minimum threshold.
     </div>
   {/if}
 </div>

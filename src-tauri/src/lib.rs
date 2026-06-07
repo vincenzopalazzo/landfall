@@ -35,6 +35,30 @@ impl From<Error> for CommandError {
     }
 }
 
+/// List inbound, completed BOLT12 offer payments from the user's Lexe wallet.
+///
+/// This is the trust-minimized source for OCEAN payouts: we read directly
+/// from the user's own node (no ocean.xyz API, no HTML scrape). The OCEAN
+/// Lightning payouts arrive at our BOLT12 offer with the block-height /
+/// block-hash carried in the BOLT12 payer-supplied `message` field
+/// (surfaced as `payer_note` on the wrapper).
+#[tauri::command]
+async fn list_lightning_payouts(
+    state: tauri::State<'_, DesktopState>,
+) -> Result<Vec<oceanln_common::lexe_wallet::OceanPayout>, CommandError> {
+    // Load the mnemonic from the locally-stored seed file. Stays in memory
+    // only for the duration of this call (MnemonicSecret zeroizes on drop).
+    let secret = state.seed.load()?;
+    // 200 = plenty of headroom for weekly payouts over a year+; a real fix
+    // is local-DB pagination, but for v1 a single round trip per refresh
+    // is cheap and matches user expectation of "dashboard reflects state now".
+    state
+        .wallet
+        .list_offer_payouts(secret.as_str(), 200)
+        .await
+        .map_err(Into::into)
+}
+
 /// In-process backend state. No HTTP server, port, or token — the seed is read
 /// locally from the OS app-data dir per request.
 struct DesktopState {
@@ -151,7 +175,8 @@ pub fn run() {
             import_seed,
             create_offer,
             init_wallet,
-            payout
+            payout,
+            list_lightning_payouts,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

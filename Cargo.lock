@@ -1731,6 +1731,8 @@ dependencies = [
  "bitcoin",
  "hex",
  "lexe",
+ "lexe-api-core",
+ "lexe-common",
  "reqwest",
  "rpassword",
  "serde",
