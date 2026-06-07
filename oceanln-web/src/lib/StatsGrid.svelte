@@ -224,6 +224,20 @@
     }
   });
 
+  // Keep the dashboard live: re-fetch on a fixed cadence while mounted. The
+  // OCEAN public API is read-only and cheap, and `load()`'s monotonic
+  // `reqId` guard means a slow tick can never clobber newer state. Reading
+  // `loading` happens inside the timer callback (not synchronously during
+  // effect setup), so this effect has no reactive deps and runs once —
+  // the interval is torn down on unmount.
+  const REFRESH_MS = 60_000;
+  $effect(() => {
+    const id = setInterval(() => {
+      if (!loading && addresses().length) load();
+    }, REFRESH_MS);
+    return () => clearInterval(id);
+  });
+
   const rowLimit = $derived(compact ? 5 : 12);
   const fmtSats = (n: number) => n.toLocaleString("en-US");
   const fmtInt = (n: number) => Math.round(n).toLocaleString("en-US");
@@ -429,7 +443,7 @@
 <div class="db-panel">
   <div class="db-panel-h">
     <h3><Icon name="bolt" size={15} /> Recent payouts</h3>
-    <span class="meta">past 30 days · OCEAN TIDES</span>
+    <span class="meta">OCEAN TIDES · onchain + Lightning</span>
   </div>
   {#if payoutsError}
     <div class="db-panel-b" style="color:#FFB300;font-size:12.5px;display:flex;gap:7px;align-items:center">

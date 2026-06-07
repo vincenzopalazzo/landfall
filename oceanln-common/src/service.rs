@@ -199,6 +199,56 @@ pub async fn list_offer_payouts(
     wallet.list_offer_payouts(secret.as_str(), limit).await
 }
 
+/// Live node status + balances, for the dashboard "Node wallet" cards.
+#[cfg(feature = "lexe-sdk")]
+pub async fn node_status(
+    seed: &SeedSource,
+    wallet: &dyn WalletProvider,
+) -> Result<crate::lexe_wallet::NodeStatus> {
+    let secret = seed.load()?;
+    wallet.node_status(secret.as_str()).await
+}
+
+/// The node's full payment activity (inbound + outbound, LN + on-chain).
+#[cfg(feature = "lexe-sdk")]
+pub async fn list_payments(
+    seed: &SeedSource,
+    wallet: &dyn WalletProvider,
+    limit: u16,
+) -> Result<Vec<crate::lexe_wallet::Activity>> {
+    let secret = seed.load()?;
+    wallet.list_payments(secret.as_str(), limit).await
+}
+
+/// Create a BOLT11 invoice to receive a payment (Receive flow).
+#[cfg(feature = "lexe-sdk")]
+pub async fn create_invoice(
+    seed: &SeedSource,
+    wallet: &dyn WalletProvider,
+    amount_sats: Option<u64>,
+    description: Option<&str>,
+) -> Result<String> {
+    let secret = seed.load()?;
+    wallet
+        .create_invoice(secret.as_str(), amount_sats, description)
+        .await
+}
+
+/// Send a payment to any payable string (Send flow). **Moves real funds.**
+#[cfg(feature = "lexe-sdk")]
+pub async fn pay(
+    seed: &SeedSource,
+    wallet: &dyn WalletProvider,
+    payable: &str,
+    amount_sats: Option<u64>,
+    note: Option<&str>,
+) -> Result<crate::lexe_wallet::PaySummary> {
+    let secret = seed.load()?;
+    wallet
+        .pay(secret.as_str(), payable, amount_sats, note)
+        .await
+}
+
 /// Create a payable BOLT12 offer in-process from the configured seed.
 #[cfg(feature = "lexe-sdk")]
 pub async fn create_offer(

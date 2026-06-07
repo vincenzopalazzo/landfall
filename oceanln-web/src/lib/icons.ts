@@ -20,4 +20,12 @@ export const ICONS: Record<string, string> = {
   spark: '<path d="M12 3l1.8 5.7L19.5 10l-5.7 1.8L12 17.5l-1.8-5.7L4.5 10l5.7-1.3L12 3Z"/>',
   enclave: '<rect x="4" y="4" width="16" height="16" rx="3"/><rect x="9" y="9" width="6" height="6" rx="1"/>',
   cog: '<circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1l2-1.5-2-3.4-2.3 1a7 7 0 0 0-1.7-1L14.5 2h-5l-.4 2.6a7 7 0 0 0-1.7 1l-2.3-1-2 3.4 2 1.5a7 7 0 0 0 0 2l-2 1.5 2 3.4 2.3-1a7 7 0 0 0 1.7 1l.4 2.6h5l.4-2.6a7 7 0 0 0 1.7-1l2.3 1 2-3.4-2-1.5a7 7 0 0 0 .1-1Z"/>',
+  search: '<circle cx="11" cy="11" r="7"/><line x1="16.5" y1="16.5" x2="21" y2="21"/>',
+  close: '<line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/>',
+  // Inbound: arrow pointing down-left into the wallet.
+  in: '<line x1="18" y1="6" x2="7" y2="17"/><polyline points="7 8 7 17 16 17"/>',
+  // Outbound: arrow pointing up-right out of the wallet.
+  out: '<line x1="6" y1="18" x2="17" y2="7"/><polyline points="8 7 17 7 17 16"/>',
+  btc: '<circle cx="12" cy="12" r="9"/><path d="M9.5 7.5h4a2 2 0 0 1 0 4h-4Zm0 4h4.3a2 2 0 0 1 0 4H9.5Zm1.3-6v1.5m0 9V16.5m2-11v1.5m0 7.5v1.5"/>',
+  at: '<circle cx="12" cy="12" r="4"/><path d="M16 8v5a3 3 0 0 0 5-2 9 9 0 1 0-3.6 7"/>',
 };

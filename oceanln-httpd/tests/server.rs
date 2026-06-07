@@ -49,6 +49,49 @@ impl WalletProvider for MockWallet {
     ) -> Result<Vec<oceanln_common::lexe_wallet::OceanPayout>> {
         Ok(vec![])
     }
+    async fn node_status(
+        &self,
+        _mnemonic: &str,
+    ) -> Result<oceanln_common::lexe_wallet::NodeStatus> {
+        Ok(oceanln_common::lexe_wallet::NodeStatus {
+            node_pk: "02mocknodepk".to_string(),
+            num_channels: 1,
+            num_usable_channels: 1,
+            lightning_total_sats: 0,
+            lightning_sendable_sats: 0,
+            onchain_total_sats: 0,
+            onchain_trusted_sats: 0,
+            total_balance_sats: 0,
+        })
+    }
+    async fn list_payments(
+        &self,
+        _mnemonic: &str,
+        _limit: u16,
+    ) -> Result<Vec<oceanln_common::lexe_wallet::Activity>> {
+        Ok(vec![])
+    }
+    async fn create_invoice(
+        &self,
+        _mnemonic: &str,
+        _amount_sats: Option<u64>,
+        _description: Option<&str>,
+    ) -> Result<String> {
+        Ok("lnbc1mockinvoice".to_string())
+    }
+    async fn pay(
+        &self,
+        _mnemonic: &str,
+        _payable: &str,
+        amount_sats: Option<u64>,
+        _note: Option<&str>,
+    ) -> Result<oceanln_common::lexe_wallet::PaySummary> {
+        Ok(oceanln_common::lexe_wallet::PaySummary {
+            id: "mock_payment_id".to_string(),
+            amount_sats: amount_sats.unwrap_or(0),
+            created_at_ms: 0,
+        })
+    }
 }
 
 /// A uniquely-named temp seed-file path for a test.
