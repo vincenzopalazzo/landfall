@@ -439,11 +439,13 @@ fn activity_from(p: lexe_api_core::types::payments::BasicPaymentV2) -> Activity 
         note: p.message.clone(),
         counterparty: p.payer_name.clone(),
         finalized_at_ms,
+        // Lexe exposes the LN payment hash and the on-chain txid as two
+        // separate fields, so route each to its own slot. The UI links
+        // `payment_hash` → ocean.xyz (Lightning) and `txid` →
+        // mempool.space (on-chain); conflating them would have sent
+        // on-chain rows to the Lightning explorer.
         payment_hash: p.hash.map(|h| h.to_string()),
-        // On-chain payments carry their txid in the payment hash slot for
-        // our purposes; if Lexe exposes it separately in future, map it
-        // here. For now LN rows have a hash, on-chain rows may not.
-        txid: None,
+        txid: p.txid.map(|t| t.to_string()),
         is_ocean: ocean,
         block_height,
     }
