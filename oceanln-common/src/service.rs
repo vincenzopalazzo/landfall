@@ -2,27 +2,41 @@
 //!
 //! These functions hold the logic every frontend shares: resolve the offer, read
 //! the seed locally, derive + BIP-322 sign, provision the wallet, and
-//! generate/import/persist a seed. Both the axum handlers in [`crate`] and the
-//! Tauri desktop commands call straight into here, so the security-critical steps
-//! — the offer-must-be-in-message check, the seed never crossing the wire, the
-//! signing key wiped right after use, and the atomic `O_EXCL` seed create — live
-//! in exactly one audited place rather than being duplicated per transport.
+//! generate/import/persist a seed. The axum handlers in `oceanln-httpd`, the
+//! Tauri desktop commands, and the MCP tools in `oceanln-mcp` all call straight
+//! into here, so the security-critical steps — the offer-must-be-in-message
+//! check, the seed never crossing the wire, the signing key wiped right after
+//! use, and the atomic `O_EXCL` seed create — live in exactly one audited place
+//! rather than being duplicated per transport.
 
 use std::path::PathBuf;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+// `Zeroize` is only used by `import` (gated below). Keep the use under
+// the same flag so the thin-build doesn't emit an unused-import error.
+#[cfg(feature = "lexe-sdk")]
 use zeroize::Zeroize;
 
-use oceanln_common::client::{CreateOfferReq, SidecarClient};
-use oceanln_common::error::{Error, Result};
-use oceanln_common::seed::SeedSource;
-use oceanln_common::sign::{self, MnemonicSecret};
-
-use crate::WalletProvider;
+use crate::client::{CreateOfferReq, SidecarClient};
+use crate::error::{Error, Result};
+use crate::seed::SeedSource;
+use crate::sign;
+// `MnemonicSecret` is only used by the `lexe-sdk`-gated `import` fn.
+#[cfg(feature = "lexe-sdk")]
+use crate::sign::MnemonicSecret;
+// The WalletProvider trait + its consumers (`create_offer`, `init`,
+// `list_offer_payouts`) only exist when the in-process Lexe SDK is
+// compiled in — see `wallet_provider.rs` for why the gating is
+// trait-level rather than per-method.
+#[cfg(feature = "lexe-sdk")]
+use crate::wallet_provider::WalletProvider;
 
 // ── response payloads (shared by every transport) ──────────────────
 
-#[derive(Serialize)]
+// `Deserialize` added so `oceanln-mcp` (and any other cross-process
+// consumer) can parse these back from a REST response. The structs are
+// the wire contract of `oceanln-httpd`.
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct PayoutResp {
     pub address: String,
     pub offer: String,
@@ -30,30 +44,45 @@ pub struct PayoutResp {
     pub signature: String,
 }
 
-#[derive(Serialize)]
+// `Deserialize` added so `oceanln-mcp` (and any other cross-process
+// consumer) can parse these back from a REST response. The structs are
+// the wire contract of `oceanln-httpd`.
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct OfferResp {
     pub offer: String,
 }
 
-#[derive(Serialize)]
+// `Deserialize` added so `oceanln-mcp` (and any other cross-process
+// consumer) can parse these back from a REST response. The structs are
+// the wire contract of `oceanln-httpd`.
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct InitResp {
     pub mining_address: String,
     pub provisioned: bool,
 }
 
-#[derive(Serialize)]
+// `Deserialize` added so `oceanln-mcp` (and any other cross-process
+// consumer) can parse these back from a REST response. The structs are
+// the wire contract of `oceanln-httpd`.
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct GenerateResp {
     /// The freshly generated 24-word phrase — revealed exactly once.
     pub mnemonic: String,
     pub mining_address: String,
 }
 
-#[derive(Serialize)]
+// `Deserialize` added so `oceanln-mcp` (and any other cross-process
+// consumer) can parse these back from a REST response. The structs are
+// the wire contract of `oceanln-httpd`.
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ImportResp {
     pub mining_address: String,
 }
 
-#[derive(Serialize)]
+// `Deserialize` added so `oceanln-mcp` (and any other cross-process
+// consumer) can parse these back from a REST response. The structs are
+// the wire contract of `oceanln-httpd`.
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct StatusResp {
     /// Whether a wallet seed is already configured (so a frontend can skip
     /// onboarding and go straight to the profile/dashboard on launch).
@@ -66,9 +95,10 @@ pub struct StatusResp {
 
 /// Map a shared [`Error`] to an HTTP-style status code.
 ///
-/// Used by both transports — the axum error response and the Tauri command
-/// error — so a given failure reports the same status everywhere (a browser
-/// `409` for an existing wallet is a desktop `409` too).
+/// Used by every transport — the axum error response, the Tauri command
+/// error, and the MCP tool error mapping — so a given failure reports
+/// the same status everywhere (a browser `409` for an existing wallet
+/// is a desktop `409` too).
 pub fn http_status(err: &Error) -> u16 {
     match err {
         Error::InvalidOffer(_)
@@ -153,21 +183,24 @@ pub async fn payout(
 /// List OCEAN's Lightning payouts from the user's in-process Lexe wallet.
 ///
 /// The single transport-neutral entry point for the payouts data: the
-/// HTTP route ([`crate::lib::payouts`]), the CLI subcommand
-/// (`oceanln payouts`), and the Tauri desktop IPC all funnel through
-/// this. Filtering / OCEAN-pattern matching happens once, inside
-/// [`oceanln_common::lexe_wallet::list_offer_payouts`] — never duplicated
-/// at the transport layer.
+/// HTTP route (`oceanln_httpd::payouts`), the CLI subcommand
+/// (`oceanln payouts`), the Tauri desktop IPC, and the MCP tool
+/// (`oceanln_mcp::list_payouts`) all funnel through this. Filtering /
+/// OCEAN-pattern matching happens once, inside
+/// [`crate::lexe_wallet::list_offer_payouts`] — never duplicated at the
+/// transport layer.
+#[cfg(feature = "lexe-sdk")]
 pub async fn list_offer_payouts(
     seed: &SeedSource,
     wallet: &dyn WalletProvider,
     limit: u16,
-) -> Result<Vec<oceanln_common::lexe_wallet::OceanPayout>> {
+) -> Result<Vec<crate::lexe_wallet::OceanPayout>> {
     let secret = seed.load()?;
     wallet.list_offer_payouts(secret.as_str(), limit).await
 }
 
 /// Create a payable BOLT12 offer in-process from the configured seed.
+#[cfg(feature = "lexe-sdk")]
 pub async fn create_offer(
     seed: &SeedSource,
     wallet: &dyn WalletProvider,
@@ -202,6 +235,9 @@ pub fn read_offer(seed: &SeedSource) -> Option<String> {
         .filter(|s| !s.is_empty())
 }
 
+// Only the `lexe-sdk`-gated `create_offer` writes new offers; the thin
+// sidecar-client build only ever reads via `read_offer`.
+#[cfg(feature = "lexe-sdk")]
 fn write_offer(seed: &SeedSource, offer: &str) {
     // Best-effort, and deliberately written with default perms (0644, not the
     // seed's 0600): a BOLT12 offer is a public payment destination, not a
@@ -241,6 +277,7 @@ pub fn status(seed: &SeedSource, default_path: &str) -> Result<StatusResp> {
 /// Provision the onchain wallet for the configured seed and return the mining
 /// address to register with OCEAN. Idempotent. Operates on the already-stored
 /// seed — call [`generate`] or [`import`] first to create one.
+#[cfg(feature = "lexe-sdk")]
 pub async fn init(
     seed: &SeedSource,
     default_path: &str,
@@ -267,6 +304,10 @@ pub async fn init(
 /// [`import`]. The `exists()` pre-check fails before generating so a refusal
 /// never strands a revealed phrase; the persisting write is itself atomic
 /// (`O_EXCL`), which is the real no-clobber guard under concurrency.
+///
+/// Gated on `lexe-sdk` because it calls [`sign::store_seed`], which is
+/// itself only available with the in-process wallet feature on.
+#[cfg(feature = "lexe-sdk")]
 pub fn generate(seed: &SeedSource, default_path: &str) -> Result<GenerateResp> {
     let dest = seed.path();
     if dest.exists() {
@@ -279,6 +320,14 @@ pub fn generate(seed: &SeedSource, default_path: &str) -> Result<GenerateResp> {
     let mnemonic = sign::parse_mnemonic(&secret)?;
     let mining_address = sign::derive_address(&mnemonic, &path)?;
     sign::store_seed(&secret, Some(dest), false)?;
+    // Wipe any stale sibling `.offer` from a previous wallet. Reachable when
+    // an operator manually deleted the seed file (or moved it to a new path
+    // that already had an old `.offer` lying around) and then hits
+    // `/generate`. Without this, `create_offer` later refuses to overwrite
+    // the existing offer and the next bootstrap restores the OLD wallet's
+    // offer for the freshly-generated seed — pointing OCEAN at funds we
+    // don't control.
+    let _ = std::fs::remove_file(offer_path(seed));
     Ok(GenerateResp {
         mnemonic: secret.as_str().to_string(),
         mining_address,
@@ -288,6 +337,9 @@ pub fn generate(seed: &SeedSource, default_path: &str) -> Result<GenerateResp> {
 /// Import an existing 24-word phrase: validate it, persist it to the configured
 /// seed file (409 if one already exists unless `force`), and return the derived
 /// mining address. `mnemonic_input` is wiped after a zeroizing copy is taken.
+///
+/// Gated on `lexe-sdk` for the same reason as [`generate`].
+#[cfg(feature = "lexe-sdk")]
 pub fn import(
     seed: &SeedSource,
     default_path: &str,
@@ -306,8 +358,16 @@ pub fn import(
     // later `status()` can't pair the new address with the old offer. Detected
     // before the write, since `store_seed` is idempotent for an identical phrase.
     let replaced_seed = force && seed_changed(seed, secret.as_str());
+    // A FRESH import into a path with no prior seed but a stale sibling
+    // `.offer` (operator manually deleted the seed file; the .offer was
+    // left behind) is the same hazard the generate() path guards: without
+    // clearing it, `create_offer` would refuse to overwrite and the next
+    // `status()` would pair the freshly-imported wallet with the old
+    // offer. Capture "did the seed file exist before we wrote?" so we
+    // can decide whether to wipe a stale .offer after the write.
+    let seed_existed_before = seed.path().exists();
     sign::store_seed(&secret, Some(seed.path()), force)?;
-    if replaced_seed {
+    if replaced_seed || !seed_existed_before {
         let _ = std::fs::remove_file(offer_path(seed));
     }
     Ok(ImportResp { mining_address })
@@ -315,6 +375,7 @@ pub fn import(
 
 /// True when a seed file exists and its (whitespace-normalized) contents differ
 /// from `new_phrase`. `false` when no seed exists (a first write, not a swap).
+#[cfg(feature = "lexe-sdk")]
 fn seed_changed(seed: &SeedSource, new_phrase: &str) -> bool {
     match std::fs::read_to_string(seed.path()) {
         Ok(existing) => existing.split_whitespace().collect::<Vec<_>>().join(" ") != new_phrase,

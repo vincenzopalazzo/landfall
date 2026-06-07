@@ -527,3 +527,82 @@ async fn payouts_endpoint_accepts_limit_query() {
         .unwrap();
     assert_eq!(resp.status(), 200);
 }
+
+// Note: the previous `mcp_endpoint_*` tests were removed in PR E along
+// with the in-process `/mcp` mount. `oceanln-mcp` is now a separate
+// binary that talks to these REST endpoints over HTTP — it doesn't
+// share this process at all. The auth-bypass regression that
+// `mcp_endpoint_requires_bearer` guarded no longer applies because the
+// route doesn't exist on `oceanln-httpd` anymore.
+
+// ── /ocean/* (public OCEAN API proxy routes) ─────────────────────
+//
+// These proxy `api.ocean.xyz/v1/*` so MCP (and any other adapter) can
+// reach OCEAN data through THIS server rather than each adapter
+// implementing its own client. Integration tests assert the routes are
+// wired and inherit the same guard middleware as the wallet routes.
+// We do NOT hit the real OCEAN API in tests — wiring is the contract,
+// content is exercised by oceanln-common::ocean::tests.
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn ocean_pool_stat_requires_bearer() {
+    let base = spawn("ocean-pool-unauthed", &[]).await;
+    let resp = client()
+        .get(format!("{base}/ocean/pool_stat"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 401);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn ocean_statsnap_requires_bearer() {
+    let base = spawn("ocean-statsnap-unauthed", &[]).await;
+    let resp = client()
+        .get(format!("{base}/ocean/statsnap/bc1qfoo"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 401);
+}
+
+// ── --no-auth mode (loopback-only v1 deploy) ─────────────────────
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn no_auth_mode_serves_status_without_bearer() {
+    // Empty-token AppState mimics what `oceanln-httpd --no-auth` builds.
+    use oceanln_common::sign::DEFAULT_BIP32_PATH;
+    use oceanln_httpd::{build_app, AppState, ServerConfig};
+    let seed_path = write_seed("no-auth");
+    let state = std::sync::Arc::new(AppState::new(
+        ServerConfig {
+            seed: oceanln_common::seed::SeedSource::File(seed_path),
+            token: String::new(), // ← the load-bearing change
+            allowed_origins: vec![],
+            sidecar_url: oceanln_common::client::DEFAULT_BASE_URL.to_string(),
+            sidecar_credentials: None,
+            default_path: DEFAULT_BIP32_PATH.to_string(),
+        },
+        std::sync::Arc::new(MockWallet),
+    ));
+    let app = build_app(state);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind");
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        let _ = axum::serve(listener, app).await;
+    });
+    let resp = client()
+        .get(format!("http://{addr}/status"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        200,
+        "no-auth httpd must accept unbearered requests on /status"
+    );
+    let v: serde_json::Value = resp.json().await.unwrap();
+    assert!(v.get("configured").is_some());
+}

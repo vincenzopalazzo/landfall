@@ -3226,6 +3226,7 @@ dependencies = [
 name = "oceanln-common"
 version = "0.3.0"
 dependencies = [
+ "async-trait",
  "bip322",
  "bip39",
  "bitcoin",

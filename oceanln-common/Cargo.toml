@@ -24,6 +24,12 @@ bip322.workspace = true
 rpassword.workspace = true
 zeroize.workspace = true
 thiserror.workspace = true
+# Needed for the `WalletProvider` trait. Always present (not optional)
+# because async fn in traits with `#[async_trait]` is the only way to
+# express the seam in stable Rust today; keeping it unconditional
+# means the trait macro expansion compiles even in thin-build configs
+# where the trait body itself is feature-gated out.
+async-trait.workspace = true
 lexe = { workspace = true, optional = true }
 lexe-api-core = { workspace = true, optional = true }
 lexe-common = { workspace = true, optional = true }

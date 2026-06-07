@@ -202,13 +202,23 @@ let bootstrapReqId = 0;
 
 export async function bootstrap() {
   const myId = ++bootstrapReqId;
+  // The FIRST bootstrap is the initial page-mount. Any reset here is
+  // a no-op for a genuine first-time user (no prior identity exists),
+  // and it would clobber state the user may have already produced
+  // mid-mount (e.g. clicking "Create a new wallet" before the async
+  // /status round-trips and calling generateWallet, populating
+  // `app.phrase`). So on the first call we skip the reset on the
+  // no-config/error paths entirely. Only *subsequent* bootstraps
+  // (Settings change → token/base swap) need to scrub the prior
+  // server's leftovers.
+  const isRetarget = myId > 1;
   let s;
   try {
     s = await client().status();
   } catch {
     /* not configured / unreachable / no token → stay on the wizard */
     if (myId !== bootstrapReqId) return;
-    resetWalletIdentity();
+    if (isRetarget) resetWalletIdentity(true);
     return;
   }
   // Superseded by a newer bootstrap (Settings changed mid-flight).
@@ -220,7 +230,7 @@ export async function bootstrap() {
     // against a configured server and the user has now switched bases/tokens,
     // drop the stale identity so the wizard rebuilds from scratch instead of
     // showing the prior server's address.
-    resetWalletIdentity();
+    if (isRetarget) resetWalletIdentity(true);
     return;
   }
   // Re-bootstrap path: when the user changes base/token in Settings, the
@@ -228,8 +238,9 @@ export async function bootstrap() {
   // the cached identity before applying the new /status — both
   // `seedProfile()` (early-returns when `app.profile` is set) and the
   // no-offer branch (which would leave a stale `app.offer` intact)
-  // otherwise compose with the prior server's data.
-  resetWalletIdentity();
+  // otherwise compose with the prior server's data. The wizard nav
+  // gets rewritten below by either branch, so always allow nav reset here.
+  resetWalletIdentity(true);
   app.miningAddress = s.mining_address;
   if (s.offer) {
     app.offer = s.offer;
@@ -263,10 +274,23 @@ export async function bootstrap() {
 // unconditionally resets `app.mode` / `app.stepIndex`, which is too
 // aggressive for the in-app "wallet exists" recovery test paths.
 // Settings (base, token, accent, density) are NOT touched.
-function resetWalletIdentity() {
-  if (app.surface === "profile" || app.surface === "dashboard") {
-    app.surface = "wizard";
+function resetWalletIdentity(rewindWizard: boolean = false) {
+  // Rewind the wizard back to Welcome ONLY when the caller asks
+  // (re-bootstrap path). A prior bootstrap that landed on the no-offer
+  // Import path leaves `mode === "import"` and `stepIndex` on Phrase
+  // with empty words; without resetting both, a re-bootstrap against
+  // an unconfigured/401 server strands the user there. But during the
+  // FIRST bootstrap (initial page mount) the user may already be
+  // mid-click on "Create a new wallet", so resetting nav unconditionally
+  // would clobber a freshly-generated phrase.
+  if (rewindWizard) {
     app.stepIndex = 0;
+    app.mode = "create";
+  }
+  if (app.surface === "profile" || app.surface === "dashboard") {
+    // Profile derefs `app.profile!.addresses`; clearing identity
+    // while still mounted crashes mid-render.
+    app.surface = "wizard";
   }
   // Identity
   app.profile = null;
@@ -439,6 +463,13 @@ export function restart() {
   app.submitted = false;
   app.profile = null;
   app.error = "";
+  // `restart()` is the "I am genuinely starting from zero" entry point
+  // (Profile "Re-run setup", test beforeEach). Reset the bootstrap
+  // counter so the next bootstrap is treated as a first-time mount,
+  // not a re-target — otherwise the test suite (which reuses module
+  // state across tests) would see every bootstrap past the first as
+  // a retarget and clobber whatever flow the test is exercising.
+  bootstrapReqId = 0;
 }
 
 function msg(e: unknown): string {

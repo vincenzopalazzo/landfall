@@ -1,0 +1,35 @@
+[package]
+name = "oceanln-mcp"
+description = "OCEAN Lightning — read-only MCP proxy in front of oceanln-httpd"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "oceanln-mcp"
+path = "src/main.rs"
+
+[dependencies]
+# Single ServerHandler implementation; HTTP transport binds to its own port
+# in main.rs. Tool handlers do NOT call oceanln-common service functions —
+# they reach `oceanln-httpd` over HTTP. The dep on `oceanln-common` is for
+# typed deserialization of REST response payloads only (StatSnap, EarnPay,
+# OceanPayout, …), with `lexe-sdk` enabled because OceanPayout lives behind
+# that feature.
+oceanln-common = { path = "../oceanln-common", features = ["lexe-sdk"] }
+rmcp.workspace = true
+schemars.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio = { workspace = true, features = ["sync", "macros", "rt-multi-thread", "net", "signal"] }
+reqwest.workspace = true
+async-trait.workspace = true
+thiserror.workspace = true
+# Binary plumbing only — listener + CLI parsing.
+axum.workspace = true
+clap.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync"] }

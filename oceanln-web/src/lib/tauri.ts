@@ -65,9 +65,12 @@ export class TauriClient implements Backend {
   // `list_lightning_payouts` is the Tauri IPC name; the Rust handler delegates
   // to the same `oceanln_common::lexe_wallet::list_offer_payouts` the HTTP
   // route uses, so this returns the identical `OceanPayout[]` shape.
-  // `limit` is ignored by the current IPC (it takes no args); the Rust
-  // command applies a default cap of 200 internally.
-  payouts(_limit?: number): Promise<OceanPayout[]> {
-    return call<OceanPayout[]>("list_lightning_payouts");
+  // The Rust command now accepts an optional `limit` — forward whatever
+  // the caller asks for (StatsGrid uses 10_000 for the lifetime aggregate).
+  payouts(limit?: number): Promise<OceanPayout[]> {
+    return call<OceanPayout[]>(
+      "list_lightning_payouts",
+      typeof limit === "number" ? { limit } : undefined,
+    );
   }
 }

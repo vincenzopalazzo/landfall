@@ -22,7 +22,7 @@
 
 use std::sync::Arc;
 
-use axum::extract::{Request, State};
+use axum::extract::{Path, Request, State};
 use axum::http::{header, HeaderValue, Method, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
@@ -32,66 +32,24 @@ use serde::Deserialize;
 use serde_json::json;
 use tower_http::cors::CorsLayer;
 
-use oceanln_common::error::{Error, Result};
+use oceanln_common::error::Error;
+use oceanln_common::ocean::{EarnPay, OceanClient, PoolStat, StatSnap, UserHashrate};
 use oceanln_common::seed::SeedSource;
 
-pub mod service;
-
-// ── wallet seam ─────────────────────────────────────────────────
-
-/// The wallet operations the server exposes, abstracted so the HTTP layer does
-/// not depend directly on the in-process Lexe SDK. The real implementation is
-/// [`LexeWalletProvider`]; tests substitute their own implementation.
-#[async_trait::async_trait]
-pub trait WalletProvider: Send + Sync {
-    /// Provision the onchain wallet for `mnemonic` (idempotent).
-    async fn provision(&self, mnemonic: &str) -> Result<()>;
-
-    /// Create a payable BOLT12 offer for `mnemonic`; returns the `lno1…` string.
-    async fn create_offer(
-        &self,
-        mnemonic: &str,
-        description: Option<&str>,
-        min_amount: Option<&str>,
-    ) -> Result<String>;
-
-    /// List the wallet's inbound, completed BOLT12 offer payments — i.e.
-    /// OCEAN's Lightning payouts. Empty list = no payouts yet (the Lexe
-    /// node call may still have succeeded). `limit` caps the round-trip.
-    async fn list_offer_payouts(
-        &self,
-        mnemonic: &str,
-        limit: u16,
-    ) -> Result<Vec<oceanln_common::lexe_wallet::OceanPayout>>;
-}
-
-/// Production [`WalletProvider`] backed by the in-process Lexe SDK
-/// ([`oceanln_common::lexe_wallet`]).
-pub struct LexeWalletProvider;
-
-#[async_trait::async_trait]
-impl WalletProvider for LexeWalletProvider {
-    async fn provision(&self, mnemonic: &str) -> Result<()> {
-        oceanln_common::lexe_wallet::init(mnemonic).await
-    }
-
-    async fn create_offer(
-        &self,
-        mnemonic: &str,
-        description: Option<&str>,
-        min_amount: Option<&str>,
-    ) -> Result<String> {
-        oceanln_common::lexe_wallet::create_offer(mnemonic, description, min_amount).await
-    }
-
-    async fn list_offer_payouts(
-        &self,
-        mnemonic: &str,
-        limit: u16,
-    ) -> Result<Vec<oceanln_common::lexe_wallet::OceanPayout>> {
-        oceanln_common::lexe_wallet::list_offer_payouts(mnemonic, limit).await
-    }
-}
+// ── workspace-shared seams (re-exported for back-compat) ─────────
+//
+// `WalletProvider`, `LexeWalletProvider`, and `service::*` used to live
+// in this crate. They moved to `oceanln-common` so transport crates
+// (oceanln-httpd's REST routes AND oceanln-mcp's MCP tools) can
+// implement against the same trait without creating a dep cycle
+// through this crate. The re-exports below preserve every existing
+// import path: `oceanln_httpd::WalletProvider`,
+// `oceanln_httpd::LexeWalletProvider`, `oceanln_httpd::service::*`.
+pub use oceanln_common::service;
+// `oceanln-httpd` always pulls `oceanln-common` with its default features
+// (which include `lexe-sdk`), so the `wallet_provider` module is always
+// present here — no cfg gate needed on the re-export.
+pub use oceanln_common::wallet_provider::{LexeWalletProvider, WalletProvider};
 
 // ── configuration / state ───────────────────────────────────────
 
@@ -117,11 +75,28 @@ pub struct ServerConfig {
 pub struct AppState {
     cfg: ServerConfig,
     wallet: Arc<dyn WalletProvider>,
+    /// Shared `reqwest::Client` for the `/ocean/*` proxy routes —
+    /// pooled TCP/TLS across every proxied call to `api.ocean.xyz`.
+    ocean: OceanClient,
 }
 
 impl AppState {
     pub fn new(cfg: ServerConfig, wallet: Arc<dyn WalletProvider>) -> Self {
-        Self { cfg, wallet }
+        Self {
+            cfg,
+            wallet,
+            ocean: OceanClient::default(),
+        }
+    }
+
+    /// Test/debug constructor: override the OCEAN base URL so integration
+    /// tests can point the proxy routes at a local mock server.
+    pub fn with_ocean_client(
+        cfg: ServerConfig,
+        wallet: Arc<dyn WalletProvider>,
+        ocean: OceanClient,
+    ) -> Self {
+        Self { cfg, wallet, ocean }
     }
 }
 
@@ -301,6 +276,43 @@ async fn payouts(
     Ok(Json(resp))
 }
 
+// ── /ocean/* — proxies for OCEAN's public REST API ───────────────
+//
+// These exist so MCP (and any other adapter — Discord bot, custom
+// dashboard, etc.) can hit OCEAN data through THIS server instead of
+// each adapter implementing its own `api.ocean.xyz` client. Centralizing
+// the upstream calls here gives us one place to add caching, rate
+// limiting, or response normalization later. The handlers are 5-line
+// wrappers over `oceanln_common::ocean::OceanClient`, which holds the
+// shared pooled `reqwest::Client` in `AppState`.
+
+async fn ocean_statsnap(
+    State(state): State<Arc<AppState>>,
+    Path(address): Path<String>,
+) -> std::result::Result<Json<StatSnap>, ApiError> {
+    Ok(Json(state.ocean.statsnap(&address).await?))
+}
+
+async fn ocean_earnpay(
+    State(state): State<Arc<AppState>>,
+    Path(address): Path<String>,
+) -> std::result::Result<Json<EarnPay>, ApiError> {
+    Ok(Json(state.ocean.earnpay(&address).await?))
+}
+
+async fn ocean_user_hashrate(
+    State(state): State<Arc<AppState>>,
+    Path(address): Path<String>,
+) -> std::result::Result<Json<UserHashrate>, ApiError> {
+    Ok(Json(state.ocean.user_hashrate(&address).await?))
+}
+
+async fn ocean_pool_stat(
+    State(state): State<Arc<AppState>>,
+) -> std::result::Result<Json<PoolStat>, ApiError> {
+    Ok(Json(state.ocean.pool_stat().await?))
+}
+
 // ── guard middleware ────────────────────────────────────────────
 
 fn deny(status: StatusCode, msg: &str) -> Response {
@@ -322,8 +334,12 @@ fn ct_eq(a: &[u8], b: &[u8]) -> bool {
 }
 
 /// True if `host` (a `Host` header value, possibly `host:port`) names the
-/// local machine. Anything else is rejected to blunt DNS-rebinding attacks
-/// that resolve an attacker-controlled name to `127.0.0.1`.
+/// local machine.
+///
+/// Implementation moved to [`oceanln_common::net::host_is_loopback`]
+/// so `oceanln-mcp` can apply the same DNS-rebinding defense without
+/// duplicating the parsing rules. Local wrapper preserved so the
+/// existing call sites + unit tests in this crate keep working.
 fn host_is_loopback(host: &str) -> bool {
     // Strip an optional port. `[::1]:7762` and `127.0.0.1:7762` both supported.
     let hostname = if let Some(rest) = host.strip_prefix('[') {
@@ -363,14 +379,20 @@ async fn guard(State(state): State<Arc<AppState>>, req: Request, next: Next) -> 
         }
     }
 
-    let expected = format!("Bearer {}", state.cfg.token);
-    let authorized = headers
-        .get(header::AUTHORIZATION)
-        .and_then(|v| v.to_str().ok())
-        .map(|v| ct_eq(v.as_bytes(), expected.as_bytes()))
-        .unwrap_or(false);
-    if !authorized {
-        return deny(StatusCode::UNAUTHORIZED, "missing or invalid bearer token");
+    // Empty token = explicit operator opt-in to no-auth mode (v1
+    // single-host deploy via `oceanln-httpd --no-auth`). The loopback
+    // bind + Origin/Host guards above are the only defenses in that
+    // mode. Skip the bearer check entirely.
+    if !state.cfg.token.is_empty() {
+        let expected = format!("Bearer {}", state.cfg.token);
+        let authorized = headers
+            .get(header::AUTHORIZATION)
+            .and_then(|v| v.to_str().ok())
+            .map(|v| ct_eq(v.as_bytes(), expected.as_bytes()))
+            .unwrap_or(false);
+        if !authorized {
+            return deny(StatusCode::UNAUTHORIZED, "missing or invalid bearer token");
+        }
     }
 
     next.run(req).await
@@ -389,11 +411,17 @@ fn cors_layer(allowed_origins: &[String]) -> CorsLayer {
         .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE])
 }
 
-/// Build the router for `state`: `/health` is open; `/status`, `/generate`,
-/// `/import`, `/payout`, `/offer`, and `/init` sit behind the [`guard`] (token +
-/// origin + host) and the CORS layer.
+/// Build the router for `state`: `/health` is open; everything else sits
+/// behind the [`guard`] (bearer if `cfg.token` is non-empty, origin + host
+/// always) and the CORS layer.
+///
+/// **MCP is NOT mounted here.** `oceanln-mcp` runs as a separate process
+/// (own port, own binary) and reaches these REST endpoints via HTTP — the
+/// MCP server is a protocol adapter, not a parallel code path. See
+/// `docs/plans/2026-06-07-pr-e-mcp-proxy.md`.
 pub fn build_app(state: Arc<AppState>) -> Router {
     let cors = cors_layer(&state.cfg.allowed_origins);
+
     let protected = Router::new()
         .route("/status", get(status))
         .route("/generate", post(generate))
@@ -402,6 +430,13 @@ pub fn build_app(state: Arc<AppState>) -> Router {
         .route("/offer", post(offer))
         .route("/init", post(init))
         .route("/payouts", get(payouts))
+        // OCEAN public-API proxy routes. Read-only, no seed touched.
+        // MCP's `get_ocean_*` tools proxy these via HTTP — the AI never
+        // talks to `api.ocean.xyz` directly through MCP.
+        .route("/ocean/statsnap/:address", get(ocean_statsnap))
+        .route("/ocean/earnpay/:address", get(ocean_earnpay))
+        .route("/ocean/user_hashrate/:address", get(ocean_user_hashrate))
+        .route("/ocean/pool_stat", get(ocean_pool_stat))
         .layer(middleware::from_fn_with_state(state.clone(), guard));
 
     Router::new()

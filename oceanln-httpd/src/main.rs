@@ -33,8 +33,17 @@ struct Cli {
 
     /// Bearer token required on every endpoint except `/health`. If omitted, a
     /// fresh 256-bit token is generated and printed to stderr on startup.
-    #[arg(long)]
+    /// Mutually exclusive with `--no-auth`.
+    #[arg(long, conflicts_with = "no_auth")]
     token: Option<String>,
+
+    /// Disable bearer authentication entirely. Intended for v1 single-host
+    /// deployments where the server binds loopback only and there is no
+    /// other process on the machine that should be trusted differently
+    /// from the operator. Origin + Host header guards still apply. Adding
+    /// auth later is a one-line `--token` swap on relaunch.
+    #[arg(long, default_value_t = false)]
+    no_auth: bool,
 
     /// Allowed `Origin` for browser clients (repeatable). Requests carrying an
     /// `Origin` not on this list are rejected (403). Native clients that send
@@ -88,19 +97,34 @@ async fn main() {
         );
     }
 
-    // A generated token must be revealed once so the operator can use it; an
-    // operator-supplied `--token` is already known and must NOT be echoed —
-    // stderr is commonly captured by systemd/Docker/supervisor logs.
-    let (token, generated) = match cli.token {
-        Some(t) => (t, false),
-        None => (sign::random_token(), true),
+    // Token resolution:
+    //   --no-auth        → empty token (the `guard` middleware treats
+    //                      empty as "skip bearer check"). Loopback bind
+    //                      + Origin/Host guards remain.
+    //   --token X        → bearer required, fixed value
+    //   neither          → bearer required, value auto-generated and
+    //                      printed once to stderr so the operator can
+    //                      copy it.
+    let (token, mode) = match (cli.no_auth, cli.token) {
+        (true, _) => (String::new(), TokenMode::Disabled),
+        (false, Some(t)) => (t, TokenMode::Supplied),
+        (false, None) => (sign::random_token(), TokenMode::Generated),
     };
 
     eprintln!("oceanln-httpd listening on http://{}", cli.bind);
-    if generated {
-        eprintln!("bearer token (generated, shown once): {token}");
-    } else {
-        eprintln!("bearer token: using --token (not echoed)");
+    match mode {
+        TokenMode::Generated => {
+            eprintln!("bearer token (generated, shown once): {token}");
+        }
+        TokenMode::Supplied => {
+            eprintln!("bearer token: using --token (not echoed)");
+        }
+        TokenMode::Disabled => {
+            eprintln!(
+                "AUTH DISABLED (--no-auth): bearer check is OFF. Loopback bind + Origin/Host \
+                 guards are the only defenses. Do NOT expose this listener to the network."
+            );
+        }
     }
     if cli.allow_origin.is_empty() {
         eprintln!("no --allow-origin set: browser (cross-origin) clients will be rejected.");
@@ -132,4 +156,14 @@ async fn main() {
         eprintln!("error: server stopped: {e}");
         std::process::exit(1);
     }
+}
+
+/// Pretty-print discriminator for the startup banner; not used elsewhere.
+enum TokenMode {
+    /// User explicitly opted into unauthed loopback (v1 single-host deploy).
+    Disabled,
+    /// Operator provided `--token`.
+    Supplied,
+    /// Auto-generated; printed once so the operator can copy it.
+    Generated,
 }

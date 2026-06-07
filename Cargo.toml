@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["oceanln-common", "oceanln-cli", "oceanln-httpd"]
+members = ["oceanln-common", "oceanln-cli", "oceanln-httpd", "oceanln-mcp"]
 # The Tauri desktop app is its own workspace (own Cargo.lock + heavy native dep
 # tree). Excluded here so `cargo --workspace` CI jobs stay fast and unaffected.
 exclude = ["src-tauri"]
@@ -40,6 +40,14 @@ tower = "0.5"
 tower-http = { version = "0.6", features = ["cors"] }
 http-body-util = "0.1"
 async-trait = "0.1"
+# MCP server (oceanln-mcp). `transport-streamable-http-server` ships
+# `rmcp::transport::streamable_http_server::StreamableHttpService`, which
+# impls `tower::Service` and mounts into axum via `Router::route_service`.
+rmcp = { version = "1.7", features = ["server", "macros", "schemars", "transport-streamable-http-server"] }
+# The MCP `#[tool]` macro emits `schemars`-derived JSON schemas for every
+# tool's argument struct. Pin alongside rmcp to keep schema generation in
+# sync. v1 is the version rmcp 1.7's `schemars` feature pulls in.
+schemars = "1"
 # Dev/test only.
 assert_cmd = "2.0"
 predicates = "3.1"
