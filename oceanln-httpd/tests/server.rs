@@ -477,3 +477,53 @@ async fn forced_import_clears_stale_offer() {
 
     let _ = std::fs::remove_file(&seed);
 }
+
+// ── /payouts ───────────────────────────────────────────────────
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn payouts_endpoint_returns_wallet_provider_rows() {
+    // MockWallet returns an empty Vec — proves the route is wired,
+    // auth-guarded, and serializes through to JSON `[]`. The OCEAN
+    // payer_note filter that produces the rows is exercised by unit
+    // tests in `oceanln_common::lexe_wallet`.
+    let base = spawn("payouts", &[]).await;
+    let resp = client()
+        .get(format!("{base}/payouts"))
+        .header("Authorization", format!("Bearer {TOKEN}"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let v: serde_json::Value = resp.json().await.unwrap();
+    assert!(v.is_array(), "payouts must serialize as a JSON array");
+    assert_eq!(v.as_array().unwrap().len(), 0);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn payouts_endpoint_requires_bearer() {
+    // No `Authorization` header → 401, same guard as every other
+    // protected endpoint. Regression check: the route must be mounted
+    // under the protected sub-router, not the public one.
+    let base = spawn("payouts-unauthed", &[]).await;
+    let resp = client()
+        .get(format!("{base}/payouts"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 401);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn payouts_endpoint_accepts_limit_query() {
+    // `?limit=N` must parse without 400-ing — the wrapper hands the
+    // value straight to `list_offer_payouts`. MockWallet ignores it,
+    // so the assertion is just that the route accepts the query.
+    let base = spawn("payouts-limit", &[]).await;
+    let resp = client()
+        .get(format!("{base}/payouts?limit=42"))
+        .header("Authorization", format!("Bearer {TOKEN}"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+}

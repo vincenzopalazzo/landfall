@@ -5,7 +5,7 @@ mod cli;
 use clap::Parser;
 use cli::{Cli, Command, PayoutArgs};
 #[cfg(feature = "lexe-sdk")]
-use cli::{InitArgs, OfferArgs};
+use cli::{InitArgs, OfferArgs, PayoutsArgs};
 use oceanln_common::client::{CreateOfferReq, SidecarClient};
 use oceanln_common::error::{Error, Result};
 use oceanln_common::sign;
@@ -28,6 +28,8 @@ async fn run(cli: Cli) -> Result<()> {
         Command::Init(args) => cmd_init(args, cli.json).await,
         #[cfg(feature = "lexe-sdk")]
         Command::Offer(args) => cmd_offer(args, cli.json).await,
+        #[cfg(feature = "lexe-sdk")]
+        Command::Payouts(args) => cmd_payouts(args, cli.json).await,
     }
 }
 
@@ -157,6 +159,85 @@ async fn cmd_offer(args: OfferArgs, json: bool) -> Result<()> {
         println!("  oceanln payout --offer {offer} --message '<OCEAN message>'");
         Ok(())
     }
+}
+
+// ── payouts ─────────────────────────────────────────────────────
+
+/// List OCEAN's Lightning payouts to this wallet's BOLT12 offer.
+///
+/// Reads through the SAME `oceanln_common::lexe_wallet::list_offer_payouts`
+/// function the HTTP `GET /payouts` route and the Tauri desktop IPC use —
+/// the filter (OCEAN payer-note matching, status/direction/kind gates,
+/// pagination against the node's `MAX_PAYMENTS_BATCH_SIZE`) lives in one
+/// place. The CLI just formats the result.
+#[cfg(feature = "lexe-sdk")]
+async fn cmd_payouts(args: PayoutsArgs, json: bool) -> Result<()> {
+    let secret = sign::resolve_seed(args.seed_file.as_deref())?;
+    sign::parse_mnemonic(&secret)?;
+    let rows = oceanln_common::lexe_wallet::list_offer_payouts(secret.as_str(), args.limit).await?;
+
+    if json {
+        return print_json(&rows);
+    }
+    if rows.is_empty() {
+        eprintln!(
+            "No OCEAN payouts yet. They show up here once your unpaid balance clears OCEAN's"
+        );
+        eprintln!("minimum Lightning payout threshold.");
+        return Ok(());
+    }
+    println!(
+        "{:<19}  {:>14}  {:>9}  Payment hash",
+        "Settled (UTC)", "Amount (sats)", "Block",
+    );
+    println!("{}", "─".repeat(19 + 16 + 11 + 64));
+    for r in &rows {
+        let when = chrono_like_iso(r.finalized_at_ms);
+        let hash = r.payment_hash.as_deref().unwrap_or("—");
+        println!(
+            "{:<19}  {:>14}  {:>9}  {}",
+            when, r.amount_sats, r.block_height, hash
+        );
+    }
+    Ok(())
+}
+
+/// Format an epoch-milliseconds value as `YYYY-MM-DD HH:MM` UTC without
+/// pulling in `chrono` for one call site. Uses Rust's std-library
+/// breakdown of a Unix timestamp.
+#[cfg(feature = "lexe-sdk")]
+fn chrono_like_iso(ms: i64) -> String {
+    use std::time::{Duration, UNIX_EPOCH};
+    if ms <= 0 {
+        return "—".to_string();
+    }
+    let secs = (ms / 1000) as u64;
+    let dt = UNIX_EPOCH + Duration::from_secs(secs);
+    let total_secs = dt.duration_since(UNIX_EPOCH).unwrap().as_secs();
+    let days = total_secs / 86_400;
+    let secs_in_day = total_secs % 86_400;
+    let hour = secs_in_day / 3600;
+    let minute = (secs_in_day % 3600) / 60;
+    let (year, month, day) = days_to_ymd(days as i64);
+    format!("{year:04}-{month:02}-{day:02} {hour:02}:{minute:02}")
+}
+
+/// Days since 1970-01-01 → (year, month, day) in the proleptic Gregorian
+/// calendar. Algorithm from Howard Hinnant's "date" library — small,
+/// dependency-free, correct for the full range we care about.
+#[cfg(feature = "lexe-sdk")]
+fn days_to_ymd(days: i64) -> (i32, u32, u32) {
+    let z = days + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let doe = (z - era * 146_097) as u64;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let y = yoe as i64 + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = (y + if m <= 2 { 1 } else { 0 }) as i32;
+    (year, m as u32, d as u32)
 }
 
 // ── generate ────────────────────────────────────────────────────
@@ -296,4 +377,36 @@ fn print_json<T: Serialize>(v: &T) -> Result<()> {
     let s = serde_json::to_string_pretty(v)?;
     println!("{s}");
     Ok(())
+}
+
+#[cfg(all(test, feature = "lexe-sdk"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn date_helper_known_vectors() {
+        // 0 ms → epoch
+        assert_eq!(chrono_like_iso(0), "—");
+        // 1970-01-01 00:00:01 (1000 ms)
+        assert_eq!(chrono_like_iso(1_000), "1970-01-01 00:00");
+        // The live OCEAN payout we observed (`fr_51d1f72e…`): 1780736697678 ms
+        // should render as "2026-06-06 09:04" UTC.
+        assert_eq!(chrono_like_iso(1_780_736_697_678), "2026-06-06 09:04");
+        // 2000-01-01 00:00:00 UTC (946684800000 ms)
+        assert_eq!(chrono_like_iso(946_684_800_000), "2000-01-01 00:00");
+    }
+
+    #[test]
+    fn date_helper_handles_leap_year() {
+        // 2024-02-29 12:34:56 UTC = 1709210096000 ms (a real leap-day).
+        assert_eq!(chrono_like_iso(1_709_210_096_000), "2024-02-29 12:34");
+    }
+
+    #[test]
+    fn date_helper_handles_year_boundary() {
+        // 1999-12-31 23:59:00 UTC = 946684740000 ms.
+        assert_eq!(chrono_like_iso(946_684_740_000), "1999-12-31 23:59");
+        // 2000-03-01 00:00:00 UTC (post-leap) = 951868800000 ms.
+        assert_eq!(chrono_like_iso(951_868_800_000), "2000-03-01 00:00");
+    }
 }

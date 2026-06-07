@@ -192,30 +192,99 @@ function isSubmitted(addr: string): boolean {
 //     Import: re-supplying the 24 words (idempotent if it matches the stored
 //     seed) proves the backup before we provision.
 //   - no seed (or unreachable/unauthorized) → fresh onboarding from the top.
+// Monotonic bootstrap request id. The `$effect` in App.svelte re-runs
+// `bootstrap()` whenever `app.token` or `app.base` changes, so two
+// `/status` requests can be in-flight at once. A slow first response
+// could otherwise land AFTER a newer credentials-change bootstrap has
+// already settled and reset the user back to the previous server's
+// state. Same pattern as `StatsGrid.load`.
+let bootstrapReqId = 0;
+
 export async function bootstrap() {
+  const myId = ++bootstrapReqId;
+  let s;
   try {
-    const s = await client().status();
-    if (!s.configured || !s.mining_address) return; // fresh install → wizard
-    app.miningAddress = s.mining_address;
-    if (s.offer) {
-      app.offer = s.offer;
-      if (!app.offerDescription.trim()) {
-        app.offerDescription = `OCEAN Payouts for ${s.mining_address}`;
-      }
-      app.reuse = true; // skip the create-only reveal/confirm steps
-      app.submitted = isSubmitted(s.mining_address); // chip-only; not a gate
-      seedProfile();
-      app.surface = "profile";
-    } else {
-      // Require the recovery phrase before provisioning an un-finished wallet.
-      app.reuse = false;
-      app.mode = "import";
-      app.surface = "wizard";
-      app.stepIndex = STEPS.findIndex((st) => st.key === "phrase");
-    }
+    s = await client().status();
   } catch {
     /* not configured / unreachable / no token → stay on the wizard */
+    if (myId !== bootstrapReqId) return;
+    resetWalletIdentity();
+    return;
   }
+  // Superseded by a newer bootstrap (Settings changed mid-flight).
+  // Drop this stale response — the newer call owns the state.
+  if (myId !== bootstrapReqId) return;
+
+  if (!s.configured || !s.mining_address) {
+    // Fresh install / unreachable / unauthed. If we previously bootstrapped
+    // against a configured server and the user has now switched bases/tokens,
+    // drop the stale identity so the wizard rebuilds from scratch instead of
+    // showing the prior server's address.
+    resetWalletIdentity();
+    return;
+  }
+  // Re-bootstrap path: when the user changes base/token in Settings, the
+  // existing profile/offer may belong to a different server. Always clear
+  // the cached identity before applying the new /status — both
+  // `seedProfile()` (early-returns when `app.profile` is set) and the
+  // no-offer branch (which would leave a stale `app.offer` intact)
+  // otherwise compose with the prior server's data.
+  resetWalletIdentity();
+  app.miningAddress = s.mining_address;
+  if (s.offer) {
+    app.offer = s.offer;
+    if (!app.offerDescription.trim()) {
+      app.offerDescription = `OCEAN Payouts for ${s.mining_address}`;
+    }
+    app.reuse = true; // skip the create-only reveal/confirm steps
+    app.submitted = isSubmitted(s.mining_address); // chip-only; not a gate
+    seedProfile();
+    app.surface = "profile";
+  } else {
+    // Require the recovery phrase before provisioning an un-finished wallet.
+    app.reuse = false;
+    app.mode = "import";
+    app.surface = "wizard";
+    app.stepIndex = STEPS.findIndex((st) => st.key === "phrase");
+  }
+}
+
+// Drop any cached identity from a prior bootstrap so a second /status
+// result fully replaces (rather than composes with) the first.
+//
+// Routes away from wallet-only surfaces FIRST (Profile derefs
+// `app.profile!.addresses` — clearing while still mounted crashes), then
+// wipes BOTH identity fields and any in-flight wizard seed state so a
+// subsequent Create on the new server can't accidentally reuse the
+// previous session's mnemonic (`Phrase.svelte` only regenerates when
+// `app.phrase.length === 0`).
+//
+// Inlined rather than delegating to `restart()` because `restart()`
+// unconditionally resets `app.mode` / `app.stepIndex`, which is too
+// aggressive for the in-app "wallet exists" recovery test paths.
+// Settings (base, token, accent, density) are NOT touched.
+function resetWalletIdentity() {
+  if (app.surface === "profile" || app.surface === "dashboard") {
+    app.surface = "wizard";
+    app.stepIndex = 0;
+  }
+  // Identity
+  app.profile = null;
+  app.offer = "";
+  app.offerDescription = "";
+  app.miningAddress = "";
+  app.submitted = false;
+  app.reuse = false;
+  // Wizard seed state (Codex: the next Create flow would otherwise
+  // skip `generateWallet()` and show the prior session's words).
+  app.phrase = [];
+  app.importWords = Array(24).fill("");
+  app.revealed = false;
+  app.backedUp = false;
+  app.answers = {};
+  app.walletExists = false;
+  app.signature = "";
+  app.message = "";
 }
 
 export async function generateWallet() {
