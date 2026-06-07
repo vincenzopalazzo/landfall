@@ -55,6 +55,14 @@ pub enum Command {
     /// Create a payable BOLT12 offer in-process (no sidecar) and print it.
     #[cfg(feature = "lexe-sdk")]
     Offer(OfferArgs),
+
+    /// List OCEAN Lightning payouts received by the wallet's BOLT12 offer.
+    /// Reads straight from the user's Lexe node — same data source the
+    /// desktop dashboard and the HTTP `GET /payouts` route use. Filtered
+    /// to inbound BOLT12 offer payments whose payer-note matches OCEAN's
+    /// per-block format (`OCEAN lightning payout running at block ...`).
+    #[cfg(feature = "lexe-sdk")]
+    Payouts(PayoutsArgs),
 }
 
 #[cfg(feature = "lexe-sdk")]
@@ -87,6 +95,21 @@ pub struct InitArgs {
     /// prompted again on the next `offer` / `payout`).
     #[arg(long)]
     pub no_store: bool,
+}
+
+#[cfg(feature = "lexe-sdk")]
+#[derive(Args, Debug)]
+pub struct PayoutsArgs {
+    /// Max rows to fetch. The wallet paginates against the node's
+    /// `MAX_PAYMENTS_BATCH_SIZE` (100), so values above that just take
+    /// more round-trips.
+    #[arg(long, default_value_t = 100)]
+    pub limit: u16,
+
+    /// Read the seed from this path instead of the default managed file
+    /// (`~/.config/oceanln/seed`). Falls back to a prompt if no seed is found.
+    #[arg(long)]
+    pub seed_file: Option<PathBuf>,
 }
 
 #[cfg(feature = "lexe-sdk")]

@@ -36,6 +36,34 @@ export interface StatusResp {
   offer?: string | null;
 }
 
+/// One inbound OCEAN payout to the wallet's BOLT12 offer.
+/// Wire-shape mirrors `oceanln_common::lexe_wallet::OceanPayout` — the
+/// SAME struct the HTTP `GET /payouts` route and the Tauri
+/// `list_lightning_payouts` IPC return. The frontend never duplicates
+/// filtering or normalization — that all happens in Rust.
+export interface OceanPayout {
+  /// Lexe `PaymentId` (`<kind>_<hex>`). Carried for uniqueness; not in URLs.
+  id: string;
+  /// 32-byte Lightning payment hash, lowercase hex. Used to build the
+  /// `ocean.xyz/info/tx/lightning/<hash>` deep link.
+  payment_hash: string | null;
+  /// Net sats received, rounded to the nearest whole sat.
+  amount_sats: number;
+  /// Net msats received — exact wire amount, no rounding. LN is msat-granular.
+  amount_msat: number;
+  /// BOLT12 payer-supplied note OCEAN signs into the invoice
+  /// (e.g. `OCEAN lightning payout running at block <hash> at height <h>`).
+  payer_note: string | null;
+  /// Payer's self-reported name (often unset for OCEAN).
+  payer_name: string | null;
+  /// Epoch milliseconds — `finalized_at` if set, else `created_at`.
+  finalized_at_ms: number;
+  /// Block hash parsed from `payer_note`. Lowercase 64-char hex.
+  block_hash: string;
+  /// Block height parsed from `payer_note`.
+  block_height: number;
+}
+
 /// The operations the wizard needs, independent of transport. The browser uses
 /// `OceanlnClient` (HTTP → oceanln-httpd); the Tauri desktop shell uses
 /// `TauriClient` (native IPC). `store.svelte.ts#client()` picks one at runtime.
@@ -47,6 +75,9 @@ export interface Backend {
   offer(description?: string, minAmount?: string): Promise<OfferResp>;
   init(): Promise<InitResp>;
   payout(message: string, offer: string): Promise<PayoutResp>;
+  /// List OCEAN payouts. Same Rust function runs behind both transports;
+  /// the result shape is identical.
+  payouts(limit?: number): Promise<OceanPayout[]>;
 }
 
 export class OceanlnClient implements Backend {
@@ -128,5 +159,9 @@ export class OceanlnClient implements Backend {
   }
   payout(message: string, offer: string): Promise<PayoutResp> {
     return this.post<PayoutResp>("/payout", { message, offer });
+  }
+  payouts(limit?: number): Promise<OceanPayout[]> {
+    const q = typeof limit === "number" ? `?limit=${limit}` : "";
+    return this.get<OceanPayout[]>(`/payouts${q}`);
   }
 }

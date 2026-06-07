@@ -8,7 +8,8 @@
   import Icon from "./ui/Icon.svelte";
   import { app } from "./store.svelte";
   import { ocean, btcToSats, num, type Payout, type PoolStat } from "./ocean";
-  import { fetchLightningPayouts, type LightningPayoutRow } from "./tauri";
+  import type { OceanPayout } from "./api";
+  import { client } from "./store.svelte";
 
   let {
     compact = false,
@@ -34,10 +35,11 @@
   // earnpay-derived
   let totalPaidSats = $state(0);
   let payouts = $state<Payout[]>([]);
-  // Lightning payouts scraped from OCEAN's CSV via a Rust IPC command
-  // (the /v1/earnpay endpoint omits these). Empty when not running in
-  // Tauri or when the scrape failed — never throws.
-  let lightningPayouts = $state<LightningPayoutRow[]>([]);
+  // OCEAN Lightning payouts, read straight from the user's own Lexe wallet
+  // via the unified `Backend.payouts()` method (HTTP route on a hosted
+  // deploy, Tauri IPC on desktop, NOT scraped from any web UI). Empty
+  // when the wallet is mid-provision or unreachable — never throws.
+  let lightningPayouts = $state<OceanPayout[]>([]);
   // pool context
   let pool = $state<PoolStat | null>(null);
   let active = $state(false);
@@ -148,15 +150,38 @@
       hr10800 = h3h;
       hr86400 = h24h;
       payouts = allPayouts;
-      // Lightning payouts come from the user's own Lexe wallet (Tauri-only),
-      // NOT from any ocean.xyz API. One call, not per-address — the wallet
-      // knows all inbound offer payments regardless of mining address.
-      const lnRows = await fetchLightningPayouts();
-      if (myId === reqId) lightningPayouts = lnRows;
+      // OCEAN Lightning payouts: one call, transport-neutral. Both the
+      // HTTP route (`GET /payouts`) and the Tauri IPC delegate to the
+      // same `oceanln_common::lexe_wallet::list_offer_payouts` Rust
+      // function — no per-transport duplication of the filter/format.
+      // Best-effort: a wallet-read failure shouldn't blank the whole
+      // dashboard (onchain stats still rendered above).
+      let lnRows: OceanPayout[] = [];
+      try {
+        lnRows = await client().payouts();
+      } catch {
+        // swallow — see comment above
+      }
+      // Re-check the monotonic request guard AFTER the second async
+      // boundary too — otherwise a stale request that already lost the
+      // race on the OCEAN fetches still wins the right to overwrite
+      // `totalPaidSats` / `active` / `payoutsError` here. Without this
+      // guard, refreshing the page mid-flight or switching addresses
+      // surfaces older numbers from the prior load.
+      if (myId !== reqId) return;
+      lightningPayouts = lnRows;
 
+      // Sum Lightning payouts in msats (the exact wire amount), round
+      // ONCE at the end. Summing per-row `amount_sats` would round each
+      // sub-sat payout to the nearest whole sat first — 100 payouts of
+      // 995 msat would display as 100 sats instead of the correct 99.5
+      // sats (rounded to 100, but the per-row error is no longer
+      // cumulative). Onchain payouts from /v1/earnpay are already sat-
+      // granular, so they don't need this treatment.
+      const lnMsat = lnRows.reduce((sum, p) => sum + p.amount_msat, 0);
+      const lnSats = Math.round(lnMsat / 1000);
       totalPaidSats =
-        allPayouts.reduce((sum, p) => sum + num(p.total_satoshis_net_paid), 0) +
-        lnRows.reduce((sum, p) => sum + p.amount_sats, 0);
+        allPayouts.reduce((sum, p) => sum + num(p.total_satoshis_net_paid), 0) + lnSats;
       active = wk > 0 || h5 > 0;
 
       // Only a genuine network/server failure is an error; "no such user yet"

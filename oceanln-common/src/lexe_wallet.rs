@@ -155,8 +155,14 @@ pub async fn create_offer(
 /// payments still show; in practice OCEAN is currently the only entity
 /// paying mining addresses to BOLT12 reusable offers at scale.
 ///
-/// `limit` is a hard upper bound to keep the round-trip bounded; with the
-/// default of 200 we cover well over a year of weekly payouts.
+/// `limit` is the cap on the number of OCEAN **payouts** returned (after
+/// filtering), not on raw payments fetched. We keep paginating through the
+/// wallet's payment history until we have `limit` OCEAN payouts or the
+/// wallet has no more payments. A separate hard ceiling on total
+/// payments scanned prevents a runaway loop if the user has a huge
+/// non-OCEAN history (`MAX_PAYMENTS_SCANNED`).
+const MAX_PAYMENTS_SCANNED: usize = 10_000;
+
 pub async fn list_offer_payouts(mnemonic: &str, limit: u16) -> Result<Vec<OceanPayout>> {
     let seed = root_seed(mnemonic)?;
     let wallet = wallet(&seed)?;
@@ -167,11 +173,18 @@ pub async fn list_offer_payouts(mnemonic: &str, limit: u16) -> Result<Vec<OceanP
     // does it.
     const PER_BATCH: u16 = 100;
     let mut start_index: Option<PaymentUpdatedIndex> = None;
-    let mut all: Vec<lexe_api_core::types::payments::BasicPaymentV2> = Vec::new();
-    let max_total = usize::from(limit);
+    let mut out: Vec<OceanPayout> = Vec::new();
+    let limit_total = usize::from(limit);
+    let mut scanned: usize = 0;
 
     loop {
-        if all.len() >= max_total {
+        // Cap on FILTERED rows — what the caller actually asked for.
+        if out.len() >= limit_total {
+            break;
+        }
+        // Safety valve against a runaway loop on a huge wallet history
+        // where almost nothing matches the OCEAN filter.
+        if scanned >= MAX_PAYMENTS_SCANNED {
             break;
         }
         let req = GetUpdatedPayments {
@@ -188,67 +201,68 @@ pub async fn list_offer_payouts(mnemonic: &str, limit: u16) -> Result<Vec<OceanP
         if batch_len == 0 {
             break;
         }
-        // Advance start_index from the *last* payment in this batch.
+        // Advance start_index from the *last* raw payment in this batch
+        // (kept BEFORE filtering — pagination is over the full sequence).
         let last = batch.last().expect("non-empty");
         start_index = Some(PaymentUpdatedIndex {
             updated_at: last.updated_at,
             id: last.id,
         });
-        all.extend(batch);
-        // If we got fewer than a full batch, we're at the tail.
+        scanned += batch_len;
+        for p in batch.into_iter() {
+            if let Some(row) = ocean_payout_from(p) {
+                out.push(row);
+                if out.len() >= limit_total {
+                    break;
+                }
+            }
+        }
+        // If we got fewer than a full batch, we're at the tail of history.
         if batch_len < usize::from(PER_BATCH) {
             break;
         }
     }
 
-    let mut out = Vec::new();
-    for p in all.into_iter() {
-        // Must be a settled inbound BOLT12 offer payment.
-        if p.direction != PaymentDirection::Inbound
-            || p.status != PaymentStatus::Completed
-            || p.kind != PaymentKind::Offer
-        {
-            continue;
-        }
-        // OCEAN-only filter: the BOLT12 `message` MUST match OCEAN's
-        // payer-note format. Anything else (e.g. a manual test payment
-        // the user sent themselves with `\t` as message) is intentionally
-        // dropped. The parsed block hash + height are surfaced on the
-        // row so the UI can show them.
-        let note = match p.message.as_deref() {
-            Some(n) => n,
-            None => continue,
-        };
-        let (block_hash, block_height) = match parse_ocean_payer_note(note) {
-            Some(parsed) => parsed,
-            None => continue,
-        };
-        // Lightning amounts are msat-granular; OCEAN's per-block payouts
-        // are commonly sub-sat (e.g. 995 msats). Round to nearest whole
-        // sat for the display field; expose msat verbatim alongside it.
-        let (amount_sats, amount_msat) = p
-            .amount
-            .as_ref()
-            .map(|a| (a.round_sat().sats_u64(), a.msat()))
-            .unwrap_or((0, 0));
-        let finalized_at_ms = p.finalized_at.unwrap_or(p.created_at).to_i64();
-        out.push(OceanPayout {
-            id: p.id.to_string(),
-            payment_hash: p.hash.map(|h| h.to_string()),
-            amount_sats,
-            amount_msat,
-            // `message` on the wire (lexe-api-core 0.1.14); exposed as
-            // `payer_note` to match the BOLT12 spec term.
-            payer_note: p.message,
-            payer_name: p.payer_name,
-            finalized_at_ms,
-            block_hash,
-            block_height,
-        });
-    }
     // Newest first; ties broken by Lexe's stable PaymentId ordering.
     out.sort_by_key(|p| std::cmp::Reverse(p.finalized_at_ms));
     Ok(out)
+}
+
+/// Single-payment filter + transform. Returns `Some(OceanPayout)` only if
+/// the payment is a settled inbound BOLT12 offer payment whose payer-note
+/// matches OCEAN's exact format. Factored out of [`list_offer_payouts`]
+/// so the pagination loop can decide "is this row in or out?" without
+/// re-doing the filter at a later stage.
+fn ocean_payout_from(p: lexe_api_core::types::payments::BasicPaymentV2) -> Option<OceanPayout> {
+    if p.direction != PaymentDirection::Inbound
+        || p.status != PaymentStatus::Completed
+        || p.kind != PaymentKind::Offer
+    {
+        return None;
+    }
+    let (block_hash, block_height) = parse_ocean_payer_note(p.message.as_deref()?)?;
+    // Lightning amounts are msat-granular; OCEAN's per-block payouts are
+    // commonly sub-sat (e.g. 995 msats). Round to nearest whole sat for
+    // the display field; expose msat verbatim alongside it.
+    let (amount_sats, amount_msat) = p
+        .amount
+        .as_ref()
+        .map(|a| (a.round_sat().sats_u64(), a.msat()))
+        .unwrap_or((0, 0));
+    let finalized_at_ms = p.finalized_at.unwrap_or(p.created_at).to_i64();
+    Some(OceanPayout {
+        id: p.id.to_string(),
+        payment_hash: p.hash.map(|h| h.to_string()),
+        amount_sats,
+        amount_msat,
+        // `message` on the wire (lexe-api-core 0.1.14); exposed as
+        // `payer_note` to match the BOLT12 spec term.
+        payer_note: p.message,
+        payer_name: p.payer_name,
+        finalized_at_ms,
+        block_hash,
+        block_height,
+    })
 }
 
 #[cfg(test)]

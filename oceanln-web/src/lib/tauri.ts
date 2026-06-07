@@ -8,6 +8,7 @@ import {
   type Backend,
   type GenerateResp,
   type ImportResp,
+  type OceanPayout,
   type OfferResp,
   type InitResp,
   type PayoutResp,
@@ -61,52 +62,12 @@ export class TauriClient implements Backend {
   payout(message: string, offer: string): Promise<PayoutResp> {
     return call<PayoutResp>("payout", { message, offer });
   }
-}
-
-/// A single Lightning payout to our BOLT12 offer, read straight from the
-/// user's in-process Lexe wallet via the `list_lightning_payouts` IPC
-/// command. NOT scraped from ocean.xyz — the truth source is the user's
-/// own node.
-export interface LightningPayoutRow {
-  /// Lexe `PaymentId` (`<kind>_<hex>`) — carried for uniqueness; not used
-  /// directly in URLs (use `payment_hash` for that).
-  id: string;
-  /// 32-byte Lightning payment hash, lowercase hex. Use it to build
-  /// `https://ocean.xyz/info/tx/lightning/<hash>` for the explorer link.
-  payment_hash: string | null;
-  /// Net sats received, **rounded to the nearest whole sat**. Useful for
-  /// display ("1 sat"); for sub-sat precision use [`amount_msat`].
-  amount_sats: number;
-  /// Net msats received — exact, no rounding. LN amounts are msat-granular.
-  amount_msat: number;
-  /// BOLT12 payer-supplied message — OCEAN puts the block height + hash
-  /// here, so we surface it next to the row.
-  payer_note: string | null;
-  /// Payer's self-reported name (e.g. "Ocean Pool"), useful as a sanity
-  /// check the payment really came from OCEAN.
-  payer_name: string | null;
-  /// Epoch milliseconds — `finalized_at` if set, else `created_at`.
-  finalized_at_ms: number;
-  /// Bitcoin block hash this payout settled (parsed from `payer_note`).
-  /// Lowercase 64-char hex.
-  block_hash: string;
-  /// Bitcoin block height this payout settled (parsed from `payer_note`).
-  block_height: number;
-}
-
-/// Tauri-only: list inbound BOLT12 offer payments from the user's Lexe
-/// wallet. Returns an empty list (not throws) when not running in Tauri or
-/// when the IPC fails — the dashboard then shows whatever `/v1/earnpay`
-/// returns (typically nothing for Lightning, since OCEAN's public JSON
-/// API omits them entirely).
-export async function fetchLightningPayouts(): Promise<LightningPayoutRow[]> {
-  if (!isTauri()) return [];
-  try {
-    return await invoke<LightningPayoutRow[]>("list_lightning_payouts");
-  } catch {
-    // Wallet read failure (node unreachable, mid-provision, etc.) shouldn't
-    // blank the whole dashboard. Onchain payouts still come from the
-    // separate /v1/earnpay fetch.
-    return [];
+  // `list_lightning_payouts` is the Tauri IPC name; the Rust handler delegates
+  // to the same `oceanln_common::lexe_wallet::list_offer_payouts` the HTTP
+  // route uses, so this returns the identical `OceanPayout[]` shape.
+  // `limit` is ignored by the current IPC (it takes no args); the Rust
+  // command applies a default cap of 200 internally.
+  payouts(_limit?: number): Promise<OceanPayout[]> {
+    return call<OceanPayout[]>("list_lightning_payouts");
   }
 }

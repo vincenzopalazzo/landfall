@@ -277,6 +277,30 @@ async fn import(
     Ok(Json(resp))
 }
 
+#[derive(Deserialize, Default)]
+struct PayoutsQuery {
+    /// Cap on how many payouts to return. Defaults to 100. Hard cap is
+    /// enforced inside `oceanln_common::lexe_wallet::list_offer_payouts`
+    /// (paginated against the Lexe node's `MAX_PAYMENTS_BATCH_SIZE`).
+    #[serde(default)]
+    limit: Option<u16>,
+}
+
+/// Thin adapter over [`service::list_offer_payouts`]. Returns the same
+/// `Vec<OceanPayout>` the CLI and Tauri IPC return — single source of truth.
+async fn payouts(
+    State(state): State<Arc<AppState>>,
+    axum::extract::Query(q): axum::extract::Query<PayoutsQuery>,
+) -> std::result::Result<Json<Vec<oceanln_common::lexe_wallet::OceanPayout>>, ApiError> {
+    let resp = service::list_offer_payouts(
+        &state.cfg.seed,
+        state.wallet.as_ref(),
+        q.limit.unwrap_or(100),
+    )
+    .await?;
+    Ok(Json(resp))
+}
+
 // ── guard middleware ────────────────────────────────────────────
 
 fn deny(status: StatusCode, msg: &str) -> Response {
@@ -377,6 +401,7 @@ pub fn build_app(state: Arc<AppState>) -> Router {
         .route("/payout", post(payout))
         .route("/offer", post(offer))
         .route("/init", post(init))
+        .route("/payouts", get(payouts))
         .layer(middleware::from_fn_with_state(state.clone(), guard));
 
     Router::new()

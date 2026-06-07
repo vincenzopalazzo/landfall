@@ -17,6 +17,11 @@ function routeOcean() {
     if (u.includes("/earnpay/"))
       return res({ result: { start_ts: 0, end_ts: 0, earnings: [{ block_hash: "00000000000000000001abc", ts: "2026-06-07T03:35:48", satoshis_net_earned: 4 }, { block_hash: "00000000000000000001def", ts: "2026-06-06T01:08:34", satoshis_net_earned: 1 }], payouts: [{ ts: "1700000000", on_chain_txid: "abcdef1234567890", total_satoshis_net_paid: 12345, is_generation_txn: false }, { ts: "1699000000", on_chain_txid: "fffefefefefefefe", total_satoshis_net_paid: 333000000, is_generation_txn: true }] } });
     if (u.includes("/pool_stat")) return res({ result: { active_users: "2410", active_workers: "86080", network_difficulty: "1", current_tides_shares: "26214400", max_tides_shares: "26214400", current_estimated_block_reward: "3.2" } });
+    // OceanlnClient.payouts() → GET /payouts on oceanln-httpd. Returns
+    // a bare JSON array (no `{ result }` wrapper, different from the
+    // ocean.xyz endpoints). Default to empty; individual tests can
+    // override to inject rows.
+    if (u.endsWith("/payouts") || u.includes("/payouts?")) return res([]);
     return new Response("not found", { status: 404 });
   }) as typeof fetch;
 }
@@ -111,6 +116,7 @@ describe("Dashboard (live OCEAN data)", () => {
       const u = String(url);
       if (u.includes("/statsnap/")) return res({ error: "No such user or user has no active workers" });
       if (u.includes("/earnpay/")) return res({ result: { earnings: [], payouts: [] } });
+      if (u.endsWith("/payouts") || u.includes("/payouts?")) return res([]);
       return res({ result: { active_users: "1" } });
     }) as typeof fetch;
     render(Dashboard);

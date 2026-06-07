@@ -150,6 +150,23 @@ pub async fn payout(
     })
 }
 
+/// List OCEAN's Lightning payouts from the user's in-process Lexe wallet.
+///
+/// The single transport-neutral entry point for the payouts data: the
+/// HTTP route ([`crate::lib::payouts`]), the CLI subcommand
+/// (`oceanln payouts`), and the Tauri desktop IPC all funnel through
+/// this. Filtering / OCEAN-pattern matching happens once, inside
+/// [`oceanln_common::lexe_wallet::list_offer_payouts`] — never duplicated
+/// at the transport layer.
+pub async fn list_offer_payouts(
+    seed: &SeedSource,
+    wallet: &dyn WalletProvider,
+    limit: u16,
+) -> Result<Vec<oceanln_common::lexe_wallet::OceanPayout>> {
+    let secret = seed.load()?;
+    wallet.list_offer_payouts(secret.as_str(), limit).await
+}
+
 /// Create a payable BOLT12 offer in-process from the configured seed.
 pub async fn create_offer(
     seed: &SeedSource,
