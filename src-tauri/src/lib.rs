@@ -45,16 +45,20 @@ impl From<Error> for CommandError {
 #[tauri::command]
 async fn list_lightning_payouts(
     state: tauri::State<'_, DesktopState>,
+    limit: Option<u16>,
 ) -> Result<Vec<oceanln_common::lexe_wallet::OceanPayout>, CommandError> {
     // Load the mnemonic from the locally-stored seed file. Stays in memory
     // only for the duration of this call (MnemonicSecret zeroizes on drop).
     let secret = state.seed.load()?;
-    // 200 = plenty of headroom for weekly payouts over a year+; a real fix
-    // is local-DB pagination, but for v1 a single round trip per refresh
-    // is cheap and matches user expectation of "dashboard reflects state now".
+    // Honor the caller-supplied limit (StatsGrid asks for 10_000 so the
+    // lifetime aggregate covers every Lightning payout, not just one
+    // page). The Rust wallet layer caps the actual scan at
+    // `MAX_PAYMENTS_SCANNED = 10_000`, so unbounded requests still
+    // terminate. The 200 fallback covers callers that omit the arg.
+    let cap = limit.unwrap_or(200);
     state
         .wallet
-        .list_offer_payouts(secret.as_str(), 200)
+        .list_offer_payouts(secret.as_str(), cap)
         .await
         .map_err(Into::into)
 }

@@ -154,11 +154,19 @@
       // HTTP route (`GET /payouts`) and the Tauri IPC delegate to the
       // same `oceanln_common::lexe_wallet::list_offer_payouts` Rust
       // function — no per-transport duplication of the filter/format.
-      // Best-effort: a wallet-read failure shouldn't blank the whole
-      // dashboard (onchain stats still rendered above).
+      //
+      // Request enough rows to cover the lifetime aggregate, not just
+      // one page. Without an explicit limit the HTTP route caps at 100
+      // and the Tauri IPC at 200, so a miner with >100 OCEAN payouts
+      // would see Total paid/Lifetime under-report. The Rust wallet
+      // layer enforces `MAX_PAYMENTS_SCANNED = 10_000` as the real
+      // ceiling, so requesting 10_000 here gets us everything up to
+      // that hard backstop in a single call (still bounded). Future:
+      // expose a backend `payouts_total` separate from the recent
+      // table page for unbounded miners.
       let lnRows: OceanPayout[] = [];
       try {
-        lnRows = await client().payouts();
+        lnRows = await client().payouts(10_000);
       } catch {
         // swallow — see comment above
       }

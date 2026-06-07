@@ -22,6 +22,9 @@ serde.workspace = true
 serde_json.workspace = true
 async-trait.workspace = true
 zeroize.workspace = true
+# MCP no longer lives in this process — `oceanln-mcp` is a separate
+# runnable binary that reaches these REST endpoints via HTTP.
+# See `docs/plans/2026-06-07-pr-e-mcp-proxy.md`.
 
 [dev-dependencies]
 # Bound-socket integration tests drive the server over real HTTP.
