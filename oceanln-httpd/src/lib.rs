@@ -436,6 +436,22 @@ fn host_is_loopback(host: &str) -> bool {
 }
 
 /// Auth + origin + host guard applied to every route except `/health`.
+/// Extra gate for fund-moving endpoints (`/pay`): refuse when the server is
+/// in `--no-auth` mode (empty token). The shared [`guard`] deliberately
+/// skips the bearer check in that mode (loopback + Origin/Host are the only
+/// defenses), which is acceptable for read-only routes on a single-host
+/// deploy — but a money-mover must ALWAYS require a token, or any local
+/// process that sends no `Origin` could POST `/pay` and spend funds.
+async fn require_token(State(state): State<Arc<AppState>>, req: Request, next: Next) -> Response {
+    if state.cfg.token.is_empty() {
+        return deny(
+            StatusCode::FORBIDDEN,
+            "/pay requires authentication; restart oceanln-httpd with a bearer token (not --no-auth) to send funds",
+        );
+    }
+    next.run(req).await
+}
+
 async fn guard(State(state): State<Arc<AppState>>, req: Request, next: Next) -> Response {
     let headers = req.headers();
 
@@ -506,7 +522,15 @@ pub fn build_app(state: Arc<AppState>) -> Router {
         .route("/node", get(node))
         .route("/activity", get(activity))
         .route("/invoice", post(invoice))
-        .route("/pay", post(pay))
+        // `/pay` moves funds, so it gets an EXTRA gate on top of the shared
+        // `guard`: it always requires a bearer token, even in `--no-auth`
+        // mode. Read-only routes tolerate no-auth for v1 single-host
+        // deploys, but a money-mover must never be callable by an
+        // unauthenticated local process. See `require_token`.
+        .route(
+            "/pay",
+            post(pay).layer(middleware::from_fn_with_state(state.clone(), require_token)),
+        )
         // OCEAN public-API proxy routes. Read-only, no seed touched.
         // MCP's `get_ocean_*` tools proxy these via HTTP — the AI never
         // talks to `api.ocean.xyz` directly through MCP.
