@@ -28,6 +28,12 @@ zeroize = { version = "1.8", features = ["derive"] }
 thiserror = "1"
 # In-process Lexe SDK (feature `lexe-sdk`). `unstable` gates signup/provision.
 lexe = { version = "0.1", features = ["unstable"] }
+# Needed to list incoming OCEAN payouts directly from the user's Lexe node
+# (via the `AppNodeRunApi::get_updated_payments` trait). Stays private to the
+# `oceanln_common::lexe_wallet` module — callers see the simple `OceanPayout`
+# wrapper, not these raw API types.
+lexe-api-core = "0.1"
+lexe-common = "0.1"
 # HTTP server (oceanln-httpd).
 axum = "0.7"
 tower = "0.5"

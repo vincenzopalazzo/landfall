@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { onMount } from "svelte";
   import Icon from "./lib/ui/Icon.svelte";
   import Button from "./lib/ui/Button.svelte";
   import Settings from "./lib/Settings.svelte";
@@ -36,8 +35,18 @@
     refreshHealth();
   });
 
-  // On launch, skip the wizard if a wallet is already configured (seed present).
-  onMount(() => {
+  // Bootstrap on launch AND whenever the credentials change. In the browser
+  // build, `app.token` starts empty in production — the first bootstrap will
+  // 401 and silently leave the user in onboarding. When they paste the
+  // bearer token (or change the base URL) in Settings, re-run bootstrap so
+  // an already-configured wallet is detected and the user lands on the
+  // restored profile/offer instead of being asked to generate a new one.
+  //
+  // Tauri build: `app.token` is unused (in-process IPC has no token) and
+  // doesn't change at runtime, so the effect re-runs once on mount only.
+  $effect(() => {
+    void app.token;
+    void app.base;
     void bootstrap();
   });
 </script>

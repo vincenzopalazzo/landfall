@@ -42,6 +42,13 @@ impl WalletProvider for MockWallet {
     ) -> Result<String> {
         Ok(MOCK_PROVISIONED_OFFER.to_string())
     }
+    async fn list_offer_payouts(
+        &self,
+        _mnemonic: &str,
+        _limit: u16,
+    ) -> Result<Vec<oceanln_common::lexe_wallet::OceanPayout>> {
+        Ok(vec![])
+    }
 }
 
 /// A uniquely-named temp seed-file path for a test.

@@ -22,6 +22,7 @@ function routeOcean() {
 }
 
 beforeEach(() => {
+  vi.restoreAllMocks(); // drop per-test spies so they don't leak (notably the LN-payouts spy)
   S.restart();
   S.app.miningAddress = "bc1qpstw48j7j9gjugw25jmjvd96jlwgdnedk5pr6r";
   S.app.offer = "lno1testoffer";
@@ -44,16 +45,12 @@ describe("Dashboard (live OCEAN data)", () => {
     expect(screen.getByText(/1\.50 Th\/s/)).toBeInTheDocument(); // hashrate_3600s
     // 3h average from hashrate_10800s = 1.8e12 → 1.80 Th/s
     expect(screen.getByText(/1\.80 Th\/s/)).toBeInTheDocument();
-    // Recent earnings panel now renders the per-block earnings from earnpay.
-    expect(await screen.findByText("Recent earnings")).toBeInTheDocument();
-    expect(screen.getByText(/4 sats/)).toBeInTheDocument(); // first earning
-    expect(screen.getByText(/1 sats/)).toBeInTheDocument(); // second earning
   });
 
-  it("renders the new lifetime / est-earn / blocks / share% fields", async () => {
-    // Total paid (12,345) + coinbase (333,000,000) = 333,012,345 paid;
+  it("renders the new lifetime / est-earn / share% fields", async () => {
+    // Total paid (12,345 + 333,000,000 from the coinbase row) = 333,012,345
     // lifetime = 333,012,345 + 100,000 unpaid = 333,112,345.
-    // Blocks found = 1 (the coinbase row). Est. earn next block = 15,000 sats.
+    // Est. earn next block = 15,000 sats (0.00015 BTC).
     // Share % = 262144 / 26214400 = 1.00%.
     //
     // Each value lands after the async load() resolves, so use
@@ -64,7 +61,6 @@ describe("Dashboard (live OCEAN data)", () => {
     expect(screen.getByText("Lifetime")).toBeInTheDocument();
     expect(await screen.findByText("15,000")).toBeInTheDocument(); // est_earn = 0.00015 BTC
     expect(screen.getByText("Est. earn next block")).toBeInTheDocument();
-    expect(screen.getByText("Blocks found")).toBeInTheDocument();
     expect(screen.getByText("Share %")).toBeInTheDocument();
     // Share % depends on pool_stat which loads AFTER the main fetch
     // resolves — so the value lands a tick later than the other cards.

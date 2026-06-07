@@ -14,8 +14,78 @@ use lexe::types::auth::{CredentialsRef, RootSeed};
 use lexe::types::bitcoin::Amount;
 use lexe::types::command::CreateOfferRequest;
 use lexe::wallet::LexeWallet;
+use lexe_api_core::def::AppNodeRunApi;
+use lexe_api_core::models::command::GetUpdatedPayments;
+use lexe_api_core::types::payments::{
+    PaymentDirection, PaymentKind, PaymentStatus, PaymentUpdatedIndex,
+};
+use serde::{Deserialize, Serialize};
 
 use crate::error::{Error, Result};
+
+/// A single inbound offer payment to OUR BOLT12 offer, surfaced from the
+/// in-process Lexe wallet (NOT scraped from any web UI). One row per Lightning
+/// payout OCEAN sends to the user.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OceanPayout {
+    /// Lexe's `PaymentId` serialized form: `<kind>_<hex>`. Carried for
+    /// uniqueness / debugging; the *payment-hash* used in OCEAN's deep link is
+    /// the separate [`Self::payment_hash`] field below.
+    pub id: String,
+    /// 32-byte Lightning payment hash, lowercase hex (no prefix). Used to
+    /// build `https://ocean.xyz/info/tx/lightning/<hash>`. `None` if the
+    /// upstream payment is still pending (we filter those out, so in
+    /// practice this should always be `Some` on the wire).
+    pub payment_hash: Option<String>,
+    /// Net sats received, **rounded to the nearest whole sat** (the Lexe
+    /// wallet's view — already accounts for any JIT-channel skim). LN
+    /// amounts are millisat-granular, and OCEAN's per-block payouts are
+    /// often sub-sat (e.g. 995 msats = ~1 sat); naive truncation would
+    /// render a real 1-sat payout as 0. See [`Self::amount_msat`] for
+    /// full precision. `0` if the upstream amount was unset.
+    pub amount_sats: u64,
+    /// Net msats received — the exact wire amount, no rounding. Useful
+    /// when the frontend wants to show sub-sat precision (e.g. "0.995
+    /// sats" instead of "1 sat"). `0` if the upstream amount was unset.
+    pub amount_msat: u64,
+    /// OCEAN encodes the block-height + block-hash this payout is settling
+    /// in the BOLT12 invoice's payer-supplied message field. In
+    /// `lexe-api-core` v0.1.14 this field is named `message` on the wire;
+    /// we expose it here as `payer_note` because that's the BOLT12 spec
+    /// term users will recognize.
+    pub payer_note: Option<String>,
+    /// The payer's self-reported name (OCEAN typically sets "Ocean Pool" or
+    /// similar — useful as a sanity check that this really is an OCEAN payout).
+    pub payer_name: Option<String>,
+    /// When the payment was finalized (epoch milliseconds). Falls back to
+    /// `created_at` if `finalized_at` is unset.
+    pub finalized_at_ms: i64,
+    /// The Bitcoin block this OCEAN payout settles (lower-case hex,
+    /// 64 chars). Parsed from [`Self::payer_note`].
+    pub block_hash: String,
+    /// The Bitcoin block height this OCEAN payout settles. Parsed from
+    /// [`Self::payer_note`].
+    pub block_height: u64,
+}
+
+/// Parse OCEAN's BOLT12 payer-note format:
+/// `OCEAN lightning payout running at block `<hash>` at height `<height>``
+///
+/// Returns `Some((block_hash, block_height))` only when the note matches the
+/// exact OCEAN format (including the surrounding backticks and a 64-hex
+/// block hash). Any other BOLT12 payer-note — including the user paying
+/// themselves with a tab character — returns `None` and so is filtered out
+/// of the OCEAN payouts list.
+fn parse_ocean_payer_note(note: &str) -> Option<(String, u64)> {
+    let rest = note.strip_prefix("OCEAN lightning payout running at block `")?;
+    let (hash, rest) = rest.split_once("` at height `")?;
+    let height_str = rest.strip_suffix('`')?;
+    if hash.len() != 64 || !hash.chars().all(|c| c.is_ascii_hexdigit()) {
+        return None;
+    }
+    let height: u64 = height_str.parse().ok()?;
+    Some((hash.to_ascii_lowercase(), height))
+}
 
 /// Parse a 24-word mnemonic into a Lexe `RootSeed`.
 fn root_seed(mnemonic: &str) -> Result<RootSeed> {
@@ -71,4 +141,163 @@ pub async fn create_offer(
         .map_err(|e| Error::Wallet(format!("create offer: {e:#}")))?;
 
     Ok(resp.offer.to_string())
+}
+
+/// List inbound, completed, offer-paid payments — i.e. OCEAN's Lightning
+/// payouts to the user's BOLT12 offer.
+///
+/// Reads straight from the Lexe-hosted node (no local DB, no web scrape, no
+/// trust in ocean.xyz beyond the bytes they signed and sent as a Lightning
+/// payment). The filter is deliberately broad — `kind == Offer` AND
+/// `direction == Inbound` AND `status == Completed` — so any future OCEAN
+/// payment surfaces without code changes. If the user has multiple BOLT12
+/// offers and only one is registered with OCEAN, *all* inbound offer
+/// payments still show; in practice OCEAN is currently the only entity
+/// paying mining addresses to BOLT12 reusable offers at scale.
+///
+/// `limit` is a hard upper bound to keep the round-trip bounded; with the
+/// default of 200 we cover well over a year of weekly payouts.
+pub async fn list_offer_payouts(mnemonic: &str, limit: u16) -> Result<Vec<OceanPayout>> {
+    let seed = root_seed(mnemonic)?;
+    let wallet = wallet(&seed)?;
+    // Lexe caps a single request at 100 payments
+    // (`lexe_common::constants::MAX_PAYMENTS_BATCH_SIZE` = 100). Paginate
+    // using the response's last `(updated_at, id)` as the next
+    // `start_index` (exclusive), exactly how `lexe::wallet::sync_payments`
+    // does it.
+    const PER_BATCH: u16 = 100;
+    let mut start_index: Option<PaymentUpdatedIndex> = None;
+    let mut all: Vec<lexe_api_core::types::payments::BasicPaymentV2> = Vec::new();
+    let max_total = usize::from(limit);
+
+    loop {
+        if all.len() >= max_total {
+            break;
+        }
+        let req = GetUpdatedPayments {
+            start_index,
+            limit: Some(PER_BATCH),
+        };
+        let resp = wallet
+            .node_client()
+            .get_updated_payments(req)
+            .await
+            .map_err(|e| Error::Wallet(format!("get_updated_payments: {e:#}")))?;
+        let batch = resp.payments;
+        let batch_len = batch.len();
+        if batch_len == 0 {
+            break;
+        }
+        // Advance start_index from the *last* payment in this batch.
+        let last = batch.last().expect("non-empty");
+        start_index = Some(PaymentUpdatedIndex {
+            updated_at: last.updated_at,
+            id: last.id,
+        });
+        all.extend(batch);
+        // If we got fewer than a full batch, we're at the tail.
+        if batch_len < usize::from(PER_BATCH) {
+            break;
+        }
+    }
+
+    let mut out = Vec::new();
+    for p in all.into_iter() {
+        // Must be a settled inbound BOLT12 offer payment.
+        if p.direction != PaymentDirection::Inbound
+            || p.status != PaymentStatus::Completed
+            || p.kind != PaymentKind::Offer
+        {
+            continue;
+        }
+        // OCEAN-only filter: the BOLT12 `message` MUST match OCEAN's
+        // payer-note format. Anything else (e.g. a manual test payment
+        // the user sent themselves with `\t` as message) is intentionally
+        // dropped. The parsed block hash + height are surfaced on the
+        // row so the UI can show them.
+        let note = match p.message.as_deref() {
+            Some(n) => n,
+            None => continue,
+        };
+        let (block_hash, block_height) = match parse_ocean_payer_note(note) {
+            Some(parsed) => parsed,
+            None => continue,
+        };
+        // Lightning amounts are msat-granular; OCEAN's per-block payouts
+        // are commonly sub-sat (e.g. 995 msats). Round to nearest whole
+        // sat for the display field; expose msat verbatim alongside it.
+        let (amount_sats, amount_msat) = p
+            .amount
+            .as_ref()
+            .map(|a| (a.round_sat().sats_u64(), a.msat()))
+            .unwrap_or((0, 0));
+        let finalized_at_ms = p.finalized_at.unwrap_or(p.created_at).to_i64();
+        out.push(OceanPayout {
+            id: p.id.to_string(),
+            payment_hash: p.hash.map(|h| h.to_string()),
+            amount_sats,
+            amount_msat,
+            // `message` on the wire (lexe-api-core 0.1.14); exposed as
+            // `payer_note` to match the BOLT12 spec term.
+            payer_note: p.message,
+            payer_name: p.payer_name,
+            finalized_at_ms,
+            block_hash,
+            block_height,
+        });
+    }
+    // Newest first; ties broken by Lexe's stable PaymentId ordering.
+    out.sort_by_key(|p| std::cmp::Reverse(p.finalized_at_ms));
+    Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_a_real_ocean_payer_note() {
+        let note = "OCEAN lightning payout running at block `000000000000000000010ecb299bb3b0da3066f8e182efe8cd5390ef00094932` at height `952554`";
+        let (hash, height) = parse_ocean_payer_note(note).expect("parse");
+        assert_eq!(
+            hash,
+            "000000000000000000010ecb299bb3b0da3066f8e182efe8cd5390ef00094932"
+        );
+        assert_eq!(height, 952554);
+    }
+
+    #[test]
+    fn rejects_non_ocean_notes() {
+        assert!(parse_ocean_payer_note("").is_none());
+        assert!(parse_ocean_payer_note("\t").is_none()); // user's own test payment
+        assert!(parse_ocean_payer_note("hello world").is_none());
+        // Missing closing backtick.
+        assert!(parse_ocean_payer_note(
+            "OCEAN lightning payout running at block `aaaa` at height `1`x"
+        )
+        .is_none());
+        // Wrong hex length.
+        assert!(parse_ocean_payer_note(
+            "OCEAN lightning payout running at block `aaaa` at height `1`"
+        )
+        .is_none());
+        // Non-hex char.
+        let bad = format!(
+            "OCEAN lightning payout running at block `{}` at height `1`",
+            "z".repeat(64)
+        );
+        assert!(parse_ocean_payer_note(&bad).is_none());
+    }
+
+    #[test]
+    fn accepts_uppercase_hex_and_normalizes() {
+        let note = format!(
+            "OCEAN lightning payout running at block `{}` at height `1`",
+            "A".repeat(64)
+        );
+        let (hash, _) = parse_ocean_payer_note(&note).unwrap();
+        assert!(hash
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit()));
+    }
 }

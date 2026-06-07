@@ -3230,6 +3230,8 @@ dependencies = [
  "bip39",
  "bitcoin",
  "lexe",
+ "lexe-api-core",
+ "lexe-common",
  "reqwest 0.12.28",
  "rpassword",
  "serde",
