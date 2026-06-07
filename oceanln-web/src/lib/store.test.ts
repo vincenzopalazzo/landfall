@@ -149,7 +149,7 @@ describe("sign gating", () => {
 });
 
 describe("bootstrap (skip the wizard when a wallet exists)", () => {
-  it("lands on the profile when configured + offer + already submitted", async () => {
+  it("lands on the profile when configured + offer + already submitted (chip on)", async () => {
     localStorage.setItem(`oceanln:submitted:${ADDR}`, "1"); // completed OCEAN hand-off
     routeFetch({ "/status": () => json({ configured: true, mining_address: ADDR, offer: OFFER }) });
     expect(app.surface).toBe("wizard");
@@ -158,16 +158,20 @@ describe("bootstrap (skip the wizard when a wallet exists)", () => {
     expect(app.miningAddress).toBe(ADDR);
     expect(app.offer).toBe(OFFER);
     expect(app.profile).not.toBeNull();
+    expect(app.submitted).toBe(true);
   });
 
-  it("resumes at the Sign step when the offer exists but OCEAN wasn't submitted", async () => {
-    // No submitted marker → setup was interrupted before signing; don't strand
-    // the user on a profile with no way to finish OCEAN verification.
+  it("ALSO lands on the profile when offer exists but submitted-chip is off", async () => {
+    // Presence of the offer file is proof the user finished provisioning;
+    // the local "submitted" marker is just a chip, not a gate. The escape
+    // hatch for re-doing OCEAN verification is "Re-run setup" on the profile.
     routeFetch({ "/status": () => json({ configured: true, mining_address: ADDR, offer: OFFER }) });
     await S.bootstrap();
-    expect(app.surface).toBe("wizard");
-    expect(S.stepKey()).toBe("sign");
-    expect(app.offer).toBe(OFFER); // restored so the sign step has it
+    expect(app.surface).toBe("profile");
+    expect(app.miningAddress).toBe(ADDR);
+    expect(app.offer).toBe(OFFER);
+    expect(app.profile).not.toBeNull();
+    expect(app.submitted).toBe(false); // chip stays off until they sign
   });
 
   it("routes to Import (not provisioning) when configured but no offer yet", async () => {
