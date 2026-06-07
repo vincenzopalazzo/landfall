@@ -159,7 +159,14 @@
   }
 
   // ── Receive flow ──
-  let rcvTab = $state<"offer" | "invoice" | "onchain">("offer");
+  // Only Lightning receive surfaces here: the reusable BOLT12 offer and a
+  // freshly-minted BOLT11 invoice. There is deliberately NO on-chain tab —
+  // `app.miningAddress` is the OCEAN signing/payout address, not the Lexe
+  // node's on-chain deposit address, so showing it as a "deposit here"
+  // address would be misleading (funds wouldn't credit the node wallet's
+  // on-chain balance). Re-add an on-chain tab once the node exposes a real
+  // on-chain receive address.
+  let rcvTab = $state<"offer" | "invoice">("offer");
   let rcvAmount = $state("");
   let rcvInvoice = $state("");
   let rcvBusy = $state(false);
@@ -183,9 +190,7 @@
       rcvBusy = false;
     }
   }
-  const rcvValue = $derived(
-    rcvTab === "offer" ? app.offer : rcvTab === "invoice" ? rcvInvoice : app.miningAddress,
-  );
+  const rcvValue = $derived(rcvTab === "offer" ? app.offer : rcvInvoice);
 
   let copied = $state("");
   function copy(value: string, tag: string) {
@@ -374,7 +379,7 @@
     <div class="nw-mh"><span class="ttl">Receive</span><button class="nw-iconbtn" onclick={() => (modal = null)}><Icon name="close" size={16} /></button></div>
     <div class="nw-mb">
       <div class="nw-rtabs">
-        {#each [["offer", "Offer"], ["invoice", "Invoice"], ["onchain", "On-chain"]] as [k, l]}
+        {#each [["offer", "Offer"], ["invoice", "Invoice"]] as [k, l]}
           <button class={rcvTab === k ? "on" : ""} onclick={() => (rcvTab = k as typeof rcvTab)}>{l}</button>
         {/each}
       </div>
@@ -389,7 +394,7 @@
       {/if}
       <div style="height:14px"></div>
       <span class="nw-flbl">
-        {rcvTab === "offer" ? "Reusable BOLT12 offer (registered with OCEAN)" : rcvTab === "invoice" ? "Lightning invoice" : "On-chain payout address"}
+        {rcvTab === "offer" ? "Reusable BOLT12 offer (registered with OCEAN)" : "Lightning invoice"}
       </span>
       <div class="nw-rval">
         <code>{rcvValue || (rcvTab === "invoice" ? "— create an invoice above —" : "— not available —")}</code>

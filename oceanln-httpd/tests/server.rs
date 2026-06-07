@@ -649,3 +649,44 @@ async fn no_auth_mode_serves_status_without_bearer() {
     let v: serde_json::Value = resp.json().await.unwrap();
     assert!(v.get("configured").is_some());
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn no_auth_mode_refuses_pay_without_bearer() {
+    // `/pay` moves funds, so even in --no-auth mode it must reject an
+    // unbearered request (P1 review fix). The shared guard skips the bearer
+    // check when the token is empty; the per-route `require_token` layer on
+    // `/pay` must still 403 so a local process can't spend funds.
+    use oceanln_common::sign::DEFAULT_BIP32_PATH;
+    use oceanln_httpd::{build_app, AppState, ServerConfig};
+    let seed_path = write_seed("no-auth-pay");
+    let state = std::sync::Arc::new(AppState::new(
+        ServerConfig {
+            seed: oceanln_common::seed::SeedSource::File(seed_path),
+            token: String::new(),
+            allowed_origins: vec![],
+            sidecar_url: oceanln_common::client::DEFAULT_BASE_URL.to_string(),
+            sidecar_credentials: None,
+            default_path: DEFAULT_BIP32_PATH.to_string(),
+        },
+        std::sync::Arc::new(MockWallet),
+    ));
+    let app = build_app(state);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind");
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        let _ = axum::serve(listener, app).await;
+    });
+    let resp = client()
+        .post(format!("http://{addr}/pay"))
+        .json(&serde_json::json!({ "payable": "lnbc1xyz" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        403,
+        "no-auth httpd must refuse the fund-moving /pay endpoint"
+    );
+}
