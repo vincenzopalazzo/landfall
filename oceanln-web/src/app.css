@@ -216,7 +216,9 @@ body{
 .db-chip.muted{color:#71717a;background:#18181c}
 .db-dot{width:7px;height:7px;border-radius:50%;background:currentColor}
 @media (prefers-reduced-motion: no-preference){.db-dot.pulse{animation:ocean-pulse 2s ease-in-out infinite}@keyframes ocean-pulse{0%,100%{opacity:1}50%{opacity:.35}}}
-.db-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:22px}
+/* Adaptive grid: cards reflow so the 7-card stat panel doesn't leave an
+   awkward gap on the last row when the window is wider than ~880px. */
+.db-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-bottom:22px}
 .db-stat{background:#131316;border:1px solid #1e1e23;border-radius:var(--radius-lg);padding:16px 18px}
 .db-stat .l{font-size:10px;color:#63636e;text-transform:uppercase;letter-spacing:.06em;font-weight:600;display:flex;align-items:center;gap:6px}
 .db-stat .v{font-family:var(--font-mono);font-size:24px;font-weight:500;color:#fafafa;letter-spacing:-0.02em;margin-top:8px;display:flex;align-items:baseline;gap:6px}

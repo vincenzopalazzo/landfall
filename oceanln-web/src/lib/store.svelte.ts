@@ -181,10 +181,12 @@ function isSubmitted(addr: string): boolean {
 }
 
 // Run once on launch, branching on how complete the existing wallet is:
-//   - seed + offer + submitted → fully set up, land on the profile.
-//   - seed + offer, NOT submitted → the offer was created but OCEAN's message was
-//     never signed/submitted (app closed mid-setup). The profile doesn't expose
-//     the signing flow, so resume at the Sign step instead of stranding them.
+//   - seed + offer → fully set up (the offer file is proof the user finished
+//     provisioning), land on the profile. The local "submitted to OCEAN"
+//     marker still controls the chip on the profile, but is no longer a gate
+//     on landing — it's a local-only acknowledgement and can't be trusted to
+//     reflect OCEAN-side state anyway. If the user actually needs to re-sign
+//     for OCEAN they can hit "Re-run setup" from the profile.
 //   - seed, NO offer → setup was interrupted before provisioning. We can't prove
 //     the recovery phrase was backed up (not held in this session), so route to
 //     Import: re-supplying the 24 words (idempotent if it matches the stored
@@ -201,16 +203,9 @@ export async function bootstrap() {
         app.offerDescription = `OCEAN Payouts for ${s.mining_address}`;
       }
       app.reuse = true; // skip the create-only reveal/confirm steps
-      if (isSubmitted(s.mining_address)) {
-        app.submitted = true;
-        seedProfile();
-        app.surface = "profile";
-      } else {
-        // Finish OCEAN verification: resume at the Sign step (offer + address
-        // restored; the user pastes OCEAN's message and signs).
-        app.surface = "wizard";
-        app.stepIndex = STEPS.findIndex((st) => st.key === "sign");
-      }
+      app.submitted = isSubmitted(s.mining_address); // chip-only; not a gate
+      seedProfile();
+      app.surface = "profile";
     } else {
       // Require the recovery phrase before provisioning an un-finished wallet.
       app.reuse = false;
