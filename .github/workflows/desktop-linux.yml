@@ -12,6 +12,13 @@ on:
   push:
     tags:
       - "v*"
+  # Validate the desktop bundle when desktop-affecting files change. Scoped
+  # tightly so the (slow, ~20-min) Linux build never runs on core/CLI PRs —
+  # the root Rust CI stays fast and independent.
+  pull_request:
+    paths:
+      - "src-tauri/**"
+      - ".github/workflows/desktop-linux.yml"
 
 jobs:
   build:
