@@ -240,6 +240,20 @@ fn open_external(url: String) -> Result<(), CommandError> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Linux: webkit2gtk's DMABUF renderer renders a blank white window on
+    // GPU-less / virtualized stacks (VMs, many headless or software-GL
+    // setups) — the exact "installed app opens to a blank page" symptom.
+    // Disabling it forces the software path, which renders everywhere; this
+    // app is a lightweight dashboard, so there's no meaningful perf cost.
+    // Must be set before the webview process spawns (i.e. before the builder
+    // creates the window), and it's inherited by that child process. We only
+    // set a default — a user can still force the accelerated path by
+    // exporting WEBKIT_DISABLE_DMABUF_RENDERER=0 themselves.
+    #[cfg(target_os = "linux")]
+    if std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none() {
+        std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+    }
+
     tauri::Builder::default()
         .setup(|app| {
             if cfg!(debug_assertions) {
