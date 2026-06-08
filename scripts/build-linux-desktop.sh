@@ -38,7 +38,7 @@ docker run --rm \
     apt-get install -y \
       libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev \
       libayatana-appindicator3-dev libxdo-dev libssl-dev \
-      patchelf file build-essential curl wget ca-certificates
+      patchelf file build-essential curl wget ca-certificates rpm
     curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
     . "$HOME/.cargo/env"
     cargo install tauri-cli --version "^2" --locked

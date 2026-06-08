@@ -40,6 +40,7 @@ jobs:
             patchelf \
             file \
             build-essential \
+            rpm \
             curl wget
 
       - uses: dtolnay/rust-toolchain@stable
