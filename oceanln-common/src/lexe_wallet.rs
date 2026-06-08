@@ -436,7 +436,14 @@ fn activity_from(p: lexe_api_core::types::payments::BasicPaymentV2) -> Activity 
         .as_ref()
         .map(|a| (a.round_sat().sats_u64(), a.msat()))
         .unwrap_or((0, 0));
+    // Only a *settled* inbound offer payment counts as an OCEAN payout. A
+    // pending/failed payment that happens to carry the OCEAN payer-note
+    // format must not be grouped/labeled as a verified payout (it may never
+    // settle), mirroring the completed-payment guard in `ocean_payout_from`.
+    // NB: the payer note is a *format* match, not a cryptographic signature —
+    // the UI copy is worded accordingly.
     let ocean = inbound
+        && status == "settled"
         && p.kind == PaymentKind::Offer
         && p.message
             .as_deref()

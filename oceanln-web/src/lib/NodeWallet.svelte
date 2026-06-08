@@ -538,8 +538,8 @@
       {#if a.is_ocean}
         <div class="tx-verify">
           <div class="tx-verify-h"><Icon name="spark" size={16} /> Verified OCEAN payout</div>
-          <div class="tx-verify-i"><Icon name="check" size={14} stroke={2.2} /><span>Paid to your <b>registered OCEAN offer</b> — the BOLT12 offer linked in Profile.</span></div>
-          <div class="tx-verify-i"><Icon name="check" size={14} stroke={2.2} /><span>Payer note matches the OCEAN signature — <code>OCEAN payout{#if a.block_height} · block {a.block_height.toLocaleString("en-US")}{/if} · ocean.xyz</code></span></div>
+          <div class="tx-verify-i"><Icon name="check" size={14} stroke={2.2} /><span>Settled to your <b>registered OCEAN offer</b> — the BOLT12 offer linked in Profile.</span></div>
+          <div class="tx-verify-i"><Icon name="check" size={14} stroke={2.2} /><span>Payer note matches OCEAN's payout format — <code>OCEAN payout{#if a.block_height} · block {a.block_height.toLocaleString("en-US")}{/if} · ocean.xyz</code></span></div>
         </div>
       {/if}
 

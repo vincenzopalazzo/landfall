@@ -17,12 +17,23 @@ on:
   push:
     tags:
       - "v*"
-  # Keep parity with desktop-linux: only run on desktop-affecting changes so
-  # core/CLI PRs aren't slowed by the (slow, dual-arch) macOS build.
+  # Keep parity with desktop-linux. The bundle compiles oceanln-common/
+  # oceanln-httpd and embeds oceanln-web/dist, and the root Rust CI never runs
+  # `cargo tauri build`, so changes to those shared inputs can break the macOS
+  # package even when src-tauri is untouched — validate them too.
   pull_request:
     paths:
       - "src-tauri/**"
+      - "oceanln-common/**"
+      - "oceanln-httpd/**"
+      - "oceanln-web/**"
       - ".github/workflows/desktop-macos.yml"
+
+# The release-attach step on tag builds uploads assets via the GitHub token,
+# which needs contents: write; the org/repo default can be read-only. Harmless
+# on PR runs (nothing writes there).
+permissions:
+  contents: write
 
 jobs:
   build:
