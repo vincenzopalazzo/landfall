@@ -293,8 +293,27 @@ cargo tauri dev                                      # from the repo root (finds
 
 `cargo tauri dev` builds `oceanln-web`, opens the window, and hot-reloads. It's
 its own Cargo workspace (heavy native deps), excluded from the root so the core
-Rust CI is unaffected. Packaged/signed installers and a cross-OS build matrix
-are not wired yet.
+Rust CI is unaffected.
+
+### Linux packages (`.deb` / `.rpm` / `.AppImage`)
+
+Tauri's Linux bundlers link `webkit2gtk`/GTK and shell out to `dpkg-deb`,
+`rpmbuild`, and `appimagetool`, so the Linux packages **must be built on Linux**
+— they cannot be cross-built from macOS. Two ways:
+
+- **CI** — `.github/workflows/desktop-linux.yml` builds the `.deb`, `.rpm`, and
+  `.AppImage` on an Ubuntu runner and uploads them as artifacts (attaching them
+  to a GitHub Release on a `v*` tag). Trigger it manually (`workflow_dispatch`)
+  or by pushing a version tag.
+- **Locally, on any host with Docker** — `scripts/build-linux-desktop.sh` builds
+  the same three formats inside an `ubuntu:22.04` container and drops them in
+  `dist-linux/`. It reuses the static `oceanln-web/dist` and uses a
+  container-internal Rust target, so it won't clobber your host build. (The
+  container's native arch is what you get — run it on an `amd64` host, or with
+  `--platform linux/amd64`, for x86_64 packages.)
+
+macOS `.app`/`.dmg` come from `cargo tauri build` on macOS. Signed/notarized
+installers are still not wired up.
 
 ### The Lexe sidecar
 
