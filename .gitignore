@@ -1,3 +1,6 @@
 /target/
 .zig-cache/
 zig-out/
+# Linux desktop bundles from scripts/build-linux-desktop.sh and the
+# desktop-linux CI workflow — build artifacts, never committed.
+/dist-linux/
