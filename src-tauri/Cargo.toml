@@ -21,6 +21,10 @@ serde = { version = "1.0", features = ["derive"] }
 log = "0.4"
 tauri = { version = "2", features = [] }
 tauri-plugin-log = "2"
+# Opens external explorer links (ocean.xyz / mempool.space) in the OS default
+# browser — the webview can't follow them itself. Cross-platform: `open` on
+# macOS, `xdg-open` on Linux, `start` on Windows.
+open = "5"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 # The shared backend: the desktop commands call straight into the service layer,
 # so they share the exact signing/seed logic the HTTP transport uses. `lexe-sdk`

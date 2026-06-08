@@ -24,6 +24,21 @@ export function isTauri(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 }
 
+/// Open an external URL in the OS default browser.
+///
+/// In the browser build the platform follows `<a target="_blank">` natively, so
+/// this is only needed inside the Tauri webview — WKWebView treats such links as
+/// inert and the CSP forbids navigating away. There we hand the URL to the Rust
+/// `open_external` command. Falls back to `window.open` if the command is
+/// unavailable (e.g. an older shell).
+export async function openExternal(url: string): Promise<void> {
+  try {
+    await invoke("open_external", { url });
+  } catch {
+    window.open(url, "_blank", "noopener,noreferrer");
+  }
+}
+
 // Tauri commands return `Err(CommandError { status, message })`; `invoke` rejects
 // with that serialized object. Map it back to `ApiError` so the store's status
 // checks (notably 409 → "wallet exists") behave identically to the HTTP path.

@@ -14,6 +14,27 @@
     app, STEPS, stepKey, canContinue, continueStep, goBack, railClick,
     stepState, restart, go, visibleSteps, humanIndex, refreshHealth, bootstrap,
   } from "./lib/store.svelte";
+  import { isTauri, openExternal } from "./lib/tauri";
+
+  // Desktop only: the webview can't follow external `<a target="_blank">` links
+  // (WKWebView treats them as inert; the CSP blocks navigating away). Intercept
+  // every external http(s) link click app-wide and hand it to the OS browser via
+  // the Rust opener — covers explorer links, ocean.xyz, mempool.space, etc.,
+  // without each component having to know about Tauri. No-op in the browser build.
+  $effect(() => {
+    if (!isTauri()) return;
+    const onClick = (e: MouseEvent) => {
+      if (e.defaultPrevented || e.button !== 0) return;
+      const a = (e.target as HTMLElement | null)?.closest?.("a");
+      const href = a?.getAttribute("href") ?? "";
+      if (/^https?:\/\//i.test(href)) {
+        e.preventDefault();
+        void openExternal(href);
+      }
+    };
+    document.addEventListener("click", onClick);
+    return () => document.removeEventListener("click", onClick);
+  });
 
   const ACCENTS = {
     orange: { c: "#f7931a", dim: "rgba(247,147,26,0.10)", line: "rgba(247,147,26,0.28)" },

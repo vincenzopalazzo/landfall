@@ -214,6 +214,30 @@ async fn pay(
     .map_err(Into::into)
 }
 
+/// Open an external URL in the user's default browser.
+///
+/// The desktop webview can't follow external links itself: WKWebView (macOS)
+/// treats `<a target="_blank">` as inert, and the app CSP forbids navigating
+/// away from the bundled SPA. So every `ocean.xyz` / `mempool.space` explorer
+/// link routes through here, which hands the URL to the OS (`open` / `xdg-open`).
+///
+/// Hardened: only `http(s)` URLs are ever forwarded — never a `file://`,
+/// custom scheme, or shell argument — so a malformed link can't be coerced
+/// into opening an arbitrary local target.
+#[tauri::command]
+fn open_external(url: String) -> Result<(), CommandError> {
+    if !(url.starts_with("https://") || url.starts_with("http://")) {
+        return Err(CommandError {
+            status: 400,
+            message: "refusing to open a non-http(s) URL".to_string(),
+        });
+    }
+    open::that(&url).map_err(|e| CommandError {
+        status: 500,
+        message: format!("could not open browser: {e}"),
+    })
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -252,6 +276,7 @@ pub fn run() {
             list_payments,
             create_invoice,
             pay,
+            open_external,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

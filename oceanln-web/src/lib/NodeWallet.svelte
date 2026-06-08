@@ -17,7 +17,16 @@
   let unit = $state<"sats" | "usd">("sats");
   let filter = $state<"all" | "ocean" | "in" | "out">("all");
   let q = $state("");
-  let modal = $state<null | "send" | "receive">(null);
+  let modal = $state<null | "send" | "receive" | "tx">(null);
+  // The activity row the user clicked — drives the transaction detail drawer.
+  let selected = $state<Activity | null>(null);
+  // Per-payment personal note. The node doesn't persist notes for us, so we
+  // keep the user's annotation on-device, keyed by payment id.
+  let savedNote = $state("");
+  let noteEdit = $state(false);
+  let noteDraft = $state("");
+  // "Save proof" footer button → copies a verifiable proof bundle.
+  let proofSaved = $state(false);
 
   // Monotonic guard so a slow refresh can't clobber newer state.
   let reqId = 0;
@@ -113,6 +122,97 @@
     if (a.txid) return `https://mempool.space/tx/${a.txid}`;
     return null;
   }
+  // Where the row's "View on explorer" link points, and what to call it.
+  function explorerName(a: Activity): string {
+    if (a.payment_hash) return "View on ocean.xyz";
+    if (a.txid) return "View on mempool.space";
+    return "";
+  }
+  // Full, unambiguous timestamp for the detail view (the list shows a
+  // relative one). Falls back gracefully if the node never finalized a time.
+  const FULL_DATE = new Intl.DateTimeFormat("en-US", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
+  function fullTime(ms: number): string {
+    return ms ? FULL_DATE.format(new Date(ms)) : "—";
+  }
+  // Pretty rail / status / direction labels reused by list + detail.
+  const railLabel = (a: Activity) => (a.rail === "ln" ? "Lightning" : "On-chain");
+  const statusLabel = (s: Activity["status"]) =>
+    s === "settled" ? "Settled" : s === "failed" ? "Failed" : "In-flight";
+
+  // Middle-truncate long hex/payable strings for the reference rows (the full
+  // value is always what gets copied).
+  function trunc(v: string, head = 12, tail = 10): string {
+    return v.length > head + tail + 1 ? v.slice(0, head) + "…" + v.slice(-tail) : v;
+  }
+  // The offer an OCEAN payout landed in is, by construction, the user's own
+  // registered offer — surface its friendly description as the "Linked offer".
+  function linkedOffer(a: Activity): string | null {
+    if (a.offer) return app.offerDescription || "BOLT12 offer";
+    if (a.is_ocean) return app.offerDescription || "OCEAN mining payouts";
+    return null;
+  }
+  // What to show in the Note row: the user's saved note wins; OCEAN rows get a
+  // friendly label (their raw payer note is technical and already explained in
+  // the verified callout); otherwise the payment's own note.
+  function noteLine(a: Activity): string {
+    if (savedNote) return savedNote;
+    if (a.is_ocean) return "Mining payout";
+    return a.note || "—";
+  }
+
+  const noteKey = (id: string) => `oceanln:note:${id}`;
+
+  // Open the transaction detail drawer for a clicked row.
+  function openTx(a: Activity) {
+    selected = a;
+    copied = "";
+    proofSaved = false;
+    noteEdit = false;
+    try {
+      savedNote = localStorage?.getItem(noteKey(a.id)) || "";
+    } catch {
+      savedNote = "";
+    }
+    noteDraft = savedNote;
+    modal = "tx";
+  }
+  function closeModal() {
+    modal = null;
+    selected = null;
+    noteEdit = false;
+  }
+  function onKey(e: KeyboardEvent) {
+    if (e.key === "Escape" && modal) closeModal();
+  }
+  function saveNote() {
+    if (!selected) return;
+    savedNote = noteDraft.trim();
+    try {
+      if (savedNote) localStorage?.setItem(noteKey(selected.id), savedNote);
+      else localStorage?.removeItem(noteKey(selected.id));
+    } catch {
+      /* storage unavailable — note stays for this session only */
+    }
+    noteEdit = false;
+  }
+  // Copy a self-contained, verifiable proof of the payment (hash + preimage +
+  // amount + time). Anyone can check sha256(preimage) == payment hash.
+  function saveProof(a: Activity) {
+    const lines = [
+      `OCEAN Lightning payment proof`,
+      `Amount: ${commas(a.amount_sats)} sats`,
+      `Date: ${fullTime(a.finalized_at_ms)}`,
+      a.payment_hash ? `Payment hash: ${a.payment_hash}` : "",
+      a.preimage ? `Preimage: ${a.preimage}` : "",
+      a.txid ? `Txid: ${a.txid}` : "",
+    ].filter(Boolean);
+    navigator.clipboard?.writeText(lines.join("\n")).catch(() => {});
+    proofSaved = true;
+    setTimeout(() => (proofSaved = false), 2000);
+  }
 
   // Capacity bar: spendable vs the rest of the channel balance.
   const capPct = $derived(
@@ -200,6 +300,8 @@
     setTimeout(() => (copied = ""), 1600);
   }
 </script>
+
+<svelte:window onkeydown={onKey} />
 
 <!-- Action bar: unit toggle + Receive / Send -->
 <div class="nw-bar">
@@ -293,8 +395,7 @@
 
 {#snippet row(a: Activity)}
   {@const inn = a.direction === "in"}
-  {@const href = rowHref(a)}
-  <a class="na-row {a.is_ocean ? 'ocean' : ''}" href={href ?? undefined} target={href ? "_blank" : undefined} rel="noreferrer">
+  <button type="button" class="na-row {a.is_ocean ? 'ocean' : ''}" onclick={() => openTx(a)}>
     <span class="na-ic {a.status === 'failed' ? 'failed' : inn ? 'in' : 'out'}"><Icon name={inn ? "in" : "out"} size={18} /></span>
     <span class="na-meta">
       <span class="na-t">
@@ -302,7 +403,7 @@
         {#if a.is_ocean}<span class="oc-chip">OCEAN payout</span>{/if}
       </span>
       <span class="na-s">
-        <Icon name={a.rail === "ln" ? "bolt" : "btc"} size={13} />{a.rail === "ln" ? "Lightning" : "On-chain"}
+        <Icon name={a.rail === "ln" ? "bolt" : "btc"} size={13} />{railLabel(a)}
         <span class="sdot"></span>{relTime(a.finalized_at_ms)}
         {#if a.block_height}<span class="sdot"></span>block {a.block_height.toLocaleString("en-US")}{/if}
       </span>
@@ -311,9 +412,10 @@
       <span class="v {inn && a.amount_sats ? 'in' : ''}">
         {a.amount_sats ? (inn ? "+" : "−") + big(a.amount_sats) : "—"}{#if a.amount_sats && !showUsd}<span class="u"> sats</span>{/if}
       </span>
-      <span class="na-st {a.status}" style="margin-top:4px">{a.status === "settled" ? "Settled" : a.status === "failed" ? "Failed" : "In-flight"}</span>
+      <span class="na-st {a.status}" style="margin-top:4px">{statusLabel(a.status)}</span>
     </span>
-  </a>
+    <span class="na-chev"><Icon name="arrowR" size={15} /></span>
+  </button>
 {/snippet}
 
 <!-- ── Send modal ── -->
@@ -406,3 +508,127 @@
     </div>
   </div>
 {/if}
+
+<!-- ── Transaction detail · right-side slide-over drawer ── -->
+{#if modal === "tx" && selected}
+  {@const a = selected}
+  {@const inn = a.direction === "in"}
+  {@const href = rowHref(a)}
+  <div class="tx-scrim" onclick={closeModal} role="presentation"></div>
+  <div class="tx-drawer" role="dialog" aria-modal="true" aria-label="Transaction detail">
+    <header class="tx-dh">
+      <button class="tx-dh-x" onclick={closeModal} aria-label="Close"><Icon name="close" size={17} /></button>
+      <span class="tx-dh-t">Transaction detail</span>
+    </header>
+
+    <div class="tx-db">
+      <!-- Hero -->
+      <div class="tx-hero">
+        <span class="tx-hero-ic {a.status === 'failed' ? 'failed' : inn ? 'in' : 'out'}">
+          <Icon name={inn ? "in" : "out"} size={24} />
+        </span>
+        <span class="tx-hero-amt {inn && a.status !== 'failed' ? 'in' : ''}">
+          {a.amount_sats ? (inn ? "+" : "−") + commas(a.amount_sats) : "—"}{#if a.amount_sats}<span class="u"> sats</span>{/if}
+        </span>
+        {#if a.amount_sats && price > 0}<span class="tx-hero-sub">{fmtUsd(usdOf(a.amount_sats))}</span>{/if}
+        <span class="na-st {a.status}"><Icon name={a.status === "failed" ? "warn" : "check"} size={12} stroke={2.2} />{statusLabel(a.status)}</span>
+      </div>
+
+      <!-- Verified OCEAN payout callout -->
+      {#if a.is_ocean}
+        <div class="tx-verify">
+          <div class="tx-verify-h"><Icon name="spark" size={16} /> Verified OCEAN payout</div>
+          <div class="tx-verify-i"><Icon name="check" size={14} stroke={2.2} /><span>Paid to your <b>registered OCEAN offer</b> — the BOLT12 offer linked in Profile.</span></div>
+          <div class="tx-verify-i"><Icon name="check" size={14} stroke={2.2} /><span>Payer note matches the OCEAN signature — <code>OCEAN payout{#if a.block_height} · block {a.block_height.toLocaleString("en-US")}{/if} · ocean.xyz</code></span></div>
+        </div>
+      {/if}
+
+      <!-- DETAILS -->
+      <p class="tx-sec">Details</p>
+      <div class="tx-rows">
+        {@render detailRow("wallet", inn ? "From" : "To", partyName(a))}
+        <div class="tx-row">
+          <span class="k"><Icon name="info" size={14} /> Note</span>
+          <span class="v">
+            {noteLine(a)}
+            <button class="tx-noteedit" onclick={() => { noteEdit = true; noteDraft = savedNote; }} aria-label="Edit note"><Icon name="pen" size={12} /></button>
+          </span>
+        </div>
+        {#if noteEdit}
+          <div class="tx-notebox">
+            <input class="nw-input" bind:value={noteDraft} placeholder="Add a private note for this payment" maxlength={140} />
+            <div class="tx-noterow">
+              <button class="wz-btn ghost sm" onclick={() => (noteEdit = false)}>Cancel</button>
+              <button class="wz-btn sm" onclick={saveNote}>Save note</button>
+            </div>
+          </div>
+        {/if}
+        {@render detailRow("clock", "Date", fullTime(a.finalized_at_ms))}
+        <div class="tx-row">
+          <span class="k"><Icon name={a.rail === "ln" ? "bolt" : "btc"} size={14} /> Network</span>
+          <span class="v">{railLabel(a)}</span>
+        </div>
+        <div class="tx-row">
+          <span class="k"><Icon name="download" size={14} /> Fee</span>
+          <span class="v">{a.fee_sats ? commas(a.fee_sats) + " sats" : "0 sats (free)"}</span>
+        </div>
+        {#if a.rail === "ln" && a.amount_msat % 1000 !== 0}
+          {@render detailRow("bolt", "Exact amount", commas(a.amount_msat) + " msat")}
+        {/if}
+      </div>
+
+      <!-- PROOF & REFERENCES -->
+      <p class="tx-sec">Proof &amp; references</p>
+      <div class="tx-rows">
+        {#if a.payment_hash}{@render refRow("key", "Payment hash", a.payment_hash, "txhash", false)}{/if}
+        {#if a.preimage}{@render refRow("shield", "Preimage (proof)", a.preimage, "txpre", true)}{/if}
+        {#if a.txid}{@render refRow("btc", "Transaction ID", a.txid, "txtxid", false)}{/if}
+        {#if linkedOffer(a)}
+          <div class="tx-row">
+            <span class="k"><Icon name="bolt" size={14} /> Linked offer</span>
+            <span class="v">{linkedOffer(a)}</span>
+          </div>
+        {/if}
+        {#if a.invoice}{@render refRow("at", "Invoice (BOLT11)", a.invoice, "txinv", false)}{/if}
+        {#if a.offer}{@render refRow("link", "Offer (BOLT12)", a.offer, "txoffer", false)}{/if}
+      </div>
+
+      {#if href}
+        <a class="tx-explorer" href={href} target="_blank" rel="noreferrer">
+          <Icon name="link" size={13} /> {explorerName(a)} <span class="ext">↗</span>
+        </a>
+      {/if}
+    </div>
+
+    <footer class="tx-df">
+      <button class="wz-btn ghost" onclick={() => saveProof(a)}>
+        <Icon name={proofSaved ? "check" : "shield"} size={15} /> {proofSaved ? "Proof saved" : "Save proof"}
+      </button>
+      <button class="wz-btn ghost" onclick={() => { noteEdit = true; noteDraft = savedNote; }}>
+        <Icon name="pen" size={15} /> {savedNote ? "Edit note" : "Add note"}
+      </button>
+    </footer>
+  </div>
+{/if}
+
+<!-- A plain key/value detail row with a leading icon. -->
+{#snippet detailRow(icon: string, label: string, value: string)}
+  <div class="tx-row">
+    <span class="k"><Icon name={icon} size={14} /> {label}</span>
+    <span class="v">{value}</span>
+  </div>
+{/snippet}
+
+<!-- A reference row: middle-truncated value + compact copy-icon button. The
+     preimage is tinted green (verify) as the proof-of-payment. -->
+{#snippet refRow(icon: string, label: string, value: string, tag: string, verify: boolean)}
+  <div class="tx-row ref {verify ? 'verify' : ''}">
+    <span class="k"><Icon name={icon} size={14} /> {label}</span>
+    <span class="v mono">
+      <span class="tx-trunc" title={value}>{trunc(value)}</span>
+      <button class="tx-copy {copied === tag ? 'copied' : ''}" onclick={() => copy(value, tag)} aria-label="Copy {label}">
+        <Icon name={copied === tag ? "check" : "copy"} size={13} />
+      </button>
+    </span>
+  </div>
+{/snippet}
