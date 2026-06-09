@@ -3224,7 +3224,7 @@ dependencies = [
 
 [[package]]
 name = "oceanln-common"
-version = "0.3.0"
+version = "0.3.2"
 dependencies = [
  "async-trait",
  "bip322",
@@ -3243,7 +3243,7 @@ dependencies = [
 
 [[package]]
 name = "oceanln-desktop"
-version = "0.3.0"
+version = "0.3.2"
 dependencies = [
  "log",
  "oceanln-common",
@@ -3258,7 +3258,7 @@ dependencies = [
 
 [[package]]
 name = "oceanln-httpd"
-version = "0.3.0"
+version = "0.3.2"
 dependencies = [
  "async-trait",
  "axum 0.7.9",

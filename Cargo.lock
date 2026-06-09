@@ -1840,7 +1840,7 @@ dependencies = [
 
 [[package]]
 name = "oceanln-cli"
-version = "0.3.0"
+version = "0.3.2"
 dependencies = [
  "assert_cmd",
  "clap",
@@ -1853,7 +1853,7 @@ dependencies = [
 
 [[package]]
 name = "oceanln-common"
-version = "0.3.0"
+version = "0.3.2"
 dependencies = [
  "async-trait",
  "axum 0.7.9",
@@ -1875,7 +1875,7 @@ dependencies = [
 
 [[package]]
 name = "oceanln-httpd"
-version = "0.3.0"
+version = "0.3.2"
 dependencies = [
  "async-trait",
  "axum 0.7.9",
@@ -1891,7 +1891,7 @@ dependencies = [
 
 [[package]]
 name = "oceanln-mcp"
-version = "0.3.0"
+version = "0.3.2"
 dependencies = [
  "async-trait",
  "axum 0.7.9",

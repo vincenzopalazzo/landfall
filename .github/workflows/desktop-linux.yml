@@ -22,8 +22,19 @@ on:
 
 jobs:
   build:
-    # 22.04 keeps the AppImage's glibc floor low so it runs on more distros.
-    runs-on: ubuntu-22.04
+    # Build natively on each arch — the Tauri Linux bundlers can't cross-build,
+    # so x86-64 packages come from the Intel runner and aarch64 packages from
+    # the ARM runner. 22.04 keeps the AppImage's glibc floor low (runs on more
+    # distros) and is identical on both arches.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-22.04
+            arch: amd64
+          - runner: ubuntu-22.04-arm
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
 
@@ -83,7 +94,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: oceanln-desktop-linux
+          name: oceanln-desktop-linux-${{ matrix.arch }}
           path: dist-linux/*
           if-no-files-found: error
 

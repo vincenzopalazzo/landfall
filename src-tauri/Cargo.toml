@@ -1,6 +1,6 @@
 [package]
 name = "oceanln-desktop"
-version = "0.3.0"
+version = "0.3.2"
 description = "OCEAN Lightning — Tauri desktop shell for the onboarding wizard"
 authors = ["Vincenzo Palazzo"]
 license = "MIT"

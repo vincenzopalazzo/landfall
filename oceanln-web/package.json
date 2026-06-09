@@ -1,7 +1,7 @@
 {
   "name": "oceanln-web",
   "private": true,
-  "version": "0.3.0",
+  "version": "0.3.2",
   "type": "module",
   "description": "OCEAN Lightning onboarding wizard — Svelte frontend for oceanln-httpd",
   "scripts": {
