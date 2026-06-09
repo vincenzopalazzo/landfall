@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# Live team-demo runner: oceanln-httpd + oceanln-web, walking the FULL flow.
+# Live team-demo runner: oceanln-httpd + oceanln-mcp + oceanln-web, FULL flow.
 #
 # Starts the release oceanln-httpd (in-process Lexe SDK — default features, so
-# NO separate lexe-sidecar is needed) plus the oceanln-web Vite frontend, then
-# opens the browser. You then drive the whole arc from the UI:
+# NO separate lexe-sidecar is needed), the read-only oceanln-mcp proxy in front
+# of it, and the oceanln-web Vite frontend, then opens the browser. You then
+# drive the whole arc from the UI:
 #
 #   generate seed -> derive mining address -> PROVISION a Lexe node (live) ->
 #   create a BOLT12 offer -> BIP-322 sign the OCEAN message -> dashboard
@@ -22,20 +23,24 @@
 #
 # Env knobs:
 #   DEMO_BIND       loopback addr for httpd   (default 127.0.0.1:7762)
+#   DEMO_MCP_BIND   loopback addr for mcp     (default 127.0.0.1:7763)
 #   DEMO_WEB_PORT   Vite dev port             (default 5173)
 #   DEMO_TOKEN      bearer token              (default a fixed local demo token)
 #   DEMO_SEED_FILE  seed file path            (default ./.demo/seed)
 #   DEMO_NO_OPEN=1  don't auto-open the browser
+#   DEMO_NO_MCP=1   skip the oceanln-mcp proxy
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 BIND="${DEMO_BIND:-127.0.0.1:7762}"
+MCP_BIND="${DEMO_MCP_BIND:-127.0.0.1:7763}"
 WEB_PORT="${DEMO_WEB_PORT:-5173}"
 # Fixed token is fine for LOCAL loopback dev; the web app needs to know it up
 # front to inject into requests. Override with DEMO_TOKEN if you like.
 TOKEN="${DEMO_TOKEN:-demo-oceanln-local-token}"
 SEED_FILE="${DEMO_SEED_FILE:-./.demo/seed}"
 HTTPD=target/release/oceanln-httpd
+MCP=target/release/oceanln-mcp
 
 mkdir -p "$(dirname "$SEED_FILE")"
 
@@ -67,6 +72,10 @@ fi
 
 echo "==> building oceanln-httpd (release, in-process Lexe SDK)"
 cargo build --release -p oceanln-httpd
+if [ "${DEMO_NO_MCP:-0}" != "1" ]; then
+  echo "==> building oceanln-mcp (release, read-only proxy)"
+  cargo build --release -p oceanln-mcp
+fi
 
 echo "==> starting oceanln-httpd on http://$BIND"
 echo "    seed file:    $SEED_FILE"
@@ -81,8 +90,9 @@ SRV=$!
 
 cleanup() {
   echo
-  echo "==> stopping (httpd pid $SRV, web pid ${WEB:-none})"
+  echo "==> stopping (httpd pid $SRV, mcp pid ${MCPPID:-none}, web pid ${WEB:-none})"
   [ -n "${WEB:-}" ] && kill "$WEB" 2>/dev/null || true
+  [ -n "${MCPPID:-}" ] && kill "$MCPPID" 2>/dev/null || true
   kill "$SRV" 2>/dev/null || true
   wait 2>/dev/null || true
 }
@@ -94,6 +104,19 @@ for i in $(seq 1 20); do
   sleep 0.5
 done
 echo "==> health: $(curl -fsS "http://$BIND/health" || echo 'NOT READY')"
+
+# --- mcp proxy --------------------------------------------------------------
+# Read-only MCP server in front of httpd. An AI assistant (Goose, Claude Code)
+# connects here and drives the node read-only; it forwards each tool call to
+# httpd over HTTP with the bearer token, never touching the seed.
+if [ "${DEMO_NO_MCP:-0}" != "1" ]; then
+  echo "==> starting oceanln-mcp on http://$MCP_BIND/mcp — proxying to http://$BIND"
+  "$MCP" \
+    --bind "$MCP_BIND" \
+    --base "http://$BIND" \
+    --httpd-token "$TOKEN" &
+  MCPPID=$!
+fi
 
 # --- web frontend -----------------------------------------------------------
 if [ ! -f oceanln-web/package.json ]; then
@@ -122,8 +145,15 @@ else
   echo "     RECEIVE an invoice (/invoice), SEND a payment (/pay, real funds)."
 fi
 echo
-echo "Tip: the dashboard's MCP panel shows the command to let an AI assistant"
-echo "     drive this same node read-only — a nice closer if there's time."
+if [ "${DEMO_NO_MCP:-0}" != "1" ]; then
+  echo "MCP (read-only AI assistant) — already running, a nice closer if there's time:"
+  echo "  Add to Goose / Claude Code:  http://$MCP_BIND/mcp  (no header needed)"
+  echo "  e.g.  claude mcp add --transport http oceanln http://$MCP_BIND/mcp"
+  echo "  The dashboard's MCP panel shows the same command."
+else
+  echo "Tip: the dashboard's MCP panel shows the command to let an AI assistant"
+  echo "     drive this same node read-only (DEMO_NO_MCP=1 skipped it here)."
+fi
 echo "Stop everything with Ctrl-C."
 echo "====================================================================="
 echo
