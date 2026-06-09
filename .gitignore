@@ -4,3 +4,7 @@ zig-out/
 # Linux desktop bundles from scripts/build-linux-desktop.sh and the
 # desktop-linux CI workflow — build artifacts, never committed.
 /dist-linux/
+# Local dev/demo runtime state from scripts/dev.sh and scripts/web-demo.sh —
+# holds a real seed file; never committed.
+/.dev/
+/.demo/
