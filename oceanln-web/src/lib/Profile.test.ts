@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/svelte";
+import { render, screen, fireEvent } from "@testing-library/svelte";
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import Profile from "./Profile.svelte";
 import * as S from "./store.svelte";
@@ -39,5 +39,51 @@ describe("Profile — stats + profile in one view", () => {
     expect(screen.getByText(/Recovery phrase/i)).toBeInTheDocument();
     // And a way to open the full Lightning dashboard (offer + MCP live there).
     expect(screen.getByText(/Open full Lightning dashboard/i)).toBeInTheDocument();
+  });
+});
+
+describe("Profile — recovery-phrase reveal (issue #17)", () => {
+  // The beforeEach leaves `app.phrase` empty — exactly the relaunched-session
+  // state the bootstrap lands on (seed + offer on the server, no words in JS).
+  it("fetches the stored phrase from the backend when it isn't held in session", async () => {
+    const words = Array.from({ length: 24 }, (_, i) => `word${i + 1}`).join(" ");
+    const statsFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      if (String(url).includes("/seed/reveal")) return res({ mnemonic: words });
+      return statsFetch(url as never, init as never);
+    }) as typeof fetch;
+    render(Profile);
+    await fireEvent.click(screen.getByRole("button", { name: /Reveal/ }));
+    expect(await screen.findByText("word1")).toBeInTheDocument();
+    expect(screen.getByText("word24")).toBeInTheDocument();
+    // And the words landed in the shared store for this session.
+    expect(S.app.phrase).toHaveLength(24);
+  });
+
+  it("surfaces the server's refusal instead of a dead-end", async () => {
+    globalThis.fetch = vi.fn(async (url: string | URL | Request) => {
+      if (String(url).includes("/seed/reveal"))
+        return new Response(JSON.stringify({ error: "this endpoint requires authentication" }), {
+          status: 403,
+          headers: { "content-type": "application/json" },
+        });
+      return new Response("not found", { status: 404 });
+    }) as typeof fetch;
+    render(Profile);
+    await fireEvent.click(screen.getByRole("button", { name: /Reveal/ }));
+    expect(
+      await screen.findByText(/Couldn't load your recovery phrase — this endpoint requires authentication/),
+    ).toBeInTheDocument();
+  });
+
+  it("reveals straight from session memory when the phrase is already held", async () => {
+    S.app.phrase = Array.from({ length: 24 }, (_, i) => `held${i + 1}`);
+    const f = vi.fn(async (..._args: unknown[]) => new Response("not found", { status: 404 }));
+    globalThis.fetch = f as typeof fetch;
+    render(Profile);
+    await fireEvent.click(screen.getByRole("button", { name: /Reveal/ }));
+    expect(await screen.findByText("held1")).toBeInTheDocument();
+    // No /seed/reveal round-trip when the words are already in memory.
+    expect(f.mock.calls.map((c) => String(c[0]))).not.toContainEqual(expect.stringContaining("/seed/reveal"));
   });
 });

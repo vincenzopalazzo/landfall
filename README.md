@@ -215,19 +215,24 @@ Endpoints (all JSON; all but `/health` need the bearer token):
 | `GET /health` | — | `{"status":"ok"}` |
 | `POST /generate` | — | `{mnemonic, mining_address}` |
 | `POST /import` | `{mnemonic, force?}` | `{mining_address}` |
+| `POST /seed/reveal` | — | `{mnemonic}` |
 | `POST /payout` | `{message, offer?, description?, min_amount?, path?}` | `{address, offer, message, signature}` |
 | `POST /offer` | `{description?, min_amount?}` | `{offer}` |
 | `POST /init` | `{path?}` | `{mining_address, provisioned}` |
 
-`/generate` and `/import` exist for the onboarding wizard and are the deliberate
-exceptions to "the seed never crosses the wire": `/generate` creates a fresh
-24-word phrase, persists it to the seed file, and **reveals it exactly once** in
-the response so the user can back it up; `/import` accepts an existing phrase.
-Both **refuse with `409` if a seed file already exists**. `/generate` has no
-`force` — generating over an existing wallet would irreversibly destroy it, so
-replacing a wallet must go through `/import` (`{"force":true}`), a deliberate
-user-supplied action. They stay gated by the loopback bind + bearer token +
-Origin allowlist; everything else (signing, wallet ops) keeps the seed
+`/generate`, `/import`, and `/seed/reveal` exist for the onboarding wizard and
+are the deliberate exceptions to "the seed never crosses the wire": `/generate`
+creates a fresh 24-word phrase, persists it to the seed file, and **reveals it
+exactly once** in the response so the user can back it up; `/import` accepts an
+existing phrase; `/seed/reveal` re-reveals the stored phrase for an explicit,
+user-initiated backup view (the UI can't hold the words across relaunches).
+`/generate` and `/import` **refuse with `409` if a seed file already exists**.
+`/generate` has no `force` — generating over an existing wallet would
+irreversibly destroy it, so replacing a wallet must go through `/import`
+(`{"force":true}`), a deliberate user-supplied action. They stay gated by the
+loopback bind + bearer token + Origin allowlist; `/seed/reveal` additionally
+**always requires the bearer token, even under `--no-auth`** (like `/pay` — the
+phrase IS the wallet). Everything else (signing, wallet ops) keeps the seed
 server-side.
 
 `/payout` mirrors the CLI: pass `offer` to sign for an existing offer fully

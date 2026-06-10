@@ -113,10 +113,16 @@ fn write_seed(name: &str) -> std::path::PathBuf {
 
 /// Spawn the server for a given seed source on an ephemeral loopback port.
 async fn spawn_with(seed: SeedSource, allowed_origins: &[&str]) -> String {
+    spawn_with_token(seed, allowed_origins, TOKEN).await
+}
+
+/// Like [`spawn_with`], but with an explicit bearer token. An empty token
+/// mimics what `oceanln-httpd --no-auth` builds.
+async fn spawn_with_token(seed: SeedSource, allowed_origins: &[&str], token: &str) -> String {
     let state = Arc::new(AppState::new(
         ServerConfig {
             seed,
-            token: TOKEN.to_string(),
+            token: token.to_string(),
             allowed_origins: allowed_origins.iter().map(|s| s.to_string()).collect(),
             sidecar_url: oceanln_common::client::DEFAULT_BASE_URL.to_string(),
             sidecar_credentials: None,
@@ -133,6 +139,12 @@ async fn spawn_with(seed: SeedSource, allowed_origins: &[&str]) -> String {
         let _ = axum::serve(listener, app).await;
     });
     format!("http://{addr}")
+}
+
+/// Spawn in `--no-auth` mode (empty bearer token) with a pre-existing 0600
+/// seed file. The loopback bind + Origin/Host guards are the only defenses.
+async fn spawn_no_auth(name: &str) -> String {
+    spawn_with_token(SeedSource::File(write_seed(name)), &[], "").await
 }
 
 /// Spawn with a pre-existing 0600 seed file.
@@ -613,34 +625,8 @@ async fn ocean_statsnap_requires_bearer() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn no_auth_mode_serves_status_without_bearer() {
-    // Empty-token AppState mimics what `oceanln-httpd --no-auth` builds.
-    use oceanln_common::sign::DEFAULT_BIP32_PATH;
-    use oceanln_httpd::{build_app, AppState, ServerConfig};
-    let seed_path = write_seed("no-auth");
-    let state = std::sync::Arc::new(AppState::new(
-        ServerConfig {
-            seed: oceanln_common::seed::SeedSource::File(seed_path),
-            token: String::new(), // ← the load-bearing change
-            allowed_origins: vec![],
-            sidecar_url: oceanln_common::client::DEFAULT_BASE_URL.to_string(),
-            sidecar_credentials: None,
-            default_path: DEFAULT_BIP32_PATH.to_string(),
-        },
-        std::sync::Arc::new(MockWallet),
-    ));
-    let app = build_app(state);
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
-        .await
-        .expect("bind");
-    let addr = listener.local_addr().unwrap();
-    tokio::spawn(async move {
-        let _ = axum::serve(listener, app).await;
-    });
-    let resp = client()
-        .get(format!("http://{addr}/status"))
-        .send()
-        .await
-        .unwrap();
+    let base = spawn_no_auth("no-auth").await;
+    let resp = client().get(format!("{base}/status")).send().await.unwrap();
     assert_eq!(
         resp.status(),
         200,
@@ -656,30 +642,9 @@ async fn no_auth_mode_refuses_pay_without_bearer() {
     // unbearered request (P1 review fix). The shared guard skips the bearer
     // check when the token is empty; the per-route `require_token` layer on
     // `/pay` must still 403 so a local process can't spend funds.
-    use oceanln_common::sign::DEFAULT_BIP32_PATH;
-    use oceanln_httpd::{build_app, AppState, ServerConfig};
-    let seed_path = write_seed("no-auth-pay");
-    let state = std::sync::Arc::new(AppState::new(
-        ServerConfig {
-            seed: oceanln_common::seed::SeedSource::File(seed_path),
-            token: String::new(),
-            allowed_origins: vec![],
-            sidecar_url: oceanln_common::client::DEFAULT_BASE_URL.to_string(),
-            sidecar_credentials: None,
-            default_path: DEFAULT_BIP32_PATH.to_string(),
-        },
-        std::sync::Arc::new(MockWallet),
-    ));
-    let app = build_app(state);
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
-        .await
-        .expect("bind");
-    let addr = listener.local_addr().unwrap();
-    tokio::spawn(async move {
-        let _ = axum::serve(listener, app).await;
-    });
+    let base = spawn_no_auth("no-auth-pay").await;
     let resp = client()
-        .post(format!("http://{addr}/pay"))
+        .post(format!("{base}/pay"))
         .json(&serde_json::json!({ "payable": "lnbc1xyz" }))
         .send()
         .await
@@ -688,5 +653,91 @@ async fn no_auth_mode_refuses_pay_without_bearer() {
         resp.status(),
         403,
         "no-auth httpd must refuse the fund-moving /pay endpoint"
+    );
+}
+
+// ── /seed/reveal — explicit, authenticated phrase re-reveal ──────
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn seed_reveal_returns_stored_phrase() {
+    // The fix for issue #17: a relaunched UI session no longer holds the
+    // phrase client-side, so an authenticated POST re-reads it from the
+    // configured seed source.
+    let base = spawn("seed-reveal", &[]).await;
+    let resp = client()
+        .post(format!("{base}/seed/reveal"))
+        .header("Authorization", format!("Bearer {TOKEN}"))
+        .json(&serde_json::json!({}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    assert_eq!(
+        resp.headers().get("cache-control").unwrap(),
+        "no-store",
+        "the phrase body must never be cached"
+    );
+    let v: serde_json::Value = resp.json().await.unwrap();
+    assert_eq!(
+        v["mnemonic"]
+            .as_str()
+            .unwrap()
+            .split_whitespace()
+            .collect::<Vec<_>>(),
+        TEST_MNEMONIC.split_whitespace().collect::<Vec<_>>(),
+        "the stored phrase is revealed verbatim"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn seed_reveal_requires_bearer() {
+    let base = spawn("seed-reveal-unauthed", &[]).await;
+    let resp = client()
+        .post(format!("{base}/seed/reveal"))
+        .json(&serde_json::json!({}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 401);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn seed_reveal_without_wallet_is_not_found() {
+    let (base, _) = spawn_no_seed("seed-reveal-nowallet", &[]).await;
+    let resp = client()
+        .post(format!("{base}/seed/reveal"))
+        .header("Authorization", format!("Bearer {TOKEN}"))
+        .json(&serde_json::json!({}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        404,
+        "no configured wallet → nothing to reveal"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn no_auth_mode_refuses_seed_reveal_without_bearer() {
+    // Like `/pay`: the phrase IS the wallet, so even in --no-auth mode the
+    // per-route `require_token` layer must 403 — otherwise any local process
+    // (no Origin header) could exfiltrate the seed off the loopback port.
+    let base = spawn_no_auth("no-auth-seed-reveal").await;
+    let resp = client()
+        .post(format!("{base}/seed/reveal"))
+        .json(&serde_json::json!({}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        403,
+        "no-auth httpd must refuse to reveal the seed"
+    );
+    let v: serde_json::Value = resp.json().await.unwrap();
+    assert!(
+        v.get("mnemonic").is_none(),
+        "must not reveal a phrase without a bearer token"
     );
 }

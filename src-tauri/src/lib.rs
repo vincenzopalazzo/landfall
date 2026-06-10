@@ -83,6 +83,15 @@ fn generate(state: tauri::State<'_, DesktopState>) -> Result<service::GenerateRe
     service::generate(&state.seed, &state.default_path).map_err(Into::into)
 }
 
+/// Re-reveal the stored recovery phrase for an explicit, user-initiated
+/// backup view (Profile → "Reveal"). Desktop IPC carries no bearer token —
+/// the OS user owns both the webview and the seed file, so possession of the
+/// session is the auth boundary here, same as `pay`.
+#[tauri::command]
+fn reveal_seed(state: tauri::State<'_, DesktopState>) -> Result<service::RevealResp, CommandError> {
+    service::reveal(&state.seed).map_err(Into::into)
+}
+
 #[tauri::command]
 fn import_seed(
     state: tauri::State<'_, DesktopState>,
@@ -233,6 +242,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             wallet_status,
             generate,
+            reveal_seed,
             import_seed,
             create_offer,
             init_wallet,

@@ -60,6 +60,17 @@ describe("OceanlnClient", () => {
     expect(r.signature).toBe("sig");
   });
 
+  it("revealSeed POSTs /seed/reveal with the bearer token", async () => {
+    const f = vi.fn().mockResolvedValue(jsonResponse(200, { mnemonic: "w1 w2 w3" }));
+    globalThis.fetch = f;
+    const r = await new OceanlnClient("http://x", "tok").revealSeed();
+    expect(r.mnemonic).toBe("w1 w2 w3");
+    const [url, init] = f.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("http://x/seed/reveal");
+    expect(init.method).toBe("POST");
+    expect((init.headers as Record<string, string>).Authorization).toBe("Bearer tok");
+  });
+
   it("nodeStatus GETs /node", async () => {
     const f = vi.fn().mockResolvedValue(jsonResponse(200, { node_pk: "02ab", lightning_total_sats: 1000, onchain_total_sats: 2000 }));
     globalThis.fetch = f;

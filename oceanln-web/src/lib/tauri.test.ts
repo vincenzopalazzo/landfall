@@ -49,6 +49,13 @@ describe("TauriClient (desktop IPC transport)", () => {
     expect(invokeMock).toHaveBeenCalledWith("import_seed", { mnemonic: "word1 word2", force: true });
   });
 
+  it("revealSeed invokes reveal_seed", async () => {
+    invokeMock.mockResolvedValueOnce({ mnemonic: "w1 w2 w3" });
+    const r = await new TauriClient().revealSeed();
+    expect(invokeMock.mock.calls[0][0]).toBe("reveal_seed");
+    expect(r.mnemonic).toBe("w1 w2 w3");
+  });
+
   it("nodeStatus invokes node_status", async () => {
     invokeMock.mockResolvedValueOnce({ node_pk: "02ab", lightning_total_sats: 7 });
     const s = await new TauriClient().nodeStatus();

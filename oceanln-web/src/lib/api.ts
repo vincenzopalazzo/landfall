@@ -17,6 +17,9 @@ export interface GenerateResp {
 export interface ImportResp {
   mining_address: string;
 }
+export interface RevealResp {
+  mnemonic: string;
+}
 export interface OfferResp {
   offer: string;
 }
@@ -111,6 +114,9 @@ export interface Backend {
   status(): Promise<StatusResp>;
   generate(): Promise<GenerateResp>;
   importSeed(mnemonic: string, force?: boolean): Promise<ImportResp>;
+  /// Re-reveal the stored recovery phrase (user-initiated backup view).
+  /// Server-side this always requires the bearer token, even in no-auth mode.
+  revealSeed(): Promise<RevealResp>;
   offer(description?: string, minAmount?: string): Promise<OfferResp>;
   init(): Promise<InitResp>;
   payout(message: string, offer: string): Promise<PayoutResp>;
@@ -194,6 +200,9 @@ export class OceanlnClient implements Backend {
   }
   importSeed(mnemonic: string, force = false): Promise<ImportResp> {
     return this.post<ImportResp>("/import", { mnemonic, force });
+  }
+  revealSeed(): Promise<RevealResp> {
+    return this.post<RevealResp>("/seed/reveal", {});
   }
   offer(description?: string, minAmount?: string): Promise<OfferResp> {
     return this.post<OfferResp>("/offer", {

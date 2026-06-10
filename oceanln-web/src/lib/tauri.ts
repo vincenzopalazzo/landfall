@@ -15,6 +15,7 @@ import {
   type InitResp,
   type PaySummary,
   type PayoutResp,
+  type RevealResp,
   type StatusResp,
 } from "./api";
 
@@ -51,6 +52,9 @@ export class TauriClient implements Backend {
   }
   importSeed(mnemonic: string, force = false): Promise<ImportResp> {
     return call<ImportResp>("import_seed", { mnemonic, force });
+  }
+  revealSeed(): Promise<RevealResp> {
+    return call<RevealResp>("reveal_seed");
   }
   offer(description?: string, minAmount?: string): Promise<OfferResp> {
     // camelCase keys map to the Rust command's snake_case args (Tauri v2).

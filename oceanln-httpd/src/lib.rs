@@ -5,11 +5,15 @@
 //!
 //! For the signing/wallet endpoints the BIP39 seed never crosses the HTTP
 //! boundary: the server reads it from a locally configured [`SeedSource`] per
-//! request and never echoes it back. The `/generate` and `/import` endpoints
-//! are the deliberate exceptions — they create/accept the phrase for the
-//! onboarding wizard and persist it to the seed file. `/generate` reveals the
-//! new phrase exactly once and refuses to clobber an existing wallet; both stay
-//! gated by the loopback bind + bearer token + Origin allowlist.
+//! request and never echoes it back. The `/generate`, `/import`, and
+//! `/seed/reveal` endpoints are the deliberate exceptions — the first two
+//! create/accept the phrase for the onboarding wizard and persist it to the
+//! seed file; `/seed/reveal` re-reveals the stored phrase for an explicit,
+//! user-initiated backup view (the UI can't hold the words across relaunches).
+//! `/generate` refuses to clobber an existing wallet; all of them stay gated
+//! by the loopback bind + bearer token + Origin allowlist, and `/seed/reveal`
+//! additionally requires a bearer token even in `--no-auth` mode (like
+//! `/pay` — the phrase IS the wallet).
 //!
 //! Because a browser is an intended client, the server defends the loopback
 //! port: it binds loopback only, requires a bearer token on every endpoint
@@ -237,6 +241,21 @@ struct ImportReq {
     force: bool,
 }
 
+/// Thin adapter over [`service::reveal`] — re-reveal the stored recovery
+/// phrase for an explicit, user-initiated backup view (Profile → "Reveal").
+/// POST (not GET) so no URL/log/cache layer treats it as an idempotent
+/// fetchable resource; `Cache-Control: no-store` keeps any intermediary from
+/// retaining the body. Mounted behind `require_token` — see `build_app`.
+async fn reveal(
+    State(state): State<Arc<AppState>>,
+) -> std::result::Result<impl IntoResponse, ApiError> {
+    let resp = service::reveal(&state.cfg.seed)?;
+    Ok((
+        [(header::CACHE_CONTROL, HeaderValue::from_static("no-store"))],
+        Json(resp),
+    ))
+}
+
 /// Thin adapter over [`service::import`]. The phrase crosses the wire once, by
 /// design; the service wipes the buffer after taking a zeroizing copy.
 async fn import(
@@ -435,18 +454,19 @@ fn host_is_loopback(host: &str) -> bool {
         .unwrap_or(false)
 }
 
-/// Auth + origin + host guard applied to every route except `/health`.
-/// Extra gate for fund-moving endpoints (`/pay`): refuse when the server is
-/// in `--no-auth` mode (empty token). The shared [`guard`] deliberately
-/// skips the bearer check in that mode (loopback + Origin/Host are the only
-/// defenses), which is acceptable for read-only routes on a single-host
-/// deploy — but a money-mover must ALWAYS require a token, or any local
-/// process that sends no `Origin` could POST `/pay` and spend funds.
+/// Extra gate for the highest-stakes endpoints (`/pay`, `/seed/reveal`):
+/// refuse when the server is in `--no-auth` mode (empty token). The shared
+/// [`guard`] deliberately skips the bearer check in that mode (loopback +
+/// Origin/Host are the only defenses), which is acceptable for read-only
+/// routes on a single-host deploy — but a money-mover or a seed-revealer
+/// must ALWAYS require a token, or any local process that sends no `Origin`
+/// could POST `/pay` and spend funds, or POST `/seed/reveal` and exfiltrate
+/// the wallet outright.
 async fn require_token(State(state): State<Arc<AppState>>, req: Request, next: Next) -> Response {
     if state.cfg.token.is_empty() {
         return deny(
             StatusCode::FORBIDDEN,
-            "/pay requires authentication; restart oceanln-httpd with a bearer token (not --no-auth) to send funds",
+            "this endpoint requires authentication; restart oceanln-httpd with a bearer token (not --no-auth)",
         );
     }
     next.run(req).await
@@ -530,6 +550,12 @@ pub fn build_app(state: Arc<AppState>) -> Router {
         .route(
             "/pay",
             post(pay).layer(middleware::from_fn_with_state(state.clone(), require_token)),
+        )
+        // `/seed/reveal` hands back the recovery phrase — the wallet itself —
+        // so it carries the same always-require-a-token gate as `/pay`.
+        .route(
+            "/seed/reveal",
+            post(reveal).layer(middleware::from_fn_with_state(state.clone(), require_token)),
         )
         // OCEAN public-API proxy routes. Read-only, no seed touched.
         // MCP's `get_ocean_*` tools proxy these via HTTP — the AI never

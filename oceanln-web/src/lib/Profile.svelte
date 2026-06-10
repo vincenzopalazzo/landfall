@@ -2,12 +2,30 @@
   import Icon from "./ui/Icon.svelte";
   import Callout from "./ui/Callout.svelte";
   import StatsGrid from "./StatsGrid.svelte";
-  import { app, go, restart, client } from "./store.svelte";
+  import { app, go, restart, client, loadPhrase } from "./store.svelte";
 
   // profile is seeded before navigating here.
   const profile = $derived(app.profile!);
   let revealed = $state(false);
+  let revealBusy = $state(false);
+  let revealError = $state("");
   let addingOffer = $state(false);
+
+  // The phrase only survives the session that generated/imported it; for a
+  // relaunched session, fetch it from the backend on demand (issue #17).
+  async function toggleReveal() {
+    if (revealed) {
+      revealed = false;
+      return;
+    }
+    revealError = "";
+    if (!app.phrase.length) {
+      revealBusy = true;
+      revealError = (await loadPhrase()) ?? "";
+      revealBusy = false;
+    }
+    revealed = true;
+  }
 
   function deriveAddress() {
     const n = profile.addresses.length + 1;
@@ -124,8 +142,8 @@
     <div class="pf-phrase">
       <div class="ph-top">
         <span class="t"><Icon name="key" size={15} /> Your 24 words</span>
-        <button class="wz-copybtn" onclick={() => (revealed = !revealed)}>
-          <Icon name="eye" size={13} /> {revealed ? "Hide" : "Reveal"}
+        <button class="wz-copybtn" onclick={toggleReveal} disabled={revealBusy}>
+          <Icon name="eye" size={13} /> {revealBusy ? "Unlocking…" : revealed ? "Hide" : "Reveal"}
         </button>
       </div>
       {#if revealed && app.phrase.length}
@@ -136,7 +154,7 @@
         </div>
         <p style="font-size:12px;color:#52525b;margin:12px 0 0;display:flex;gap:7px;align-items:center"><Icon name="warn" size={13} /> Never share these words or take a screenshot.</p>
       {:else if revealed}
-        <p style="font-size:13px;color:#71717a;margin:0">Phrase isn't held in this session — re-run setup or import to view it.</p>
+        <p style="font-size:13px;color:#71717a;margin:0">Couldn't load your recovery phrase{revealError ? ` — ${revealError}` : ""}. Re-run setup or import to view it.</p>
       {:else}
         <p style="font-size:13px;color:#71717a;margin:0">Hidden. Reveal only when you're somewhere private.</p>
       {/if}

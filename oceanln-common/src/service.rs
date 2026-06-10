@@ -83,6 +83,15 @@ pub struct ImportResp {
 // consumer) can parse these back from a REST response. The structs are
 // the wire contract of `oceanln-httpd`.
 #[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct RevealResp {
+    /// The stored 24-word recovery phrase.
+    pub mnemonic: String,
+}
+
+// `Deserialize` added so `oceanln-mcp` (and any other cross-process
+// consumer) can parse these back from a REST response. The structs are
+// the wire contract of `oceanln-httpd`.
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct StatusResp {
     /// Whether a wallet seed is already configured (so a frontend can skip
     /// onboarding and go straight to the profile/dashboard on launch).
@@ -321,6 +330,27 @@ pub fn status(seed: &SeedSource, default_path: &str) -> Result<StatusResp> {
         configured: true,
         mining_address: Some(mining_address),
         offer: read_offer(seed),
+    })
+}
+
+/// Re-reveal the stored recovery phrase for an explicit, user-initiated
+/// backup view (Profile → "Reveal").
+///
+/// `/generate` reveals the phrase once at creation, but a relaunched session
+/// no longer holds it client-side; without this the user's only path to their
+/// own backup words was re-running setup. The caller (transport layer) is
+/// responsible for gating this at least as strictly as a fund-moving
+/// endpoint — the phrase IS the wallet.
+pub fn reveal(seed: &SeedSource) -> Result<RevealResp> {
+    if !seed.path().exists() {
+        return Err(Error::Api {
+            code: 404,
+            msg: "no wallet is configured — run setup or import first".to_string(),
+        });
+    }
+    let secret = seed.load()?;
+    Ok(RevealResp {
+        mnemonic: secret.as_str().to_string(),
     })
 }
 

@@ -340,6 +340,23 @@ export function useExistingWallet() {
   app.stepIndex = STEPS.findIndex((s) => s.key === "wallet");
 }
 
+// Fetch the stored recovery phrase from the backend for an explicit,
+// user-initiated reveal (Profile → "Reveal"). `app.phrase` only survives the
+// session that generated/imported it, so a relaunched session re-reads the
+// words from the seed source the server already holds (issue #17). Returns
+// null on success, or a user-facing error message (e.g. the server runs
+// --no-auth and refuses to reveal, or no wallet is configured).
+export async function loadPhrase(): Promise<string | null> {
+  if (app.phrase.length) return null;
+  try {
+    const r = await client().revealSeed();
+    app.phrase = r.mnemonic.trim().split(/\s+/);
+    return null;
+  } catch (e) {
+    return msg(e);
+  }
+}
+
 export async function importWallet(): Promise<boolean> {
   app.busy = true;
   app.error = "";
