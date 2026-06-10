@@ -113,10 +113,16 @@ fn write_seed(name: &str) -> std::path::PathBuf {
 
 /// Spawn the server for a given seed source on an ephemeral loopback port.
 async fn spawn_with(seed: SeedSource, allowed_origins: &[&str]) -> String {
+    spawn_with_token(seed, allowed_origins, TOKEN).await
+}
+
+/// Like [`spawn_with`], but with an explicit bearer token. An empty token
+/// mimics what `oceanln-httpd --no-auth` builds.
+async fn spawn_with_token(seed: SeedSource, allowed_origins: &[&str], token: &str) -> String {
     let state = Arc::new(AppState::new(
         ServerConfig {
             seed,
-            token: TOKEN.to_string(),
+            token: token.to_string(),
             allowed_origins: allowed_origins.iter().map(|s| s.to_string()).collect(),
             sidecar_url: oceanln_common::client::DEFAULT_BASE_URL.to_string(),
             sidecar_credentials: None,
@@ -133,6 +139,12 @@ async fn spawn_with(seed: SeedSource, allowed_origins: &[&str]) -> String {
         let _ = axum::serve(listener, app).await;
     });
     format!("http://{addr}")
+}
+
+/// Spawn in `--no-auth` mode (empty bearer token) with a pre-existing 0600
+/// seed file. The loopback bind + Origin/Host guards are the only defenses.
+async fn spawn_no_auth(name: &str) -> String {
+    spawn_with_token(SeedSource::File(write_seed(name)), &[], "").await
 }
 
 /// Spawn with a pre-existing 0600 seed file.
@@ -613,34 +625,8 @@ async fn ocean_statsnap_requires_bearer() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn no_auth_mode_serves_status_without_bearer() {
-    // Empty-token AppState mimics what `oceanln-httpd --no-auth` builds.
-    use oceanln_common::sign::DEFAULT_BIP32_PATH;
-    use oceanln_httpd::{build_app, AppState, ServerConfig};
-    let seed_path = write_seed("no-auth");
-    let state = std::sync::Arc::new(AppState::new(
-        ServerConfig {
-            seed: oceanln_common::seed::SeedSource::File(seed_path),
-            token: String::new(), // ← the load-bearing change
-            allowed_origins: vec![],
-            sidecar_url: oceanln_common::client::DEFAULT_BASE_URL.to_string(),
-            sidecar_credentials: None,
-            default_path: DEFAULT_BIP32_PATH.to_string(),
-        },
-        std::sync::Arc::new(MockWallet),
-    ));
-    let app = build_app(state);
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
-        .await
-        .expect("bind");
-    let addr = listener.local_addr().unwrap();
-    tokio::spawn(async move {
-        let _ = axum::serve(listener, app).await;
-    });
-    let resp = client()
-        .get(format!("http://{addr}/status"))
-        .send()
-        .await
-        .unwrap();
+    let base = spawn_no_auth("no-auth").await;
+    let resp = client().get(format!("{base}/status")).send().await.unwrap();
     assert_eq!(
         resp.status(),
         200,
@@ -656,30 +642,9 @@ async fn no_auth_mode_refuses_pay_without_bearer() {
     // unbearered request (P1 review fix). The shared guard skips the bearer
     // check when the token is empty; the per-route `require_token` layer on
     // `/pay` must still 403 so a local process can't spend funds.
-    use oceanln_common::sign::DEFAULT_BIP32_PATH;
-    use oceanln_httpd::{build_app, AppState, ServerConfig};
-    let seed_path = write_seed("no-auth-pay");
-    let state = std::sync::Arc::new(AppState::new(
-        ServerConfig {
-            seed: oceanln_common::seed::SeedSource::File(seed_path),
-            token: String::new(),
-            allowed_origins: vec![],
-            sidecar_url: oceanln_common::client::DEFAULT_BASE_URL.to_string(),
-            sidecar_credentials: None,
-            default_path: DEFAULT_BIP32_PATH.to_string(),
-        },
-        std::sync::Arc::new(MockWallet),
-    ));
-    let app = build_app(state);
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
-        .await
-        .expect("bind");
-    let addr = listener.local_addr().unwrap();
-    tokio::spawn(async move {
-        let _ = axum::serve(listener, app).await;
-    });
+    let base = spawn_no_auth("no-auth-pay").await;
     let resp = client()
-        .post(format!("http://{addr}/pay"))
+        .post(format!("{base}/pay"))
         .json(&serde_json::json!({ "payable": "lnbc1xyz" }))
         .send()
         .await
@@ -758,30 +723,9 @@ async fn no_auth_mode_refuses_seed_reveal_without_bearer() {
     // Like `/pay`: the phrase IS the wallet, so even in --no-auth mode the
     // per-route `require_token` layer must 403 — otherwise any local process
     // (no Origin header) could exfiltrate the seed off the loopback port.
-    use oceanln_common::sign::DEFAULT_BIP32_PATH;
-    use oceanln_httpd::{build_app, AppState, ServerConfig};
-    let seed_path = write_seed("no-auth-seed-reveal");
-    let state = std::sync::Arc::new(AppState::new(
-        ServerConfig {
-            seed: oceanln_common::seed::SeedSource::File(seed_path),
-            token: String::new(),
-            allowed_origins: vec![],
-            sidecar_url: oceanln_common::client::DEFAULT_BASE_URL.to_string(),
-            sidecar_credentials: None,
-            default_path: DEFAULT_BIP32_PATH.to_string(),
-        },
-        std::sync::Arc::new(MockWallet),
-    ));
-    let app = build_app(state);
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
-        .await
-        .expect("bind");
-    let addr = listener.local_addr().unwrap();
-    tokio::spawn(async move {
-        let _ = axum::serve(listener, app).await;
-    });
+    let base = spawn_no_auth("no-auth-seed-reveal").await;
     let resp = client()
-        .post(format!("http://{addr}/seed/reveal"))
+        .post(format!("{base}/seed/reveal"))
         .json(&serde_json::json!({}))
         .send()
         .await
