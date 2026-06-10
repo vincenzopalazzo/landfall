@@ -746,7 +746,11 @@ async fn seed_reveal_without_wallet_is_not_found() {
         .send()
         .await
         .unwrap();
-    assert_eq!(resp.status(), 404, "no configured wallet → nothing to reveal");
+    assert_eq!(
+        resp.status(),
+        404,
+        "no configured wallet → nothing to reveal"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
