@@ -344,4 +344,4 @@ The sidecar must be a version that serves `POST /v2/node/create_offer`.
 
 ## License
 
-MIT.
+AGPL-3.0-or-later. See [LICENSE](LICENSE) for the full text.

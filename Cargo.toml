@@ -9,7 +9,7 @@ exclude = ["src-tauri"]
 [workspace.package]
 version = "0.3.0"
 edition = "2021"
-license = "MIT"
+license = "AGPL-3.0-or-later"
 repository = "https://github.com/vincenzopalazzo/oceanln-cli"
 rust-version = "1.74"
 
