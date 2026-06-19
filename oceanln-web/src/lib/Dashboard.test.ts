@@ -22,9 +22,9 @@ const NODE = {
 // Real activity shape (GET /activity): one verified OCEAN payout, one
 // non-OCEAN inbound tip, one outbound send.
 const ACTS = [
-  { id: "a1", direction: "in", rail: "ln", amount_sats: 12084, amount_msat: 12084000, status: "settled", note: "OCEAN lightning payout running at block `00` at height `897142`", counterparty: "Ocean Pool", finalized_at_ms: 1717500000000, payment_hash: "aa", txid: null, is_ocean: true, block_height: 897142, preimage: "p1aa", invoice: null, offer: null },
-  { id: "a2", direction: "in", rail: "ln", amount_sats: 25000, amount_msat: 25000000, status: "settled", note: "Tip", counterparty: "satoshi@walletofsatoshi.com", finalized_at_ms: 1717400000000, payment_hash: "bb", txid: null, is_ocean: false, block_height: null, preimage: "p2bb", invoice: "lnbc250u1invoicebb", offer: null },
-  { id: "a3", direction: "out", rail: "ln", amount_sats: 150000, amount_msat: 150000000, status: "settled", note: null, counterparty: "Kraken", finalized_at_ms: 1717300000000, payment_hash: "cc", txid: null, is_ocean: false, block_height: null, preimage: "p3cc", invoice: null, offer: "lno1offercc" },
+  { id: "a1", direction: "in", rail: "ln", amount_sats: 12084, amount_msat: 12084000, status: "settled", note: "OCEAN lightning payout running at block `00` at height `897142`", counterparty: "Ocean Pool", finalized_at_ms: 1717500000000, payment_hash: "aa", txid: null, is_ocean: true, block_height: 897142, preimage: "p1aa", invoice: null, offer: null, fee_sats: 0 },
+  { id: "a2", direction: "in", rail: "ln", amount_sats: 25000, amount_msat: 25000000, status: "settled", note: "Tip", counterparty: "satoshi@walletofsatoshi.com", finalized_at_ms: 1717400000000, payment_hash: "bb", txid: null, is_ocean: false, block_height: null, preimage: "p2bb", invoice: "lnbc250u1invoicebb", offer: null, fee_sats: 0 },
+  { id: "a3", direction: "out", rail: "ln", amount_sats: 150000, amount_msat: 150000000, status: "settled", note: null, counterparty: "Kraken", finalized_at_ms: 1717300000000, payment_hash: "cc", txid: null, is_ocean: false, block_height: null, preimage: "p3cc", invoice: null, offer: "lno1offercc", fee_sats: 312 },
 ];
 
 function routeAll() {
@@ -122,7 +122,7 @@ describe("Lightning dashboard — Node wallet", () => {
 
   it("shows the on-chain explorer link and txid for an on-chain row", async () => {
     const ONCHAIN = [
-      { id: "oc1", direction: "in", rail: "onchain", amount_sats: 500000, amount_msat: 500000000, status: "settled", note: null, counterparty: null, finalized_at_ms: 1717500000000, payment_hash: null, txid: "deadbeef", is_ocean: false, block_height: 900000, preimage: null, invoice: null, offer: null },
+      { id: "oc1", direction: "in", rail: "onchain", amount_sats: 500000, amount_msat: 500000000, status: "settled", note: null, counterparty: null, finalized_at_ms: 1717500000000, payment_hash: null, txid: "deadbeef", is_ocean: false, block_height: 900000, preimage: null, invoice: null, offer: null, fee_sats: 0 },
     ];
     globalThis.fetch = vi.fn(async (url: string | URL | Request) => {
       const u = String(url);

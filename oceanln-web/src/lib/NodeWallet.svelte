@@ -118,13 +118,13 @@
     return Math.round(d / 86400) + "d ago";
   }
   function rowHref(a: Activity): string | null {
-    if (a.payment_hash) return `https://ocean.xyz/info/tx/lightning/${a.payment_hash}`;
+    if (a.is_ocean && a.payment_hash) return `https://ocean.xyz/info/tx/lightning/${a.payment_hash}`;
     if (a.txid) return `https://mempool.space/tx/${a.txid}`;
     return null;
   }
   // Where the row's "View on explorer" link points, and what to call it.
   function explorerName(a: Activity): string {
-    if (a.payment_hash) return "View on ocean.xyz";
+    if (a.is_ocean && a.payment_hash) return "View on ocean.xyz";
     if (a.txid) return "View on mempool.space";
     return "";
   }
@@ -150,7 +150,6 @@
   // The offer an OCEAN payout landed in is, by construction, the user's own
   // registered offer — surface its friendly description as the "Linked offer".
   function linkedOffer(a: Activity): string | null {
-    if (a.offer) return app.offerDescription || "BOLT12 offer";
     if (a.is_ocean) return app.offerDescription || "OCEAN mining payouts";
     return null;
   }
