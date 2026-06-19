@@ -89,6 +89,8 @@ export interface Activity {
   rail: "ln" | "onchain";
   amount_sats: number;
   amount_msat: number;
+  /// Fee paid, in sats. `0` for inbound payments / most OCEAN payouts.
+  fee_sats: number;
   status: "settled" | "pending" | "failed";
   note: string | null;
   counterparty: string | null;
@@ -97,6 +99,16 @@ export interface Activity {
   txid: string | null;
   is_ocean: boolean;
   block_height: number | null;
+  /// (Lightning only) Payment preimage, lowercase hex — the cryptographic
+  /// proof a payment settled (`sha256(preimage) == payment_hash`). Shown so
+  /// the user can independently verify the payment. `null` while pending,
+  /// failed, or for on-chain rows.
+  preimage: string | null;
+  /// (Invoice payments only) The BOLT11 invoice involved (`lnbc…`).
+  invoice: string | null;
+  /// (Outbound offer payments only) The BOLT12 offer paid (`lno1…`). Inbound
+  /// OCEAN payout rows leave this `null` (Lexe stores it for sends only).
+  offer: string | null;
 }
 
 /// Summary of an outbound payment we just sent. Mirrors `PaySummary`.

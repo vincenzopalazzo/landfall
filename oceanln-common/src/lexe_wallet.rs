@@ -19,6 +19,9 @@ use lexe_api_core::models::command::GetUpdatedPayments;
 use lexe_api_core::types::payments::{
     PaymentDirection, PaymentKind, PaymentStatus, PaymentUpdatedIndex,
 };
+// `ByteArray::to_hex` — `PaymentPreimage`'s own `Display` is redacted (to keep
+// secrets out of logs), so we reach the real hex through the trait accessor.
+use lexe_common::ByteArray;
 use serde::{Deserialize, Serialize};
 
 use crate::error::{Error, Result};
@@ -327,6 +330,9 @@ pub struct Activity {
     pub amount_sats: u64,
     /// Net msats — exact wire amount, no rounding.
     pub amount_msat: u64,
+    /// Fee paid for this payment, in sats (rounded). `0` for inbound
+    /// payments and most OCEAN payouts (the pool covers routing).
+    pub fee_sats: u64,
     /// `"settled"`, `"pending"`, or `"failed"`.
     pub status: String,
     /// BOLT12 payer note / on-chain label, if any.
@@ -344,6 +350,19 @@ pub struct Activity {
     pub is_ocean: bool,
     /// Block height parsed from an OCEAN payer note (OCEAN rows only).
     pub block_height: Option<u64>,
+    /// (Lightning only) Payment preimage, lowercase hex. The cryptographic
+    /// proof a Lightning payment settled: `sha256(preimage) == payment_hash`.
+    /// Surfaced so the user can independently verify the payment. Populated
+    /// for outbound payments, and for inbound payments only once succeeded;
+    /// `None` while pending/failed or for on-chain rows.
+    pub preimage: Option<String>,
+    /// (Invoice payments only) The BOLT11 invoice involved in this payment
+    /// (`lnbc…`) — the invoice we paid (outbound) or issued (inbound).
+    pub invoice: Option<String>,
+    /// (Outbound offer payments only) The BOLT12 offer that was paid
+    /// (`lno1…`). Lexe does not yet store the offer for *inbound* offer
+    /// payments, so OCEAN payout rows leave this `None`.
+    pub offer: Option<String>,
 }
 
 /// List the node's full payment history (newest first), mapped to
@@ -417,7 +436,14 @@ fn activity_from(p: lexe_api_core::types::payments::BasicPaymentV2) -> Activity 
         .as_ref()
         .map(|a| (a.round_sat().sats_u64(), a.msat()))
         .unwrap_or((0, 0));
+    // Only a *settled* inbound offer payment counts as an OCEAN payout. A
+    // pending/failed payment that happens to carry the OCEAN payer-note
+    // format must not be grouped/labeled as a verified payout (it may never
+    // settle), mirroring the completed-payment guard in `ocean_payout_from`.
+    // NB: the payer note is a *format* match, not a cryptographic signature —
+    // the UI copy is worded accordingly.
     let ocean = inbound
+        && status == "settled"
         && p.kind == PaymentKind::Offer
         && p.message
             .as_deref()
@@ -435,6 +461,7 @@ fn activity_from(p: lexe_api_core::types::payments::BasicPaymentV2) -> Activity 
         rail: rail.to_string(),
         amount_sats,
         amount_msat,
+        fee_sats: p.fee.round_sat().sats_u64(),
         status: status.to_string(),
         note: p.message.clone(),
         counterparty: p.payer_name.clone(),
@@ -448,6 +475,14 @@ fn activity_from(p: lexe_api_core::types::payments::BasicPaymentV2) -> Activity 
         txid: p.txid.map(|t| t.to_string()),
         is_ocean: ocean,
         block_height,
+        // `to_hex()` (via `ByteArray`) because `PaymentPreimage`'s `Display`
+        // is deliberately redacted. Safe to surface here: a settled payment's
+        // preimage is already public proof, and this never reaches logs.
+        preimage: p.preimage.map(|pre| pre.to_hex()),
+        // `Arc<Invoice>` / `Arc<Offer>` both Display to their bech32 string
+        // (`lnbc…` / `lno1…`) through the deref.
+        invoice: p.invoice.as_ref().map(|i| i.to_string()),
+        offer: p.offer.as_ref().map(|o| o.to_string()),
     }
 }
 

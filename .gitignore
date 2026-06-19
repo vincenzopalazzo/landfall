@@ -8,3 +8,6 @@ zig-out/
 # holds a real seed file; never committed.
 /.dev/
 /.demo/
+# macOS desktop bundles (.app/.dmg) from `cargo tauri build` — build
+# artifacts collected locally for convenience, never committed.
+/dist-macos/

@@ -1,0 +1,107 @@
+name: desktop-macos
+
+# Build the Tauri desktop app's macOS package as a UNIVERSAL bundle
+# (x86_64 + arm64 in one binary), so a single .dmg runs on both Intel and
+# Apple Silicon Macs. Mirrors desktop-linux.yml. Triggered manually, on a
+# version tag, or when desktop-affecting files change; the .dmg (and a
+# zipped .app) are uploaded as build artifacts and attached to a GitHub
+# Release on tag builds.
+#
+# Note: the bundle is ad-hoc signed (no Apple Developer secrets in CI), which
+# is fine for local install / internal sharing. Distributing to other Macs
+# without Gatekeeper friction would need Developer-ID signing + notarization,
+# which can be layered on later via APPLE_* secrets.
+
+on:
+  workflow_dispatch: {}
+  push:
+    tags:
+      - "v*"
+  # Keep parity with desktop-linux. The bundle compiles oceanln-common/
+  # oceanln-httpd and embeds oceanln-web/dist, and the root Rust CI never runs
+  # `cargo tauri build`, so changes to those shared inputs can break the macOS
+  # package even when src-tauri is untouched — validate them too.
+  pull_request:
+    paths:
+      - "src-tauri/**"
+      - "oceanln-common/**"
+      - "oceanln-httpd/**"
+      - "oceanln-web/**"
+      - ".github/workflows/desktop-macos.yml"
+
+# The release-attach step on tag builds uploads assets via the GitHub token,
+# which needs contents: write; the org/repo default can be read-only. Harmless
+# on PR runs (nothing writes there).
+permissions:
+  contents: write
+
+jobs:
+  build:
+    # Apple-Silicon runner; cross-compiles the x86_64 slice for the universal
+    # binary. No extra system deps — Xcode's toolchain ships on the runner.
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      # Both Darwin targets are required so `--target universal-apple-darwin`
+      # can lipo them into one fat binary.
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-apple-darwin,aarch64-apple-darwin
+
+      # src-tauri is its own workspace with its own Cargo.lock; cache on it.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "src-tauri -> target"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: oceanln-web/package-lock.json
+
+      - name: Build the web frontend (the bundle's frontendDist)
+        working-directory: oceanln-web
+        run: |
+          npm ci
+          npm run build
+
+      - name: Install the Tauri CLI
+        run: cargo install tauri-cli --version "^2" --locked
+
+      # Disable the committed beforeBuildCommand (relative-path npm build) since
+      # we already built the frontend above; bundle the existing dist/.
+      - name: Build universal macOS bundle (.app + .dmg)
+        working-directory: src-tauri
+        run: cargo tauri build --target universal-apple-darwin --config '{"build":{"beforeBuildCommand":""}}'
+
+      - name: Collect bundles
+        run: |
+          mkdir -p dist-macos
+          B=src-tauri/target/universal-apple-darwin/release/bundle
+          cp -v "$B"/dmg/*.dmg dist-macos/ 2>/dev/null || true
+          # Zip the .app with ditto so the bundle (symlinks, perms) survives.
+          APP=$(ls -d "$B"/macos/*.app 2>/dev/null | head -1)
+          if [ -n "$APP" ]; then
+            ditto -c -k --keepParent "$APP" "dist-macos/$(basename "$APP" .app)_universal.app.zip"
+          fi
+          ls -la dist-macos
+
+      - name: Verify the binary is universal (x86_64 + arm64)
+        run: |
+          BIN="src-tauri/target/universal-apple-darwin/release/oceanln-desktop"
+          lipo -info "$BIN"
+          lipo -info "$BIN" | grep -q "x86_64" && lipo -info "$BIN" | grep -q "arm64" \
+            || { echo "::error::bundle is not universal"; exit 1; }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: oceanln-desktop-macos
+          path: dist-macos/*
+          if-no-files-found: error
+
+      - name: Attach to release (tag builds only)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist-macos/*

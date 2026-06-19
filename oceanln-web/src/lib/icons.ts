@@ -28,4 +28,5 @@ export const ICONS: Record<string, string> = {
   out: '<line x1="6" y1="18" x2="17" y2="7"/><polyline points="8 7 17 7 17 16"/>',
   btc: '<circle cx="12" cy="12" r="9"/><path d="M9.5 7.5h4a2 2 0 0 1 0 4h-4Zm0 4h4.3a2 2 0 0 1 0 4H9.5Zm1.3-6v1.5m0 9V16.5m2-11v1.5m0 7.5v1.5"/>',
   at: '<circle cx="12" cy="12" r="4"/><path d="M16 8v5a3 3 0 0 0 5-2 9 9 0 1 0-3.6 7"/>',
+  clock: '<circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15.5 14"/>',
 };

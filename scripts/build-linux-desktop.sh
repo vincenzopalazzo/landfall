@@ -19,12 +19,13 @@ if ! docker info >/dev/null 2>&1; then
   exit 1
 fi
 
-# The web frontend is static (platform-independent), so build it once on the
-# host and let the container bundle the existing dist/.
-if [ ! -f oceanln-web/dist/index.html ]; then
-  echo "==> building web frontend (oceanln-web/dist missing)"
-  ( cd oceanln-web && npm ci && npm run build )
-fi
+# The web frontend is static (platform-independent), so build it on the host
+# and let the container bundle the resulting dist/. ALWAYS rebuild: dist/ is
+# gitignored and not arch-specific, so a stale dist/ left from an earlier run
+# would silently package an outdated UI. A fresh build is cheap relative to the
+# container's Rust compile.
+echo "==> building web frontend (oceanln-web/dist)"
+( cd oceanln-web && npm ci && npm run build )
 
 mkdir -p dist-linux
 
