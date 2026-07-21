@@ -41,11 +41,11 @@ jobs:
       - run: npm ci
       - run: npm run check
 
+      # Pages must be enabled once in Settings → Pages → Source: GitHub Actions
+      # (requires a plan that supports Pages for the repo's visibility).
       - name: Configure Pages
-        # Auto-enables Pages (source: GitHub Actions) on first run.
+        if: github.event_name != 'pull_request'
         uses: actions/configure-pages@v5
-        with:
-          enablement: true
 
       - name: Build
         # Project Pages serve under /<repo>, so the app base must match.
@@ -54,6 +54,7 @@ jobs:
         run: npm run build
 
       - name: Upload Pages artifact
+        if: github.event_name != 'pull_request'
         uses: actions/upload-pages-artifact@v3
         with:
           path: oceanln-docs/build
