@@ -1,0 +1,55 @@
+name: docs
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "oceanln-docs/**"
+      - ".github/workflows/docs.yml"
+  pull_request:
+    paths:
+      - "oceanln-docs/**"
+      - ".github/workflows/docs.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Don't run two deploys of the same ref at once.
+concurrency:
+  group: docs-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: oceanln-docs
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: oceanln-docs/package-lock.json
+
+      - run: npm ci
+      - run: npm run check
+      # Cloudflare Pages serves at the project root, so no BASE_PATH.
+      - run: npm run build
+
+      # Deploy only on pushes to main; PRs build for validation only.
+      - name: Deploy to Cloudflare Pages
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: oceanln-docs
+          # Create the project on first run (no-op if it already exists),
+          # then publish the prerendered output.
+          preCommands: |
+            wrangler pages project create oceanln-docs --production-branch=main || true
+          command: pages deploy build --project-name=oceanln-docs --branch=main

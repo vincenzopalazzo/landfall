@@ -1,0 +1,113 @@
+/* ============================================================
+   OCEAN Lightning docs — global base
+   Design tokens come from static/colors_and_type.css (loaded in
+   app.html). This file holds the reset + primitives shared by the
+   landing page and the documentation shell.
+============================================================ */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  background: var(--bg-primary);
+  color: var(--fg-primary);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+a {
+  color: var(--fg-link);
+  text-decoration: none;
+}
+a:hover {
+  color: var(--ocean-blue-darker);
+}
+
+.material-symbols-sharp {
+  font-family: 'Material Symbols Sharp';
+  font-weight: normal;
+  font-style: normal;
+  line-height: 1;
+  letter-spacing: normal;
+  text-transform: none;
+  display: inline-block;
+  white-space: nowrap;
+  word-wrap: normal;
+  direction: ltr;
+  font-variation-settings: 'FILL' 0, 'wght' 400, 'opsz' 24;
+}
+
+.arrow {
+  font-family: var(--font-sans);
+}
+
+/* ── Layout container ── */
+.wrap {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 40px;
+}
+
+/* ── Buttons (shared) ── */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-sans);
+  font-size: 15px;
+  font-weight: 600;
+  border-radius: var(--radius-pill);
+  padding: 11px 22px;
+  cursor: pointer;
+  border: none;
+  transition:
+    transform var(--dur-base) var(--ease-out),
+    background var(--dur-base),
+    box-shadow var(--dur-base);
+  white-space: nowrap;
+}
+.btn-primary {
+  background: var(--ocean-blue);
+  color: #fff;
+}
+.btn-primary:hover {
+  background: var(--ocean-blue-darker);
+  color: #fff;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 20px rgba(17, 55, 245, 0.3);
+}
+.btn-navy {
+  background: var(--ocean-navy);
+  color: #fff;
+}
+.btn-navy:hover {
+  background: var(--ocean-navy-mid);
+  color: #fff;
+  transform: translateY(-1px);
+}
+.btn-sm {
+  font-size: 14px;
+  padding: 9px 18px;
+}
+
+/* Visually-hidden but screen-reader accessible */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
