@@ -26,26 +26,34 @@ npm run build    # prerender to build/
 npm run preview  # serve the built site
 ```
 
-## Hosting under a subpath
+## Deployment (Cloudflare Pages)
 
-Set `BASE_PATH` at build time when serving from a subpath (e.g. GitHub Pages):
+`.github/workflows/docs.yml` builds this site and deploys it to Cloudflare Pages
+on every push to `main` that touches `oceanln-docs/**` (pull requests build
+only, for validation). Cloudflare Pages serves at the project root, so no
+`BASE_PATH` is needed.
+
+Two repository secrets are required (Settings → Secrets and variables →
+Actions):
+
+| Secret | Where to get it |
+|---|---|
+| `CLOUDFLARE_API_TOKEN` | Cloudflare dashboard → My Profile → API Tokens → *Create Token* → **Cloudflare Pages: Edit** template |
+| `CLOUDFLARE_ACCOUNT_ID` | Cloudflare dashboard → Workers & Pages → **Account ID** |
+
+The workflow creates the `oceanln-docs` Pages project on its first run (no-op if
+it already exists), then publishes `oceanln-docs/build`. The site is served at
+`https://oceanln-docs.pages.dev` (plus any custom domain you attach in the
+Cloudflare dashboard).
+
+### Hosting under a subpath
+
+If you ever host from a subpath instead (e.g. GitHub Pages under `/<repo>`),
+build with `BASE_PATH`:
 
 ```sh
 BASE_PATH=/oceanln-cli npm run build
 ```
-
-## Deployment (GitHub Pages)
-
-`.github/workflows/docs.yml` builds this site and deploys it to GitHub Pages on
-every push to `main` that touches `oceanln-docs/**` (pull requests build only,
-for validation). It sets `BASE_PATH=/<repo>` automatically, so the published
-site lives at `https://<owner>.github.io/<repo>/`.
-
-The workflow enables Pages on its first run (`configure-pages` with
-`enablement: true`). If your org disallows API-based enablement, flip
-**Settings → Pages → Build and deployment → Source** to **GitHub Actions** once,
-manually. `static/.nojekyll` keeps Pages from stripping SvelteKit's `_app/`
-directory.
 
 ## Layout
 
