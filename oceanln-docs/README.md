@@ -34,6 +34,19 @@ Set `BASE_PATH` at build time when serving from a subpath (e.g. GitHub Pages):
 BASE_PATH=/oceanln-cli npm run build
 ```
 
+## Deployment (GitHub Pages)
+
+`.github/workflows/docs.yml` builds this site and deploys it to GitHub Pages on
+every push to `main` that touches `oceanln-docs/**` (pull requests build only,
+for validation). It sets `BASE_PATH=/<repo>` automatically, so the published
+site lives at `https://<owner>.github.io/<repo>/`.
+
+The workflow enables Pages on its first run (`configure-pages` with
+`enablement: true`). If your org disallows API-based enablement, flip
+**Settings → Pages → Build and deployment → Source** to **GitHub Actions** once,
+manually. `static/.nojekyll` keeps Pages from stripping SvelteKit's `_app/`
+directory.
+
 ## Layout
 
 ```

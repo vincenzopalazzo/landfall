@@ -1,0 +1,72 @@
+name: docs
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "oceanln-docs/**"
+      - ".github/workflows/docs.yml"
+  pull_request:
+    paths:
+      - "oceanln-docs/**"
+      - ".github/workflows/docs.yml"
+  workflow_dispatch:
+
+# Least-privilege token; the deploy job needs pages + id-token to publish.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Never cancel an in-flight Pages deploy; queue the next one instead.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: oceanln-docs
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: oceanln-docs/package-lock.json
+
+      - run: npm ci
+      - run: npm run check
+
+      - name: Configure Pages
+        # Auto-enables Pages (source: GitHub Actions) on first run.
+        uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
+      - name: Build
+        # Project Pages serve under /<repo>, so the app base must match.
+        env:
+          BASE_PATH: /${{ github.event.repository.name }}
+        run: npm run build
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: oceanln-docs/build
+
+  deploy:
+    needs: build
+    # Deploy only for pushes to main — PRs just build for validation.
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
