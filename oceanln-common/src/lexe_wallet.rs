@@ -14,7 +14,7 @@ use lexe::types::auth::{CredentialsRef, RootSeed};
 use lexe::types::bitcoin::Amount;
 use lexe::types::command::{CreateInvoiceRequest, CreateOfferRequest, PayRequest};
 use lexe::wallet::LexeWallet;
-use lexe_api_core::def::AppNodeRunApi;
+use lexe_api_core::def::UserNodeRunApi;
 use lexe_api_core::models::command::GetUpdatedPayments;
 use lexe_api_core::types::payments::{
     PaymentDirection, PaymentKind, PaymentStatus, PaymentUpdatedIndex,

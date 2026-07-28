@@ -737,7 +737,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -1293,9 +1293,9 @@ checksum = "09edd9e8b54e49e587e4f6295a7d29c3ea94d469cb40ab8ca70b288248a81db2"
 
 [[package]]
 name = "lexe"
-version = "0.1.14"
+version = "0.1.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "be0009a4aad10fcbd2e991cb84f77a41c7b8d9c985dcc332e539e5d7fed8abaf"
+checksum = "00be2ac9cee5fa23964571fa1c1c0291356fc9028c80b9cf7022bf3235932871"
 dependencies = [
  "anyhow",
  "bip39",
@@ -1322,15 +1322,17 @@ dependencies = [
 
 [[package]]
 name = "lexe-api"
-version = "0.1.14"
+version = "0.1.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "29b35ccc81970c30b22dede28fd4ff004659f9cfdce50086ffd244262a26b5a5"
+checksum = "df0d8bbd8a1b5697860db2fa41ccf4e41537fb9f653f36f27be2e7f10729612d"
 dependencies = [
  "anyhow",
  "axum 0.8.9",
  "axum-server",
+ "base64 0.21.7",
  "bcs",
  "bytes",
+ "futures",
  "http",
  "http-body-util",
  "hyper",
@@ -1348,6 +1350,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+ "tokio-rustls",
  "tower",
  "tower-http",
  "tracing",
@@ -1355,9 +1358,9 @@ dependencies = [
 
 [[package]]
 name = "lexe-api-core"
-version = "0.1.14"
+version = "0.1.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "23ffd6fde7ff9916798560d0d269b6c419f54055b887eea4ed7279d13e877a3b"
+checksum = "e8220e49d8c8237e62e5b920bc722ffb582528398f292c2c08e33fa767e856d5"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1393,18 +1396,18 @@ dependencies = [
 
 [[package]]
 name = "lexe-byte-array"
-version = "0.1.14"
+version = "0.1.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b64a4e8f169e0f27bd6fff9bc7ff3a8d794b0de7761d9311b762140135eae05a"
+checksum = "5e23344f7a31dca16335bde556bb7ac159e8104fbccc9c6c567464d4b7d96702"
 dependencies = [
  "lexe-hex",
 ]
 
 [[package]]
 name = "lexe-common"
-version = "0.1.14"
+version = "0.1.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9a8eedc176aa09f2c2072372bdfa2301576c5ff0620c39e9af776458d4fb9245"
+checksum = "aea4c29817487c8083ebae248cad9b275227893a0eaf2aee91ad741876edd045"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1444,9 +1447,9 @@ dependencies = [
 
 [[package]]
 name = "lexe-crypto"
-version = "0.1.14"
+version = "0.1.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c3d96523643b5df1bb6e884c92c0ac11998c3d5176fc91d34f376f49c0d4cef2"
+checksum = "05e6974fab400e95d1793b3bdff27caf075c32c388c7ddccfbd5db83bf852e83"
 dependencies = [
  "bcs",
  "lexe-byte-array",
@@ -1463,9 +1466,9 @@ dependencies = [
 
 [[package]]
 name = "lexe-enclave"
-version = "0.1.14"
+version = "0.1.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "13af5070b2901c87ed67860131d072ad05575bfcbc2c5734e4cdc08857852e5c"
+checksum = "584a0dec4f92eb083e0a62cc4c833e6046bfcecb1a10e6179df05aa130516cbc"
 dependencies = [
  "cfg-if",
  "lexe-byte-array",
@@ -1480,15 +1483,15 @@ dependencies = [
 
 [[package]]
 name = "lexe-hex"
-version = "0.1.14"
+version = "0.1.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b9c36b98d141a6a63e829a48025862521b8d4eb626aec81f87a72f493eb69ecf"
+checksum = "1ee60f4bb9eacd99d119d1831248778d0f4ee7650ef476507af2c9c11a683f46"
 
 [[package]]
 name = "lexe-logger"
-version = "0.1.14"
+version = "0.1.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e5ff7776303d312d863cd47bc6830ea445885b1572932a7f527687fda64848dc"
+checksum = "e06bbc4a4bda58f4a9ce2f3f45ea4cc9e70b61f82d7270c1bdcef3ab2fabb91b"
 dependencies = [
  "anyhow",
  "lexe-api",
@@ -1498,14 +1501,13 @@ dependencies = [
 
 [[package]]
 name = "lexe-node-client"
-version = "0.1.14"
+version = "0.1.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3d928505e3626377063b98736b3965c72a8e240e2d939c8a23b7f3ad91683fa1"
+checksum = "60ecf91fcce612f23d7d2579948563a3f4c6bd04aee2eb1426c8def1c14d7738"
 dependencies = [
  "anyhow",
  "arc-swap",
  "async-trait",
- "base64 0.21.7",
  "http",
  "lexe-api",
  "lexe-common",
@@ -1519,9 +1521,9 @@ dependencies = [
 
 [[package]]
 name = "lexe-payment-uri"
-version = "0.1.14"
+version = "0.1.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b0730d99cb8b3744b517df2cb851178a086986934f57d7743616b30eab7dc3da"
+checksum = "d5deb43235035fa19695b6abc92dcaee12bb0005a5a2b678e1174afaed33c293"
 dependencies = [
  "anyhow",
  "base64 0.21.7",
@@ -1543,9 +1545,9 @@ dependencies = [
 
 [[package]]
 name = "lexe-payment-uri-core"
-version = "0.1.14"
+version = "0.1.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "61863e2cd9550ba4834c789061e3bcfada5828a098122b4472fdf2706db9d482"
+checksum = "562b34165669f027ef1f064b030c710c016097fc3f767682344c258bd3b9a88a"
 dependencies = [
  "anyhow",
  "bech32",
@@ -1558,13 +1560,14 @@ dependencies = [
  "rust_decimal",
  "serde",
  "strum",
+ "tracing",
 ]
 
 [[package]]
 name = "lexe-serde"
-version = "0.1.14"
+version = "0.1.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a9a7648292ed2d442b977d7fd4f5876dadbda3614e3548d8186aea0c00c24145"
+checksum = "3d4197b1db7c0a2df29931bce84e1d17fa0009a6a861ae9295ea1b4fa5c31aae"
 dependencies = [
  "base64 0.21.7",
  "lexe-hex",
@@ -1573,9 +1576,9 @@ dependencies = [
 
 [[package]]
 name = "lexe-sha256"
-version = "0.1.14"
+version = "0.1.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "15b1d489cffd54dc4847f0104278113c3d0845c341b70c09c015ee15e22131ee"
+checksum = "4db865c7a10553dc27b108e4bab8a0dc9d5e9b2edd1c98d08159e505296044ae"
 dependencies = [
  "lexe-byte-array",
  "lexe-std",
@@ -1585,18 +1588,18 @@ dependencies = [
 
 [[package]]
 name = "lexe-std"
-version = "0.1.14"
+version = "0.1.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "54b107e3c0ce50c9a47ecfa5a5f144f7f5b1d52005ba3200806f40a6f592c786"
+checksum = "b5179ab46c980244c8a537322ee4a34fb1a3466d84e10ee88b352ef137bab4d1"
 dependencies = [
  "ref-cast",
 ]
 
 [[package]]
 name = "lexe-tls"
-version = "0.1.14"
+version = "0.1.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "56c15a72cb0c1d0c45204f13f99c2c6a9e9fba155f5274a147ea7a73e9d3b2b5"
+checksum = "7cf149a3143f7ca757819bf5a42dccdce2e02f2047347efe69d98e29cb7d9264"
 dependencies = [
  "anyhow",
  "asn1-rs",
@@ -1628,9 +1631,9 @@ dependencies = [
 
 [[package]]
 name = "lexe-tls-core"
-version = "0.1.14"
+version = "0.1.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "265b96d0dc2bf48fbe7dead7df04e770f68a339865dd6879351133d0ee29da78"
+checksum = "f129b50f3e86bcf1b1bc79ba184f252fe3daef4c11c2568544590fb025425e74"
 dependencies = [
  "rustls",
  "rustls-webpki",
@@ -1639,9 +1642,9 @@ dependencies = [
 
 [[package]]
 name = "lexe-tokio"
-version = "0.1.14"
+version = "0.1.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4b5cfdd6537e607912fa0d37248114829ed4366da80473cddd77cb193165c2f7"
+checksum = "5d0a7585dca5eeabc3860c7715b71adaa7fc706379d13eb73cb51a22acda3559"
 dependencies = [
  "futures",
  "thiserror 2.0.18",
@@ -1790,7 +1793,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -2079,7 +2082,7 @@ dependencies = [
  "once_cell",
  "socket2",
  "tracing",
- "windows-sys 0.60.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -3376,7 +3379,7 @@ version = "0.52.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "282be5f36a8ce781fad8c8ae18fa3f9beff57ec1b52cb3de0789201425d9a33d"
 dependencies = [
- "windows-targets 0.52.6",
+ "windows-targets",
 ]
 
 [[package]]
@@ -3385,16 +3388,7 @@ version = "0.59.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1e38bc4d79ed67fd075bcc251a1c39b32a1776bbe92e5bef1f0bf1f8c531853b"
 dependencies = [
- "windows-targets 0.52.6",
-]
-
-[[package]]
-name = "windows-sys"
-version = "0.60.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f2f500e4d28234f72040990ec9d39e3a6b950f9f22d3dba18416c35882612bcb"
-dependencies = [
- "windows-targets 0.53.5",
+ "windows-targets",
 ]
 
 [[package]]
@@ -3412,31 +3406,14 @@ version = "0.52.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9b724f72796e036ab90c1021d4780d4d3d648aca59e491e6b98e725b84e99973"
 dependencies = [
- "windows_aarch64_gnullvm 0.52.6",
- "windows_aarch64_msvc 0.52.6",
- "windows_i686_gnu 0.52.6",
- "windows_i686_gnullvm 0.52.6",
- "windows_i686_msvc 0.52.6",
- "windows_x86_64_gnu 0.52.6",
- "windows_x86_64_gnullvm 0.52.6",
- "windows_x86_64_msvc 0.52.6",
-]
-
-[[package]]
-name = "windows-targets"
-version = "0.53.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4945f9f551b88e0d65f3db0bc25c33b8acea4d9e41163edf90dcd0b19f9069f3"
-dependencies = [
- "windows-link",
- "windows_aarch64_gnullvm 0.53.1",
- "windows_aarch64_msvc 0.53.1",
- "windows_i686_gnu 0.53.1",
- "windows_i686_gnullvm 0.53.1",
- "windows_i686_msvc 0.53.1",
- "windows_x86_64_gnu 0.53.1",
- "windows_x86_64_gnullvm 0.53.1",
- "windows_x86_64_msvc 0.53.1",
+ "windows_aarch64_gnullvm",
+ "windows_aarch64_msvc",
+ "windows_i686_gnu",
+ "windows_i686_gnullvm",
+ "windows_i686_msvc",
+ "windows_x86_64_gnu",
+ "windows_x86_64_gnullvm",
+ "windows_x86_64_msvc",
 ]
 
 [[package]]
@@ -3446,22 +3423,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32a4622180e7a0ec044bb555404c800bc9fd9ec262ec147edd5989ccd0c02cd3"
 
 [[package]]
-name = "windows_aarch64_gnullvm"
-version = "0.53.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a9d8416fa8b42f5c947f8482c43e7d89e73a173cead56d044f6a56104a6d1b53"
-
-[[package]]
 name = "windows_aarch64_msvc"
 version = "0.52.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "09ec2a7bb152e2252b53fa7803150007879548bc709c039df7627cabbd05d469"
-
-[[package]]
-name = "windows_aarch64_msvc"
-version = "0.53.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b9d782e804c2f632e395708e99a94275910eb9100b2114651e04744e9b125006"
 
 [[package]]
 name = "windows_i686_gnu"
@@ -3470,22 +3435,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8e9b5ad5ab802e97eb8e295ac6720e509ee4c243f69d781394014ebfe8bbfa0b"
 
 [[package]]
-name = "windows_i686_gnu"
-version = "0.53.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "960e6da069d81e09becb0ca57a65220ddff016ff2d6af6a223cf372a506593a3"
-
-[[package]]
 name = "windows_i686_gnullvm"
 version = "0.52.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0eee52d38c090b3caa76c563b86c3a4bd71ef1a819287c19d586d7334ae8ed66"
-
-[[package]]
-name = "windows_i686_gnullvm"
-version = "0.53.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fa7359d10048f68ab8b09fa71c3daccfb0e9b559aed648a8f95469c27057180c"
 
 [[package]]
 name = "windows_i686_msvc"
@@ -3494,22 +3447,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "240948bc05c5e7c6dabba28bf89d89ffce3e303022809e73deaefe4f6ec56c66"
 
 [[package]]
-name = "windows_i686_msvc"
-version = "0.53.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1e7ac75179f18232fe9c285163565a57ef8d3c89254a30685b57d83a38d326c2"
-
-[[package]]
 name = "windows_x86_64_gnu"
 version = "0.52.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "147a5c80aabfbf0c7d901cb5895d1de30ef2907eb21fbbab29ca94c5b08b1a78"
-
-[[package]]
-name = "windows_x86_64_gnu"
-version = "0.53.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9c3842cdd74a865a8066ab39c8a7a473c0778a3f29370b5fd6b4b9aa7df4a499"
 
 [[package]]
 name = "windows_x86_64_gnullvm"
@@ -3518,22 +3459,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "24d5b23dc417412679681396f2b49f3de8c1473deb516bd34410872eff51ed0d"
 
 [[package]]
-name = "windows_x86_64_gnullvm"
-version = "0.53.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0ffa179e2d07eee8ad8f57493436566c7cc30ac536a3379fdf008f47f6bb7ae1"
-
-[[package]]
 name = "windows_x86_64_msvc"
 version = "0.52.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "589f6da84c646204747d1270a2a5661ea66ed1cced2631d546fdfb155959f9ec"
-
-[[package]]
-name = "windows_x86_64_msvc"
-version = "0.53.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d6bbff5f0aada427a1e5a6da5f1f98158182f26556f345ac9e04d36d0ebed650"
 
 [[package]]
 name = "wit-bindgen"
