@@ -31,6 +31,10 @@ oceanln-common = { path = "../../oceanln-common" }
 uniffi = { version = "0.31", features = ["tokio", "cli"] }
 tokio = { version = "1", features = ["rt-multi-thread"] }
 thiserror = "1"
+lightning-invoice = "0.34"
+
+[dev-dependencies]
+tempfile = "3"
 
 [[bin]]
 # In-crate bindings generator so the exact UniFFI version is used regardless of

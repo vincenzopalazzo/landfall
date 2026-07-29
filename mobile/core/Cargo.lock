@@ -1746,7 +1746,9 @@ dependencies = [
 name = "oceanln-mobile-core"
 version = "0.3.1"
 dependencies = [
+ "lightning-invoice",
  "oceanln-common",
+ "tempfile",
  "thiserror 1.0.69",
  "tokio",
  "uniffi",

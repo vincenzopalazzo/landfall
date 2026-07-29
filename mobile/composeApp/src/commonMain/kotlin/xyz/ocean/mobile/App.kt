@@ -59,6 +59,7 @@ enum class Tab(val key: String, val label: String, val icon: String, val title: 
 @Composable
 fun App(repo: WalletRepository = MockWalletRepository()) {
     var onboarded by remember { mutableStateOf<Boolean?>(null) }
+    var resumeBackup by remember { mutableStateOf(false) }
     var tab by remember { mutableStateOf(Tab.POOL) }
     var usdUnit by remember { mutableStateOf(false) }
     var fullMode by remember { mutableStateOf(false) }
@@ -67,11 +68,14 @@ fun App(repo: WalletRepository = MockWalletRepository()) {
 
     Box(Modifier.fillMaxSize().background(OceanColors.bgPrimary)) {
         LaunchedEffect(repo) {
-            onboarded = runCatching { repo.isWalletConfigured() }.getOrDefault(false)
+            val configured = runCatching { repo.isWalletConfigured() }.getOrDefault(false)
+            val backupConfirmed = configured && runCatching { repo.isBackupConfirmed() }.getOrDefault(false)
+            resumeBackup = configured && !backupConfirmed
+            onboarded = configured && backupConfirmed
         }
         if (onboarded != true) {
             if (onboarded == false) {
-                Onboarding(repo = repo, onComplete = { onboarded = true })
+                Onboarding(repo = repo, resumeBackup = resumeBackup, onComplete = { onboarded = true })
             }
             return@Box
         }

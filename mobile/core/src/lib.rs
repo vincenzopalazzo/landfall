@@ -14,6 +14,7 @@
 //! mechanics — UniFFI records/objects instead of Tauri IPC serde.
 
 use std::path::PathBuf;
+use std::str::FromStr;
 use std::sync::Arc;
 
 use oceanln_common::client;
@@ -22,6 +23,7 @@ use oceanln_common::seed::SeedSource;
 use oceanln_common::service;
 use oceanln_common::sign::DEFAULT_BIP32_PATH;
 use oceanln_common::wallet_provider::{LexeWalletProvider, WalletProvider};
+use lightning_invoice::Bolt11Invoice;
 
 uniffi::setup_scaffolding!();
 
@@ -278,6 +280,7 @@ pub struct OceanlnCore {
     seed: SeedSource,
     default_path: String,
     wallet: Arc<dyn WalletProvider>,
+    backup_marker: PathBuf,
     sidecar_url: String,
     sidecar_credentials: Option<String>,
 }
@@ -293,6 +296,7 @@ impl OceanlnCore {
         let _ = std::fs::create_dir_all(&dir);
         Arc::new(Self {
             seed: SeedSource::File(dir.join("seed")),
+            backup_marker: dir.join("backup-confirmed"),
             default_path: DEFAULT_BIP32_PATH.to_string(),
             wallet: Arc::new(LexeWalletProvider),
             sidecar_url: client::DEFAULT_BASE_URL.to_string(),
@@ -320,6 +324,55 @@ impl OceanlnCore {
     /// Re-reveal the stored recovery phrase (user-initiated backup view).
     pub fn reveal_seed(&self) -> CoreResult<RevealResp> {
         Ok(service::reveal(&self.seed)?.into())
+    }
+
+    /// Whether the generated recovery phrase was explicitly confirmed.
+    pub fn backup_confirmed(&self) -> bool {
+        self.backup_marker.is_file()
+    }
+
+    /// Persist the recovery-backup acknowledgement without storing the phrase.
+    pub fn confirm_backup(&self) -> CoreResult<()> {
+        std::fs::write(&self.backup_marker, b"confirmed").map_err(Error::Io)?;
+        Ok(())
+    }
+
+    /// Return a fixed BOLT11 amount in whole sats, rounded up from msats.
+    /// Other payable kinds are amountless from the mobile UI's perspective.
+    pub fn payable_amount_sats(&self, payable: String) -> CoreResult<Option<u64>> {
+        let value = payable.trim();
+        if !value.to_ascii_lowercase().starts_with("ln") {
+            return Ok(None);
+        }
+        let invoice = Bolt11Invoice::from_str(value)
+            .map_err(|e| Error::Wallet(format!("invalid BOLT11 invoice: {e}")))?;
+        Ok(invoice.amount_milli_satoshis().map(|msat| msat.div_ceil(1000)))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::OceanlnCore;
+
+    #[test]
+    fn backup_confirmation_survives_core_recreation() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().to_string_lossy().into_owned();
+        let core = OceanlnCore::new(path.clone());
+        assert!(!core.backup_confirmed());
+        core.confirm_backup().expect("confirm backup");
+        assert!(OceanlnCore::new(path).backup_confirmed());
+    }
+
+    #[test]
+    fn non_bolt11_payables_have_no_fixed_amount() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let core = OceanlnCore::new(dir.path().to_string_lossy().into_owned());
+        assert_eq!(
+            core.payable_amount_sats("alice@example.com".to_string())
+                .expect("parse payable"),
+            None
+        );
     }
 }
 

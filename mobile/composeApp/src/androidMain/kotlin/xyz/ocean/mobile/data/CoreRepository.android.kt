@@ -26,8 +26,21 @@ private class CoreWalletRepository(private val core: OceanlnCore) : WalletReposi
     }
     override suspend fun restoreWallet(mnemonic: String): WalletSetup {
         val result = core.importSeed(mnemonic, false)
+        completeWalletSetup()
+        core.confirmBackup()
         return WalletSetup(null, result.miningAddress)
     }
+    override suspend fun revealSeed(): String = core.revealSeed().mnemonic
+    override suspend fun isBackupConfirmed(): Boolean = core.backupConfirmed()
+    override suspend fun completeWalletSetup() {
+        core.initWallet(null)
+        if (core.status().offer == null) {
+            core.createOffer("OCEAN Lightning mobile", null)
+        }
+    }
+    override suspend fun confirmBackup() = core.confirmBackup()
+    override suspend fun payableAmountSats(payable: String): Long? =
+        core.payableAmountSats(payable)?.toLong()
     override suspend fun createInvoice(amountSats: Long?, description: String?): String =
         core.createInvoice(amountSats?.toULong(), description)
 
@@ -63,7 +76,7 @@ private fun CoreActivity.toTx(): Tx = Tx(
         else -> TxStatus.PENDING
     },
     tsMs = finalizedAtMs,
-    party = counterparty ?: (if (isOcean) "OCEAN" else "Unknown"),
+    party = counterparty ?: (if (isOcean) "OCEAN-format payment" else "Unknown"),
     note = note,
     offer = offer != null || isOcean,
     payerNote = note,

@@ -248,18 +248,18 @@ private fun OceanBanner(t: Tx) {
     Column(Modifier.fillMaxWidth().padding(vertical = 4.dp).clip(RoundedCornerShape(8.dp)).background(OceanColors.accentDim).border(1.dp, OceanColors.accentGlow, RoundedCornerShape(8.dp)).padding(14.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
             OIcon("spark", 15, OceanColors.accent)
-            Text("Verified OCEAN payout", style = OceanType.body.copy(color = OceanColors.accent, fontWeight = FontWeight.SemiBold, fontSize = 13.sp))
+            Text("OCEAN-format payout", style = OceanType.body.copy(color = OceanColors.accent, fontWeight = FontWeight.SemiBold, fontSize = 13.sp))
         }
         Spacer(Modifier.height(10.dp))
-        BannerLine("Paid to your registered OCEAN offer (BOLT12).")
-        BannerLine("Payer note matches OCEAN's signature — ${t.payerNote}")
+        BannerLine("Paid to a BOLT12 offer associated with this wallet.")
+        BannerLine("Payer note matches the public OCEAN format; sender is not authenticated — ${t.payerNote}")
     }
 }
 
 @Composable
 private fun BannerLine(text: String) {
     Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
-        OIcon("check", 15, OceanColors.success)
+        OIcon("info", 15, OceanColors.accent)
         Text(text, style = OceanType.bodySm.copy(color = OceanColors.fgSecondary, fontSize = 12.5.sp))
     }
 }
@@ -302,6 +302,7 @@ fun SendSheet(repo: WalletRepository, usdUnit: Boolean, onClose: () -> Unit) {
     var destKey by remember { mutableStateOf("invoice") }
     var value by remember { mutableStateOf("") }
     var amount by remember { mutableStateOf(0L) }
+    var fixedAmount by remember { mutableStateOf<Long?>(null) }
     var proof by remember { mutableStateOf("") }
     var sendError by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
@@ -343,16 +344,34 @@ fun SendSheet(repo: WalletRepository, usdUnit: Boolean, onClose: () -> Unit) {
             }
         }
         1 -> SheetShell("Send bitcoin", full = false, onClose = onClose, right = { Dots(1) }, footer = {
-            Box(Modifier.weight(1f)) { OButton("Continue", iconRight = "chevR", enabled = value.trim().length > 4, fill = true) { step = 2 } }
+            Box(Modifier.weight(1f)) {
+                OButton("Continue", iconRight = "chevR", enabled = value.trim().length > 4, fill = true) {
+                    sendError = null
+                    scope.launch {
+                        runCatching { repo.payableAmountSats(value.trim()) }
+                            .onSuccess {
+                                fixedAmount = it
+                                if (it != null) amount = it
+                                step = 2
+                            }
+                            .onFailure { sendError = it.message ?: "Invalid payment destination." }
+                    }
+                }
+            }
         }) {
             FieldLabel("Destination")
-            DestGrid(destKey) { destKey = it }
+            DestGrid(destKey) {
+                destKey = it
+                fixedAmount = null
+                amount = 0
+            }
             when (destKey) {
                 "invoice" -> { FieldLabel("BOLT11 invoice"); InputField(value, "lnbc1…  Paste or scan", multiline = true) { value = it } }
                 "lnaddr" -> { FieldLabel("Lightning address"); InputField(value, "you@domain.com") { value = it } }
                 "onchain" -> { FieldLabel("Bitcoin address"); InputField(value, "bc1q…") { value = it } }
                 "exchange" -> { FieldLabel("Choose a service"); Text("Kraken · Coinbase · River · Strike", style = OceanType.bodySm.copy(color = OceanColors.fgTertiary)) }
             }
+            if (sendError != null) Text(sendError!!, style = OceanType.bodySm.copy(color = OceanColors.error), modifier = Modifier.padding(top = 10.dp))
             Spacer(Modifier.height(12.dp))
         }
         2 -> SheetShell("Amount", full = false, onClose = onClose, onBack = { step = 1 }, right = { Dots(2) }, footer = {
@@ -366,12 +385,16 @@ fun SendSheet(repo: WalletRepository, usdUnit: Boolean, onClose: () -> Unit) {
                     textStyle = OceanType.heroValue.copy(color = OceanColors.fgPrimary, fontSize = 46.sp),
                     keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = KeyboardType.Number),
                     cursorBrush = androidx.compose.ui.graphics.SolidColor(OceanColors.accent),
+                    readOnly = fixedAmount != null,
                 )
                 Text(if (amount > 0) (if (usdUnit) "${commas(amount)} sats" else "≈ ${fmtUsd(usd(amount))}") else "≈ \$0.00", style = OceanType.monoSm.copy(color = OceanColors.fgTertiary))
+                if (fixedAmount != null) Text("Amount set by invoice", style = OceanType.bodySm.copy(color = OceanColors.accent), modifier = Modifier.padding(top = 6.dp))
             }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally)) {
-                ToolBtn("Max") { amount = maxOf(0, srcBal - fee) }
-                ToolBtn("50%") { amount = srcBal / 2 }
+            if (fixedAmount == null) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally)) {
+                    ToolBtn("Max") { amount = maxOf(0, srcBal - fee) }
+                    ToolBtn("50%") { amount = srcBal / 2 }
+                }
             }
             Spacer(Modifier.height(16.dp))
             Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(OceanColors.bgCard).border(1.dp, OceanColors.border, RoundedCornerShape(8.dp)).padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
@@ -388,7 +411,7 @@ fun SendSheet(repo: WalletRepository, usdUnit: Boolean, onClose: () -> Unit) {
                         step = 98
                         sendError = null
                         scope.launch {
-                            runCatching { repo.pay(value.trim(), amount, null) }
+                            runCatching { repo.pay(value.trim(), if (fixedAmount == null) amount else null, null) }
                                 .onSuccess {
                                     proof = it.id
                                     step = 99

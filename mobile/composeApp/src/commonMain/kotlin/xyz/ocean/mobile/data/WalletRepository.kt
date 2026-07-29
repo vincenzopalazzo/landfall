@@ -12,6 +12,11 @@ interface WalletRepository {
     suspend fun isWalletConfigured(): Boolean
     suspend fun generateWallet(): WalletSetup
     suspend fun restoreWallet(mnemonic: String): WalletSetup
+    suspend fun revealSeed(): String
+    suspend fun isBackupConfirmed(): Boolean
+    suspend fun completeWalletSetup()
+    suspend fun confirmBackup()
+    suspend fun payableAmountSats(payable: String): Long?
     suspend fun createInvoice(amountSats: Long? = null, description: String? = null): String
     suspend fun pay(payable: String, amountSats: Long? = null, note: String? = null): PaymentResult
     suspend fun pool(): PoolStats
@@ -34,6 +39,11 @@ class MockWalletRepository : WalletRepository {
         configured = true
         return WalletSetup(null, Mock.miningAddress)
     }
+    override suspend fun revealSeed() = Mock.mnemonic
+    override suspend fun isBackupConfirmed() = false
+    override suspend fun completeWalletSetup() = Unit
+    override suspend fun confirmBackup() = Unit
+    override suspend fun payableAmountSats(payable: String): Long? = null
     override suspend fun createInvoice(amountSats: Long?, description: String?) = Mock.invoice
     override suspend fun pay(payable: String, amountSats: Long?, note: String?) =
         PaymentResult("mock-payment-reference", amountSats ?: 0L)

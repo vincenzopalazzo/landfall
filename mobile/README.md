@@ -34,10 +34,14 @@ On first launch, the Compose shell checks the core for a configured seed and
 shows the OCEAN onboarding flow when none exists. Creating a wallet generates
 and displays the 24-word recovery phrase for an explicit backup check; restoring
 accepts a 24-word phrase (including pasting the full phrase into the first
-field). Both operations use the same `oceanln-common` service path as the CLI.
+field). Backup confirmation is persisted separately from the seed, so an
+interrupted create flow resumes at the phrase screen. Completion provisions the
+wallet and creates its initial offer before entering the app. Both operations
+use the same `oceanln-common` service path as the CLI.
 The live Receive and Send sheets likewise obtain invoices, addresses, offers,
 and payment results from that repository; unavailable destinations are never
-substituted with design fixtures.
+substituted with design fixtures. Fixed-amount BOLT11 invoices lock the amount
+shown during review to the value encoded by the invoice.
 
 The Rust `OceanlnCore` object (`core/src/lib.rs`) is a thin adapter over
 `oceanln_common::service` — a 1-1 twin of `src-tauri/src/lib.rs`. The seed stays

@@ -179,7 +179,7 @@ fun TxRow(t: Tx, usdUnit: Boolean, nowMs: Long, compact: Boolean = false, onOpen
         Column(Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                 Text(t.party, style = OceanType.body.copy(fontWeight = FontWeight.SemiBold), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                if (oc) Pill(PillTone.ACC, "Payout")
+                if (oc) Pill(PillTone.ACC, "Format match")
             }
             if (!compact) {
                 val sub = if (mat) "Matures ${matEta(t.mat!!)}"

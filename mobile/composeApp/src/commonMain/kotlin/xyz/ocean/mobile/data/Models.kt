@@ -35,7 +35,8 @@ data class Tx(
     val maturing: Boolean = false,
     val mat: Maturity? = null,
 ) {
-    // OCEAN payout: paid to our registered offer AND the payer note matches.
+    // OCEAN-format candidate: paid to an offer with the expected public note
+    // format. This is classification only, not cryptographic authentication.
     val isOcean: Boolean get() = dir == Dir.IN && offer && noteMatch
 }
 

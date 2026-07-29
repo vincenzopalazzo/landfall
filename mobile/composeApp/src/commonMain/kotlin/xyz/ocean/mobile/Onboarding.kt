@@ -22,6 +22,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -51,8 +52,8 @@ private val quizPositions = listOf(3, 12, 20)
 private val decoys = listOf("anchor", "tide", "forest", "puzzle", "candle", "quartz")
 
 @Composable
-fun Onboarding(repo: WalletRepository, onComplete: () -> Unit) {
-    var step by remember { mutableStateOf(OnboardingStep.WELCOME) }
+fun Onboarding(repo: WalletRepository, resumeBackup: Boolean = false, onComplete: () -> Unit) {
+    var step by remember { mutableStateOf(if (resumeBackup) OnboardingStep.CREATING else OnboardingStep.WELCOME) }
     var mnemonic by remember { mutableStateOf<List<String>>(emptyList()) }
     var revealed by remember { mutableStateOf(false) }
     var backedUp by remember { mutableStateOf(false) }
@@ -60,6 +61,20 @@ fun Onboarding(repo: WalletRepository, onComplete: () -> Unit) {
     val restoreWords = remember { mutableStateListOf(*Array(24) { "" }) }
     val answers = remember { mutableStateListOf("", "", "") }
     val scope = rememberCoroutineScope()
+
+    LaunchedEffect(resumeBackup, repo) {
+        if (resumeBackup) {
+            runCatching { repo.revealSeed() }
+                .onSuccess {
+                    mnemonic = it.trim().split(Regex("\\s+"))
+                    step = OnboardingStep.PHRASE
+                }
+                .onFailure {
+                    error = it.message ?: "Could not resume wallet backup."
+                    step = OnboardingStep.WELCOME
+                }
+        }
+    }
 
     fun create() {
         step = OnboardingStep.CREATING
@@ -86,6 +101,22 @@ fun Onboarding(repo: WalletRepository, onComplete: () -> Unit) {
         }
     }
 
+    fun finishCreatedWallet() {
+        step = OnboardingStep.CREATING
+        error = null
+        scope.launch {
+            runCatching {
+                repo.completeWalletSetup()
+                repo.confirmBackup()
+            }.onSuccess {
+                onComplete()
+            }.onFailure {
+                error = it.message ?: "Could not finish wallet setup."
+                step = OnboardingStep.CONFIRM
+            }
+        }
+    }
+
     Column(Modifier.fillMaxSize().background(OceanColors.bgPrimary)) {
         if (step != OnboardingStep.WELCOME && step != OnboardingStep.CREATING) {
             ProgressHeader(
@@ -104,7 +135,10 @@ fun Onboarding(repo: WalletRepository, onComplete: () -> Unit) {
                 OnboardingStep.WELCOME -> Welcome(error, onCreate = ::create, onRestore = { step = OnboardingStep.RESTORE })
                 OnboardingStep.CREATING -> CreatingWallet()
                 OnboardingStep.PHRASE -> RecoveryPhrase(mnemonic, revealed, backedUp, { revealed = true }, { backedUp = !backedUp })
-                OnboardingStep.CONFIRM -> ConfirmPhrase(mnemonic, answers)
+                OnboardingStep.CONFIRM -> {
+                    ConfirmPhrase(mnemonic, answers)
+                    error?.let { Note(it, OceanColors.error) }
+                }
                 OnboardingStep.RESTORE -> RestoreWallet(restoreWords, error)
             }
         }
@@ -113,7 +147,7 @@ fun Onboarding(repo: WalletRepository, onComplete: () -> Unit) {
             OnboardingStep.CONFIRM -> FooterButton(
                 "Go to my wallet",
                 quizPositions.indices.all { answers[it] == mnemonic[quizPositions[it]] },
-                onComplete,
+                ::finishCreatedWallet,
             )
             OnboardingStep.RESTORE -> FooterButton("Restore wallet", restoreWords.all { it.isNotBlank() }, ::restore)
             else -> Unit

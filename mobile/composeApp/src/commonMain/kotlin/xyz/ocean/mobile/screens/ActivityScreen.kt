@@ -58,7 +58,7 @@ fun ActivityScreen(repo: WalletRepository, usdUnit: Boolean, onOpenTx: (Tx) -> U
         Spacer(Modifier.height(6.dp))
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Chip("All", filter == "all", false, null) { filter = "all" }
-            Chip("OCEAN payouts", filter == "ocean", true, oceanCount) { filter = "ocean" }
+            Chip("OCEAN format", filter == "ocean", true, oceanCount) { filter = "ocean" }
             Chip("Received", filter == "in", false, null) { filter = "in" }
             Chip("Sent", filter == "out", false, null) { filter = "out" }
         }
@@ -72,7 +72,7 @@ fun ActivityScreen(repo: WalletRepository, usdUnit: Boolean, onOpenTx: (Tx) -> U
         } else {
             OCard(padding = 4) {
                 if (filter == "all" && ocean.isNotEmpty()) {
-                    GroupLabel("OCEAN payouts", OceanColors.accent)
+                    GroupLabel("OCEAN-format payments", OceanColors.accent)
                     ocean.forEach { TxRow(it, usdUnit, repo.nowMs, onOpen = onOpenTx) }
                     GroupLabel("Other activity", OceanColors.fgMuted)
                     rest.forEach { TxRow(it, usdUnit, repo.nowMs, onOpen = onOpenTx) }
