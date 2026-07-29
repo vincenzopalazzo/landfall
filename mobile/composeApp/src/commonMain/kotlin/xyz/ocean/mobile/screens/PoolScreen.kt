@@ -19,7 +19,10 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -28,6 +31,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import xyz.ocean.mobile.data.Tx
 import xyz.ocean.mobile.data.TxStatus
+import xyz.ocean.mobile.data.Balances
+import xyz.ocean.mobile.data.PoolStats
+import xyz.ocean.mobile.data.Worker
 import xyz.ocean.mobile.data.WalletRepository
 import xyz.ocean.mobile.data.btc
 import xyz.ocean.mobile.data.commas
@@ -37,6 +43,7 @@ import xyz.ocean.mobile.theme.OceanColors
 import xyz.ocean.mobile.theme.OceanType
 import xyz.ocean.mobile.ui.MaturityCard
 import xyz.ocean.mobile.ui.OCard
+import xyz.ocean.mobile.ui.OButton
 import xyz.ocean.mobile.ui.OIcon
 import xyz.ocean.mobile.ui.SectionLabel
 import xyz.ocean.mobile.ui.StatCard
@@ -44,12 +51,40 @@ import xyz.ocean.mobile.ui.StatusDot
 
 @Composable
 fun PoolScreen(repo: WalletRepository, usdUnit: Boolean, onOpenTx: (Tx) -> Unit, onSeeWorkers: () -> Unit) {
-    val pool by produceState<xyz.ocean.mobile.data.PoolStats?>(initialValue = null, repo) { value = repo.pool() }
-    val workers by produceState<List<xyz.ocean.mobile.data.Worker>>(initialValue = emptyList(), repo) { value = repo.workers() }
-    val bal by produceState<xyz.ocean.mobile.data.Balances?>(initialValue = null, repo) { value = repo.balances() }
-    val txs by produceState<List<Tx>>(initialValue = emptyList(), repo) { value = repo.activity() }
-    val p = pool ?: return
-    val b = bal ?: return
+    var retry by remember { mutableStateOf(0) }
+    val loaded by produceState<Result<PoolData>?>(initialValue = null, repo, retry) {
+        value = runCatching {
+            PoolData(repo.pool(), repo.workers(), repo.balances(), repo.activity())
+        }
+    }
+    val result = loaded
+    if (result == null) {
+        Box(Modifier.fillMaxWidth().padding(48.dp), contentAlignment = Alignment.Center) {
+            androidx.compose.material3.CircularProgressIndicator(color = OceanColors.accent)
+        }
+        return
+    }
+    if (result.isFailure) {
+        Column(
+            Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 48.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            OIcon("warn", 30, OceanColors.warning)
+            Text("Could not load wallet data", style = OceanType.sheetTitle, modifier = Modifier.padding(top = 14.dp))
+            Text(
+                result.exceptionOrNull()?.message ?: "Check your connection and try again.",
+                style = OceanType.bodySm.copy(color = OceanColors.fgTertiary),
+                modifier = Modifier.padding(top = 8.dp, bottom = 18.dp),
+            )
+            OButton("Retry", icon = "refresh") { retry += 1 }
+        }
+        return
+    }
+    val data = result.getOrThrow()
+    val p = data.pool
+    val workers = data.workers
+    val b = data.balances
+    val txs = data.activity
     val maturing = txs.firstOrNull { it.maturing }
 
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
@@ -143,6 +178,13 @@ fun PoolScreen(repo: WalletRepository, usdUnit: Boolean, onOpenTx: (Tx) -> Unit,
         Spacer(Modifier.height(20.dp))
     }
 }
+
+private data class PoolData(
+    val pool: PoolStats,
+    val workers: List<Worker>,
+    val balances: Balances,
+    val activity: List<Tx>,
+)
 
 @Composable
 private fun PoolStat(label: String, value: String, unit: String, modifier: Modifier = Modifier) {

@@ -52,6 +52,7 @@ kotlin {
 android {
     namespace = "xyz.ocean.mobile"
     compileSdk = libs.versions.android.compileSdk.get().toInt()
+    buildFeatures { buildConfig = true }
 
     defaultConfig {
         applicationId = "xyz.ocean.mobile"

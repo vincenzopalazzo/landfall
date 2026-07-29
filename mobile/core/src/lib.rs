@@ -341,7 +341,11 @@ impl OceanlnCore {
     /// Other payable kinds are amountless from the mobile UI's perspective.
     pub fn payable_amount_sats(&self, payable: String) -> CoreResult<Option<u64>> {
         let value = payable.trim();
-        if !value.to_ascii_lowercase().starts_with("ln") {
+        let lower = value.to_ascii_lowercase();
+        if !["lnbc", "lntb", "lnbcrt", "lnsb"]
+            .iter()
+            .any(|prefix| lower.starts_with(prefix))
+        {
             return Ok(None);
         }
         let invoice = Bolt11Invoice::from_str(value)
@@ -368,11 +372,13 @@ mod tests {
     fn non_bolt11_payables_have_no_fixed_amount() {
         let dir = tempfile::tempdir().expect("temp dir");
         let core = OceanlnCore::new(dir.path().to_string_lossy().into_owned());
-        assert_eq!(
-            core.payable_amount_sats("alice@example.com".to_string())
-                .expect("parse payable"),
-            None
-        );
+        for payable in ["alice@example.com", "lno1example", "lnurl1example"] {
+            assert_eq!(
+                core.payable_amount_sats(payable.to_string())
+                    .expect("parse payable"),
+                None
+            );
+        }
     }
 }
 

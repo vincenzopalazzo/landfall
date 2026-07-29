@@ -57,7 +57,8 @@ enum class Tab(val key: String, val label: String, val icon: String, val title: 
  * repository (via `createCoreRepository`) for live node data.
  */
 @Composable
-fun App(repo: WalletRepository = MockWalletRepository()) {
+fun App(repo: WalletRepository? = null) {
+    val activeRepo = remember(repo) { repo ?: MockWalletRepository() }
     var onboarded by remember { mutableStateOf<Boolean?>(null) }
     var resumeBackup by remember { mutableStateOf(false) }
     var tab by remember { mutableStateOf(Tab.POOL) }
@@ -67,15 +68,15 @@ fun App(repo: WalletRepository = MockWalletRepository()) {
     var sheet by remember { mutableStateOf<String?>(null) } // "send" | "receive"
 
     Box(Modifier.fillMaxSize().background(OceanColors.bgPrimary)) {
-        LaunchedEffect(repo) {
-            val configured = runCatching { repo.isWalletConfigured() }.getOrDefault(false)
-            val backupConfirmed = configured && runCatching { repo.isBackupConfirmed() }.getOrDefault(false)
+        LaunchedEffect(activeRepo) {
+            val configured = runCatching { activeRepo.isWalletConfigured() }.getOrDefault(false)
+            val backupConfirmed = configured && runCatching { activeRepo.isBackupConfirmed() }.getOrDefault(false)
             resumeBackup = configured && !backupConfirmed
             onboarded = configured && backupConfirmed
         }
         if (onboarded != true) {
             if (onboarded == false) {
-                Onboarding(repo = repo, resumeBackup = resumeBackup, onComplete = { onboarded = true })
+                Onboarding(repo = activeRepo, resumeBackup = resumeBackup, onComplete = { onboarded = true })
             }
             return@Box
         }
@@ -87,25 +88,25 @@ fun App(repo: WalletRepository = MockWalletRepository()) {
             )
             Box(Modifier.weight(1f)) {
                 when (tab) {
-                    Tab.POOL -> PoolScreen(repo, usdUnit, onOpenTx = { detail = it }, onSeeWorkers = { tab = Tab.NODE })
+                    Tab.POOL -> PoolScreen(activeRepo, usdUnit, onOpenTx = { detail = it }, onSeeWorkers = { tab = Tab.NODE })
                     Tab.WALLET -> WalletScreen(
-                        repo, usdUnit, fullMode,
+                        activeRepo, usdUnit, fullMode,
                         onSetMode = { fullMode = it },
                         onOpenTx = { detail = it },
                         onSend = { sheet = "send" },
                         onReceive = { sheet = "receive" },
                         onSeeAll = { tab = Tab.ACTIVITY },
                     )
-                    Tab.ACTIVITY -> ActivityScreen(repo, usdUnit, onOpenTx = { detail = it })
-                    Tab.NODE -> NodeScreen(repo, usdUnit, fullMode, onToggleUnit = { usdUnit = !usdUnit })
+                    Tab.ACTIVITY -> ActivityScreen(activeRepo, usdUnit, onOpenTx = { detail = it })
+                    Tab.NODE -> NodeScreen(activeRepo, usdUnit, fullMode, onToggleUnit = { usdUnit = !usdUnit })
                 }
             }
             TabBar(current = tab, onSelect = { tab = it })
         }
 
         detail?.let { TxDetailSheet(it, usdUnit, onClose = { detail = null }) }
-        if (sheet == "send") SendSheet(repo, usdUnit, onClose = { sheet = null })
-        if (sheet == "receive") ReceiveSheet(repo, onClose = { sheet = null })
+        if (sheet == "send") SendSheet(activeRepo, usdUnit, onClose = { sheet = null })
+        if (sheet == "receive") ReceiveSheet(activeRepo, onClose = { sheet = null })
     }
 }
 
