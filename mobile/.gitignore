@@ -1,0 +1,16 @@
+# Gradle / Kotlin
+.gradle/
+build/
+**/build/
+local.properties
+.kotlin/
+
+# Generated UniFFI bindings + native libs (produced by core/build-*.sh)
+composeApp/src/androidMain/jniLibs/
+composeApp/src/androidMain/kotlin/xyz/ocean/mobile/core/
+core/generated/
+
+# Xcode
+iosApp/**/xcuserdata/
+iosApp/**/*.xcworkspace/xcuserdata/
+*.xcuserstate

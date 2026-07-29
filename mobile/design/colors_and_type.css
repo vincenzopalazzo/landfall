@@ -1,0 +1,66 @@
+/* ============================================================
+   OCEAN Design System — Colors & Typography
+   ============================================================
+   Vendored from the Claude Design project "Ocean Lightning Mobile"
+   (see mobile/design/README.md). This is the source of truth for the
+   Compose theme in composeApp/.../theme/Color.kt + Type.kt — the mobile
+   app uses the [data-theme="dashboard"] block (dark + Bitcoin orange).
+============================================================ */
+
+:root {
+  /* ── Brand Colors (marketing / style-guide) ── */
+  --ocean-blue:           #1137F5;
+  --ocean-navy:           #02092D;
+  --ocean-teal:           #17D9D5;
+  --ocean-cyan:           #1489EE;
+
+  /* ── Bitcoin orange (dashboard accent) ── */
+  --btc-orange:           #f7931a;
+  --btc-orange-dim:       rgba(247, 147, 26, 0.08);
+  --btc-orange-glow:      rgba(247, 147, 26, 0.15);
+
+  /* ── Functional ── */
+  --success:   #22c55e;
+  --warning:   #FFB300;
+  --error:     #ef4444;
+
+  /* ── Typography ── */
+  --font-sans:    'InterVariable', 'InterDisplay', 'Inter', -apple-system, sans-serif;
+  --font-display: 'InterDisplay', 'InterVariable', 'Inter', -apple-system, sans-serif;
+  --font-mono:    'Geist Mono', 'SF Mono', ui-monospace, monospace;
+
+  /* ── Radii ── */
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-pill: 9999px;
+
+  /* ── Motion ── */
+  --ease-out:  cubic-bezier(0.16, 1, 0.3, 1);
+  --dur-fast:  0.15s;
+  --dur-base:  0.2s;
+  --dur-slow:  0.4s;
+}
+
+/* ── Dark / Dashboard theme (the mobile app surface) ── */
+[data-theme="dashboard"],
+[data-theme="dark"] {
+  --bg-primary:   #09090b;
+  --bg-secondary: #0f0f11;
+  --bg-tertiary:  #131316;
+  --bg-card:      #131316;
+  --bg-card-hover:#18181c;
+
+  --fg-primary:   #fafafa;
+  --fg-secondary: #a1a1aa;
+  --fg-tertiary:  #71717a;
+  --fg-muted:     #63636e;
+
+  --border:        #1e1e23;
+  --border-strong: #2a2a30;
+  --border-subtle: #16161a;
+
+  --accent:       var(--btc-orange);
+  --accent-dim:   var(--btc-orange-dim);
+  --accent-glow:  var(--btc-orange-glow);
+}
