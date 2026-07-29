@@ -30,6 +30,15 @@ The UI never talks to a node or the network directly — it renders against a
 - `CoreWalletRepository` — live data from the Rust core via UniFFI, provided per
   platform by `createCoreRepository` (`expect`/`actual`).
 
+On first launch, the Compose shell checks the core for a configured seed and
+shows the OCEAN onboarding flow when none exists. Creating a wallet generates
+and displays the 24-word recovery phrase for an explicit backup check; restoring
+accepts a 24-word phrase (including pasting the full phrase into the first
+field). Both operations use the same `oceanln-common` service path as the CLI.
+The live Receive and Send sheets likewise obtain invoices, addresses, offers,
+and payment results from that repository; unavailable destinations are never
+substituted with design fixtures.
+
 The Rust `OceanlnCore` object (`core/src/lib.rs`) is a thin adapter over
 `oceanln_common::service` — a 1-1 twin of `src-tauri/src/lib.rs`. The seed stays
 on device (read locally per call, signing keys wiped after use); it crosses the

@@ -32,15 +32,18 @@ uniffi::setup_scaffolding!();
 // plus a human message. Never carries the seed.
 #[derive(Debug, thiserror::Error, uniffi::Error)]
 pub enum CoreError {
-    #[error("{message}")]
-    Failed { status: u16, message: String },
+    // `message` collides with Kotlin's Throwable.message in UniFFI-generated
+    // exception subclasses. Keep the human-readable detail under a distinct
+    // field name so Android bindings compile without manual edits.
+    #[error("{detail}")]
+    Failed { status: u16, detail: String },
 }
 
 impl From<Error> for CoreError {
     fn from(e: Error) -> Self {
         CoreError::Failed {
             status: service::http_status(&e),
-            message: e.to_string(),
+            detail: e.to_string(),
         }
     }
 }

@@ -2,8 +2,10 @@ package xyz.ocean.mobile.sheets
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -22,21 +24,27 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import kotlin.random.Random
+import kotlinx.coroutines.launch
+import qrcode.QRCode
 import xyz.ocean.mobile.data.Dir
 import xyz.ocean.mobile.data.Rail
 import xyz.ocean.mobile.data.Tx
@@ -106,10 +114,20 @@ fun CopyButton(value: String) {
 @Composable
 fun ReceiveSheet(repo: WalletRepository, onClose: () -> Unit) {
     var tab by remember { mutableStateOf("offer") }
+    var invoice by remember { mutableStateOf<String?>(null) }
+    var error by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(tab, repo) {
+        if (tab == "invoice" && invoice == null) {
+            error = null
+            runCatching { repo.createInvoice(description = "OCEAN Lightning mobile") }
+                .onSuccess { invoice = it }
+                .onFailure { error = it.message ?: "Could not create an invoice." }
+        }
+    }
     val value = when (tab) {
         "offer" -> repo.offer
-        "invoice" -> "lnbc250u1p3xq9k2pp5w8r7n0q4m2v6x9k3a5d7f1g8h2j4l6n0p3r5t7v9x1z3b5"
-        else -> "bc1q9x7k2m4p8v3wq5r6t7y8u9i0a2s3d4f5g6h7j"
+        "invoice" -> invoice
+        else -> repo.miningAddress
     }
     val label = when (tab) { "offer" -> "Reusable BOLT12 offer"; "invoice" -> "Lightning invoice"; else -> "On-chain address" }
     SheetShell("Receive", full = false, onClose = onClose) {
@@ -123,20 +141,47 @@ fun ReceiveSheet(repo: WalletRepository, onClose: () -> Unit) {
         }
         Box(Modifier.fillMaxWidth().padding(vertical = 18.dp), contentAlignment = Alignment.Center) {
             Box(Modifier.size(190.dp).clip(RoundedCornerShape(8.dp)).background(Color(0xFFFAFAFA)), contentAlignment = Alignment.Center) {
-                OIcon("qr", 130, Color(0xFF0B0B0D))
+                if (value != null) DestinationQr(value, Modifier.size(166.dp))
+                else if (tab == "invoice" && error == null) {
+                    androidx.compose.material3.CircularProgressIndicator(color = OceanColors.accent)
+                } else {
+                    OIcon("warn", 42, OceanColors.fgMuted)
+                }
             }
         }
         Text(label.uppercase(), style = OceanType.sectionLabel)
         Spacer(Modifier.height(8.dp))
         Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(OceanColors.bgCard).border(1.dp, OceanColors.border, RoundedCornerShape(8.dp)).padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text(short(value, 26, 14), style = OceanType.monoSm.copy(fontSize = 11.5.sp), modifier = Modifier.weight(1f))
-            CopyButton(value)
+            Text(value?.let { short(it, 26, 14) } ?: error ?: "Unavailable", style = OceanType.monoSm.copy(fontSize = 11.5.sp), modifier = Modifier.weight(1f))
+            if (value != null) CopyButton(value)
         }
-        if (tab == "offer") {
+        if (tab == "offer" && value != null) {
             Spacer(Modifier.height(8.dp))
             Text("This is the offer registered with OCEAN — payouts to it are flagged as verified.", style = OceanType.bodySm.copy(color = OceanColors.fgMuted, fontSize = 11.5.sp))
         }
         Spacer(Modifier.height(20.dp))
+    }
+}
+
+@Composable
+private fun DestinationQr(value: String, modifier: Modifier = Modifier) {
+    val qrCode = remember(value) { QRCode.ofSquares().build(value) }
+    Canvas(modifier.aspectRatio(1f)) {
+        val modules = qrCode.rawData
+        val quietZone = 4
+        val dimension = modules.size + quietZone * 2
+        val cell = size.minDimension / dimension
+        modules.forEachIndexed { row, cells ->
+            cells.forEachIndexed { col, square ->
+                if (square.dark) {
+                    drawRect(
+                        color = Color.Black,
+                        topLeft = Offset((col + quietZone) * cell, (row + quietZone) * cell),
+                        size = Size(cell, cell),
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -258,9 +303,14 @@ fun SendSheet(repo: WalletRepository, usdUnit: Boolean, onClose: () -> Unit) {
     var value by remember { mutableStateOf("") }
     var amount by remember { mutableStateOf(0L) }
     var proof by remember { mutableStateOf("") }
+    var sendError by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
     val dest = DESTS.first { it.key == destKey }
-    val bal = remember { xyz.ocean.mobile.data.Mock.balances }
-    val srcBal = if (dest.onchain) bal.onchain else bal.channel
+    val bal by produceState<xyz.ocean.mobile.data.Balances?>(null, repo) {
+        this.value = runCatching { repo.balances() }.getOrNull()
+    }
+    val available = bal ?: xyz.ocean.mobile.data.Balances(0, 1, 0)
+    val srcBal = if (dest.onchain) available.onchain else available.channel
     val srcName = if (dest.onchain) "On-chain balance" else "Lightning channel"
     val fee = if (dest.onchain) 2400L else maxOf(1L, (amount * 0.0006).toLong())
 
@@ -283,7 +333,7 @@ fun SendSheet(repo: WalletRepository, usdUnit: Boolean, onClose: () -> Unit) {
                 Text("${commas(amount)} sats · ${fmtUsd(usd(amount))}", style = OceanType.monoSm.copy(color = OceanColors.fgTertiary))
                 Spacer(Modifier.height(20.dp))
                 Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(OceanColors.bgCard).border(1.dp, OceanColors.border, RoundedCornerShape(8.dp)).padding(13.dp)) {
-                    Text((if (dest.onchain) "TRANSACTION ID" else "PREIMAGE (PROOF OF PAYMENT)"), style = OceanType.monoXs.copy(letterSpacing = 0.6.sp))
+                    Text((if (dest.onchain) "TRANSACTION ID" else "PAYMENT REFERENCE"), style = OceanType.monoXs.copy(letterSpacing = 0.6.sp))
                     Spacer(Modifier.height(7.dp))
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
                         Text(short(proof, 14, 10), style = OceanType.monoSm.copy(fontSize = 11.5.sp), modifier = Modifier.weight(1f))
@@ -293,7 +343,7 @@ fun SendSheet(repo: WalletRepository, usdUnit: Boolean, onClose: () -> Unit) {
             }
         }
         1 -> SheetShell("Send bitcoin", full = false, onClose = onClose, right = { Dots(1) }, footer = {
-            Box(Modifier.weight(1f)) { OButton("Continue", iconRight = "chevR", enabled = value.trim().length > 4 || destKey == "exchange", fill = true) { step = 2 } }
+            Box(Modifier.weight(1f)) { OButton("Continue", iconRight = "chevR", enabled = value.trim().length > 4, fill = true) { step = 2 } }
         }) {
             FieldLabel("Destination")
             DestGrid(destKey) { destKey = it }
@@ -336,8 +386,18 @@ fun SendSheet(repo: WalletRepository, usdUnit: Boolean, onClose: () -> Unit) {
                 Box(Modifier.weight(1f)) {
                     OButton("Confirm", icon = "bolt", fill = true) {
                         step = 98
-                        proof = (1..64).map { "0123456789abcdef"[Random.nextInt(16)] }.joinToString("")
-                        step = 99
+                        sendError = null
+                        scope.launch {
+                            runCatching { repo.pay(value.trim(), amount, null) }
+                                .onSuccess {
+                                    proof = it.id
+                                    step = 99
+                                }
+                                .onFailure {
+                                    sendError = it.message ?: "Payment failed."
+                                    step = 3
+                                }
+                        }
                     }
                 }
             }) {
@@ -355,6 +415,10 @@ fun SendSheet(repo: WalletRepository, usdUnit: Boolean, onClose: () -> Unit) {
                 }
                 Spacer(Modifier.height(14.dp))
                 Text("≈ ${fmtUsd(usd(total))} · Bitcoin payments can't be reversed — check the destination.", style = OceanType.bodySm.copy(color = OceanColors.fgMuted, fontSize = 11.5.sp), modifier = Modifier.fillMaxWidth())
+                if (sendError != null) {
+                    Spacer(Modifier.height(10.dp))
+                    Text(sendError!!, style = OceanType.bodySm.copy(color = OceanColors.error))
+                }
                 Spacer(Modifier.height(12.dp))
             }
         }

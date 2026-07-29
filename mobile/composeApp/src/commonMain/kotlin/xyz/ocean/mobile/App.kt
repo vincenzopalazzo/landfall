@@ -17,6 +17,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -57,6 +58,7 @@ enum class Tab(val key: String, val label: String, val icon: String, val title: 
  */
 @Composable
 fun App(repo: WalletRepository = MockWalletRepository()) {
+    var onboarded by remember { mutableStateOf<Boolean?>(null) }
     var tab by remember { mutableStateOf(Tab.POOL) }
     var usdUnit by remember { mutableStateOf(false) }
     var fullMode by remember { mutableStateOf(false) }
@@ -64,6 +66,15 @@ fun App(repo: WalletRepository = MockWalletRepository()) {
     var sheet by remember { mutableStateOf<String?>(null) } // "send" | "receive"
 
     Box(Modifier.fillMaxSize().background(OceanColors.bgPrimary)) {
+        LaunchedEffect(repo) {
+            onboarded = runCatching { repo.isWalletConfigured() }.getOrDefault(false)
+        }
+        if (onboarded != true) {
+            if (onboarded == false) {
+                Onboarding(repo = repo, onComplete = { onboarded = true })
+            }
+            return@Box
+        }
         Column(Modifier.fillMaxSize()) {
             AppHeader(
                 title = tab.title,

@@ -17,7 +17,24 @@ actual fun createCoreRepository(appDataDir: String): WalletRepository? =
 private class CoreWalletRepository(private val core: OceanlnCore) : WalletRepository {
     // Relative times are computed against the device clock for live data.
     override val nowMs: Long = System.currentTimeMillis()
-    override val offer: String = core.status().offer ?: Mock.offer
+    override val offer: String? get() = core.status().offer
+    override val miningAddress: String? get() = core.status().miningAddress
+    override suspend fun isWalletConfigured(): Boolean = core.status().configured
+    override suspend fun generateWallet(): WalletSetup {
+        val result = core.generate()
+        return WalletSetup(result.mnemonic, result.miningAddress)
+    }
+    override suspend fun restoreWallet(mnemonic: String): WalletSetup {
+        val result = core.importSeed(mnemonic, false)
+        return WalletSetup(null, result.miningAddress)
+    }
+    override suspend fun createInvoice(amountSats: Long?, description: String?): String =
+        core.createInvoice(amountSats?.toULong(), description)
+
+    override suspend fun pay(payable: String, amountSats: Long?, note: String?): PaymentResult {
+        val result = core.pay(payable, amountSats?.toULong(), note)
+        return PaymentResult(result.id, result.amountSats.toLong())
+    }
 
     override suspend fun pool(): PoolStats = Mock.pool
     override suspend fun workers(): List<Worker> = Mock.workers
@@ -25,9 +42,9 @@ private class CoreWalletRepository(private val core: OceanlnCore) : WalletReposi
     override suspend fun balances(): Balances {
         val n = core.nodeStatus()
         return Balances(
-            channel = n.lightningTotalSats.toLong(),
+            channel = n.lightningSendableSats.toLong(),
             capacity = maxOf(n.lightningTotalSats.toLong(), 1L),
-            onchain = n.onchainTotalSats.toLong(),
+            onchain = n.onchainTrustedSats.toLong(),
         )
     }
 

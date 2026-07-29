@@ -4,6 +4,11 @@ package xyz.ocean.mobile.data
 // running node. `MockWalletRepository` serves this; `CoreWalletRepository` swaps
 // in live data from the Rust core.
 object Mock {
+    const val mnemonic =
+        "ocean ride lemon harbor velvet crouch target ozone sample dignity market frost " +
+            "april lunar gospel ranch oxygen ribbon kingdom vivid sketch almost dwarf brisk"
+    const val miningAddress = "bc1q9x7k2m4p8v3wq5r6t7y8u9i0a2s3d4f5g6h7j"
+    const val invoice = "lnbc250u1p3xq9k2pp5w8r7n0q4m2v6x9k3a5d7f1g8h2j4l6n0p3r5t7v9x1z3b5"
     // Fixed "now" anchor = design M_NOW (2026-06-05T14:10Z); relative times are
     // computed against it so the list labels match the handoff exactly.
     const val NOW_MS = 1_780_927_800_000L
