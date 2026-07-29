@@ -1,0 +1,44 @@
+name: iosApp
+options:
+  bundleIdPrefix: xyz.ocean
+  deploymentTarget:
+    iOS: "15.0"
+  createIntermediateGroups: true
+targets:
+  iosApp:
+    type: application
+    platform: iOS
+    sources:
+      - path: iosApp
+    info:
+      path: iosApp/Info.plist
+      properties:
+        CFBundleDisplayName: OCEAN Lightning
+        # Required by Compose Multiplatform for high-refresh-rate iPhones.
+        CADisableMinimumFrameDurationOnPhone: true
+        UIUserInterfaceStyle: Dark
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: xyz.ocean.mobile
+        GENERATE_INFOPLIST_FILE: NO
+        # Where embedAndSignAppleFrameworkForXcode drops ComposeApp.framework.
+        FRAMEWORK_SEARCH_PATHS:
+          - "$(SRCROOT)/../composeApp/build/xcode-frameworks/$(CONFIGURATION)/$(SDK_NAME)"
+        OTHER_LDFLAGS:
+          - "$(inherited)"
+          - "-framework"
+          - "ComposeApp"
+        # Let the Gradle run-script write the framework into the build dir.
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
+        # Simulator builds need no signing.
+        CODE_SIGNING_ALLOWED: NO
+    preBuildScripts:
+      - name: "Compile & embed Kotlin framework"
+        basedOnDependencyAnalysis: false
+        script: |
+          cd "$SRCROOT/.."
+          export JAVA_HOME=$(/usr/libexec/java_home -v 17)
+          ./gradlew :composeApp:embedAndSignAppleFrameworkForXcode

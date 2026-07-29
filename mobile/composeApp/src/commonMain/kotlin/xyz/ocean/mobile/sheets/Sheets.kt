@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -62,7 +63,7 @@ private fun Scrim(onClose: (() -> Unit)?) {
 }
 
 @Composable
-private fun SheetShell(title: String, full: Boolean, onClose: (() -> Unit)?, onBack: (() -> Unit)? = null, right: (@Composable () -> Unit)? = null, footer: (@Composable () -> Unit)? = null, body: @Composable () -> Unit) {
+private fun SheetShell(title: String, full: Boolean, onClose: (() -> Unit)?, onBack: (() -> Unit)? = null, right: (@Composable () -> Unit)? = null, footer: (@Composable RowScope.() -> Unit)? = null, body: @Composable () -> Unit) {
     Box(Modifier.fillMaxSize()) {
         Scrim(onClose)
         Column(

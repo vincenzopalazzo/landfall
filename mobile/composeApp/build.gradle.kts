@@ -1,4 +1,3 @@
-import org.jetbrains.compose.desktop.application.dsl.TargetFormat
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
@@ -43,7 +42,8 @@ kotlin {
             implementation(compose.uiTooling)
             implementation(libs.androidx.activity.compose)
             // UniFFI's generated Kotlin bindings load the native lib via JNA.
-            implementation(libs.jna) { artifact { type = "aar" } }
+            // The `@aar` classifier pulls the Android artifact (bundles the .so loader).
+            implementation("net.java.dev.jna:jna:5.15.0@aar")
         }
     }
 }

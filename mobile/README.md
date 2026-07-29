@@ -59,13 +59,29 @@ gradle wrapper             # once, to fetch the wrapper jar (no wrapper jar is c
 
 `ANDROID_HOME` must point at the SDK (add a `local.properties` with `sdk.dir=…`).
 
-### 3. iOS app
+### 3. iOS app (simulator)
 
-Open `iosApp/` in Xcode, add the `ComposeApp` framework (from
-`./gradlew :composeApp:embedAndSignAppleFrameworkForXcode`) and
-`core/generated/OceanlnMobileCore.xcframework`, then Run. The `.xcodeproj` is not
-committed — create it with the standard Compose Multiplatform template or add the
-two `iosApp/iosApp/*.swift` sources + `Info.plist` to a new SwiftUI app target.
+The Xcode project is generated from `iosApp/project.yml` with
+[xcodegen](https://github.com/yonyz/xcodegen) (`brew install xcodegen`); it wires
+a build phase that runs `:composeApp:embedAndSignAppleFrameworkForXcode`, so no
+manual framework linking. Requires **JDK 17** (`JAVA_HOME`) and Gradle via the
+committed wrapper.
+
+```sh
+cd mobile/iosApp
+xcodegen generate
+SIM=$(xcrun simctl list devices available | grep -m1 'iPhone 16 Pro' | grep -oE '[0-9A-F-]{36}')
+open -a Simulator
+xcodebuild -project iosApp.xcodeproj -scheme iosApp -configuration Debug \
+  -sdk iphonesimulator -destination "platform=iOS Simulator,id=$SIM" \
+  -derivedDataPath build build
+xcrun simctl install booted build/Build/Products/Debug-iphonesimulator/iosApp.app
+xcrun simctl launch booted xyz.ocean.mobile
+```
+
+Verified running on the iPhone 16 Pro simulator (Xcode 26, iOS 18) — Pool, Wallet,
+Activity, Node all render on the mock repository. The iOS build needs no Rust
+xcframework yet (iOS uses the mock repo until the core binding lands — see below).
 
 ## Status (this increment = walking skeleton)
 
@@ -77,13 +93,14 @@ Verified here (2026-07-29, this machine):
   the brainstorm's biggest open risk: no thin-surface fallback is needed on iOS.
 - ✅ UniFFI `generate` emits Kotlin + Swift bindings for all 12 core methods.
 
-Laid down as reviewed source, **not** compiled here (this box has no Gradle /
-Android SDK): the Compose Multiplatform app, the Android/iOS hosts, Gradle
-config. Build them on a provisioned machine per the steps above.
+- ✅ **The Compose Multiplatform app builds and runs on the iOS simulator**
+  (iPhone 16 Pro, Xcode 26 / iOS 18) — Pool, Wallet, Activity, Node all render
+  1-1 with the design on the mock repository.
 
-Screens implemented 1-1: **Pool**, **Wallet** (simple + full). **Activity**,
-**Node**, and the **Send / Receive / Transaction-detail** sheets are implemented
-and wired into the shell; polish + real-data wiring continues in follow-ups.
+Screens implemented 1-1: **Pool**, **Wallet** (simple + full), **Activity**,
+**Node**, plus the **Send / Receive / Transaction-detail** sheets. iOS currently
+runs on the mock repository (the core binding is the next step, below); Android
+wires the live Rust core via the generated JNA bindings.
 
 ## Open follow-ups
 

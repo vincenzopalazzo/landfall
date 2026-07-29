@@ -10,7 +10,8 @@ composeApp/src/androidMain/jniLibs/
 composeApp/src/androidMain/kotlin/xyz/ocean/mobile/core/
 core/generated/
 
-# Xcode
+# Xcode — the project is generated from iosApp/project.yml via `xcodegen generate`
+iosApp/*.xcodeproj/
 iosApp/**/xcuserdata/
 iosApp/**/*.xcworkspace/xcuserdata/
 *.xcuserstate
