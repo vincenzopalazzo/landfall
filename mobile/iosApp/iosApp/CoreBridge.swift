@@ -17,38 +17,78 @@ import ComposeApp
 //     at this boundary.
 //   • `-1` is the agreed "absent" sentinel for amounts and block heights, since
 //     the Objective-C export has no optional Int64 in these positions.
+enum CoreBridgeSetupError: Error, LocalizedError {
+    case noDocumentsDirectory
+
+    var errorDescription: String? {
+        switch self {
+        case .noDocumentsDirectory:
+            return "The app's private storage directory is unavailable, so the "
+                + "wallet cannot be opened safely."
+        }
+    }
+}
+
 final class CoreBridge: WalletCoreBridge {
     private let core: OceanlnCore
 
     /// Roots the core at the app's private Documents dir; the seed file lives
     /// at `<dir>/seed`, created 0600 by oceanln-common on first write.
-    init() {
-        let base = FileManager.default
+    ///
+    /// Two deliberate choices here, both about not losing the user's wallet:
+    ///
+    /// - **No temp-directory fallback.** `NSTemporaryDirectory()` is purgeable
+    ///   by the OS, so a seed written there can vanish between launches. If the
+    ///   Documents directory cannot be resolved something is deeply wrong with
+    ///   the container, and failing loudly is the only safe answer.
+    /// - **Excluded from iCloud/iTunes backup.** Documents is backed up by
+    ///   default; a recovery phrase silently syncing off-device is not what a
+    ///   self-custody wallet should do. Recovery is the 24 words, not a backup.
+    init() throws {
+        guard let base = FileManager.default
             .urls(for: .documentDirectory, in: .userDomainMask)
             .first?
             .appendingPathComponent("ocean")
-        let dir = base?.path ?? NSTemporaryDirectory() + "ocean"
-        self.core = OceanlnCore(appDataDir: dir)
+        else {
+            throw CoreBridgeSetupError.noDocumentsDirectory
+        }
+
+        try FileManager.default.createDirectory(
+            at: base, withIntermediateDirectories: true
+        )
+        var dir = base
+        var resourceValues = URLResourceValues()
+        resourceValues.isExcludedFromBackup = true
+        // Best-effort: on a volume that does not support the attribute this is
+        // not a reason to refuse to open the wallet.
+        try? dir.setResourceValues(resourceValues)
+
+        self.core = OceanlnCore(appDataDir: base.path)
     }
 
     // ── synchronous: local seed-file reads ──
 
+    // Note `core.status()` returns `configured: false` for a missing seed
+    // rather than throwing, so a thrown error here is a genuine read failure.
+    // It is reported, never flattened into a plausible-looking value: the
+    // Kotlin cache stores results, and a fabricated "no address, no offer"
+    // would then be served as truth until the entry expired.
     func status() -> BridgeStatus {
-        // A failure here means the seed file is unreadable. Reporting
-        // "not configured" would invite the user to generate a second seed, so
-        // report no mining address / no offer but keep `configured` honest by
-        // rethrowing through a crash-free default only when truly absent.
         do {
             let s = try core.status()
             return BridgeStatus(
                 configured: s.configured,
                 miningAddress: s.miningAddress,
-                offer: s.offer
+                offer: s.offer,
+                error: nil
             )
         } catch {
-            // Surface as "configured" so the app never offers wallet creation
-            // on a read error; the first real operation will report the error.
-            return BridgeStatus(configured: true, miningAddress: nil, offer: nil)
+            return BridgeStatus(
+                configured: false,
+                miningAddress: nil,
+                offer: nil,
+                error: Self.describe(error)
+            )
         }
     }
 
@@ -56,32 +96,51 @@ final class CoreBridge: WalletCoreBridge {
         core.backupConfirmed()
     }
 
-    func confirmBackup() {
-        try? core.confirmBackup()
+    /// Returns an error message, or nil on success. A silently-dropped failure
+    /// here would strand the user: the app would continue as if the backup were
+    /// recorded, then demand the phrase again on next launch.
+    func confirmBackup() -> String? {
+        do {
+            try core.confirmBackup()
+            return nil
+        } catch {
+            return Self.describe(error)
+        }
     }
 
     func generate() -> BridgeWalletSetup {
         do {
             let g = try core.generate()
-            return BridgeWalletSetup(mnemonic: g.mnemonic, miningAddress: g.miningAddress)
+            return BridgeWalletSetup(
+                mnemonic: g.mnemonic, miningAddress: g.miningAddress, error: nil
+            )
         } catch {
-            // An empty mnemonic fails the Kotlin 24-word guard, which shows the
-            // error state instead of walking the user into the phrase screen.
-            return BridgeWalletSetup(mnemonic: nil, miningAddress: "")
+            // Reports the real reason -- "wallet already exists" reads very
+            // differently to the user than "phrase could not be read back".
+            return BridgeWalletSetup(
+                mnemonic: nil, miningAddress: "", error: Self.describe(error)
+            )
         }
     }
 
     func importSeed(mnemonic: String) -> BridgeWalletSetup {
         do {
             let i = try core.importSeed(mnemonic: mnemonic, force: false)
-            return BridgeWalletSetup(mnemonic: nil, miningAddress: i.miningAddress)
+            return BridgeWalletSetup(mnemonic: nil, miningAddress: i.miningAddress, error: nil)
         } catch {
-            return BridgeWalletSetup(mnemonic: nil, miningAddress: "")
+            // Usually an invalid phrase or checksum; the user needs to be told which.
+            return BridgeWalletSetup(
+                mnemonic: nil, miningAddress: "", error: Self.describe(error)
+            )
         }
     }
 
-    func revealSeed() -> String {
-        (try? core.revealSeed().mnemonic) ?? ""
+    func revealSeed() -> BridgeSeed {
+        do {
+            return BridgeSeed(mnemonic: try core.revealSeed().mnemonic, error: nil)
+        } catch {
+            return BridgeSeed(mnemonic: nil, error: Self.describe(error))
+        }
     }
 
     func payableAmountSats(payable: String) -> KotlinLong? {
@@ -147,8 +206,13 @@ final class CoreBridge: WalletCoreBridge {
         description: String,
         onDone: @escaping (String?, String?) -> Void
     ) {
-        // -1 / "" are the bridge's "absent" encodings for these optionals.
-        let amount: UInt64? = amountSats >= 0 ? UInt64(amountSats) : nil
+        // NONE (-1) is the only valid "absent" encoding. Any other negative is
+        // a caller bug, and quietly reinterpreting it as "amountless" would
+        // mint an invoice for the wrong thing.
+        guard let amount = Self.optionalAmount(amountSats) else {
+            onDone(nil, "invalid invoice amount: \(amountSats)")
+            return
+        }
         let desc: String? = description.isEmpty ? nil : description
         run(onDone) { try await self.core.createInvoice(amountSats: amount, description: desc) }
     }
@@ -159,9 +223,14 @@ final class CoreBridge: WalletCoreBridge {
         note: String?,
         onDone: @escaping (BridgePayment?, String?) -> Void
     ) {
-        // A fixed-amount invoice arrives as -1: the amount is already encoded in
-        // the invoice and must not be overridden here.
-        let amount: UInt64? = amountSats >= 0 ? UInt64(amountSats) : nil
+        // A fixed-amount invoice arrives as NONE (-1): the amount is already
+        // encoded in the invoice and must not be overridden here. Any other
+        // negative is rejected rather than silently becoming "let the invoice
+        // decide" -- on the send path that is real money.
+        guard let amount = Self.optionalAmount(amountSats) else {
+            onDone(nil, "invalid payment amount: \(amountSats)")
+            return
+        }
         run(onDone) {
             let p = try await self.core.pay(payable: payable, amountSats: amount, note: note)
             return BridgePayment(id: p.id, amountSats: Int64(clamping: p.amountSats))
@@ -217,6 +286,16 @@ final class CoreBridge: WalletCoreBridge {
                 await MainActor.run { onDone(nil, Self.describe(error)) }
             }
         }
+    }
+
+    /// Decode the bridge's amount encoding: `NONE` (-1) means absent, a
+    /// non-negative value is the amount, and anything else is invalid.
+    /// Returns `.some(nil)` for absent, `.some(.some(v))` for a value, and
+    /// `nil` for invalid.
+    private static func optionalAmount(_ raw: Int64) -> UInt64?? {
+        if raw == -1 { return .some(nil) }
+        if raw >= 0 { return .some(UInt64(raw)) }
+        return nil
     }
 
     /// `CoreError.Failed` carries the human-readable detail from

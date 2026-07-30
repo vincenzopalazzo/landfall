@@ -37,7 +37,16 @@ class MainActivity : ComponentActivity() {
                         contentAlignment = Alignment.Center,
                     ) {
                         Text(
-                            "OCEAN Lightning could not load its secure wallet core. Reinstall the app or contact support.\n\n${error.message.orEmpty()}",
+                            // Never advise reinstalling: the seed lives in this app's private
+                            // files dir, so a reinstall deletes the wallet. The phrase is
+                            // the only recovery path and we must not push the user away
+                            // from it.
+                            "OCEAN Lightning could not load its secure wallet core.\n\n" +
+                                error.message.orEmpty() +
+                                "\n\nYour wallet has not been changed. Restart the app and try " +
+                                "again. Do not reinstall — that would erase the wallet stored " +
+                                "on this device. If it keeps failing, restore from your 24-word " +
+                                "recovery phrase on another device.",
                             style = OceanType.body.copy(color = OceanColors.error),
                         )
                     }

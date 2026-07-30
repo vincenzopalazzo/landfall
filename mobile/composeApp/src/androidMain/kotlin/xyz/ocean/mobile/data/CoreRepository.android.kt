@@ -19,6 +19,18 @@ actual fun createCoreRepository(appDataDir: String): WalletRepository =
 /** Rows requested per activity refresh. */
 private const val ACTIVITY_LIMIT: UShort = 200u
 
+/**
+ * Convert to the unsigned type the core expects, refusing negatives.
+ *
+ * `Long.toULong()` wraps: `-1` becomes 18446744073709551615. At a money
+ * boundary that turns a caller bug into an absurd amount handed to the node,
+ * so reject it here instead.
+ */
+private fun Long.toUnsignedSats(what: String): ULong {
+    require(this >= 0) { "$what cannot be negative (got $this)" }
+    return toULong()
+}
+
 private class CoreWalletRepository(private val core: OceanlnCore) : WalletRepository {
     // Read per access, not captured once: a cached "now" freezes every
     // relative timestamp in the app at the moment the repo was constructed.
@@ -64,10 +76,10 @@ private class CoreWalletRepository(private val core: OceanlnCore) : WalletReposi
         core.payableAmountSats(payable)?.toLong()
 
     override suspend fun createInvoice(amountSats: Long?, description: String?): String =
-        core.createInvoice(amountSats?.toULong(), description)
+        core.createInvoice(amountSats?.toUnsignedSats("invoice amount"), description)
 
     override suspend fun pay(payable: String, amountSats: Long?, note: String?): PaymentResult {
-        val result = core.pay(payable, amountSats?.toULong(), note)
+        val result = core.pay(payable, amountSats?.toUnsignedSats("payment amount"), note)
         return PaymentResult(result.id, result.amountSats.toLong())
     }
 

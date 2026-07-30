@@ -176,6 +176,24 @@ Verified running on the iPhone 16 Pro simulator (Xcode 26): real seed generation
 a real BOLT12 offer + BOLT11 invoice + BIP84 address from the live node, and live
 pool stats from ocean.xyz.
 
+### Handling a wallet's failure modes
+
+A few conventions this code holds to, because the usual defaults are wrong when
+the data is someone's money:
+
+- **Never advise a reinstall.** The seed lives in the app's private container;
+  reinstalling deletes it. Error screens say the wallet is unchanged and point
+  at the recovery phrase instead.
+- **The backup marker never outlives its seed.** `generate`/`import_seed` clear
+  it, so a replaced seed can't inherit "the user already wrote this down" and
+  skip the phrase screen.
+- **Errors are never flattened into values.** The Swift bridge cannot `throw`
+  across the Objective-C export, so every sync call carries an `error` field the
+  Kotlin adapter rethrows. Returning a degraded value instead would let the
+  cache store a failure as truth for a whole TTL.
+- **No silent unsigned wrapping at money boundaries.** `Long.toULong()` turns
+  `-1` into 1.8e19; both platforms reject negative amounts instead.
+
 ## Status (this increment = walking skeleton)
 
 Verified here (2026-07-29, this machine):
@@ -211,9 +229,12 @@ the live Rust core via the generated JNA bindings; iOS awaits the binding below.
 - **iOS device builds.** Only the simulator slice is exercised locally; the
   `aarch64-apple-ios` archive is built by `build-ios.sh` and is on the link path,
   but has not been run on hardware.
-- **Seed storage.** The core uses a file `SeedSource` under the app-data dir.
-  Move to iOS Keychain / Android Keystore (a new `SeedSource` variant — no
-  call-site changes).
+- **Seed storage.** The core uses a file `SeedSource` under the app-data dir,
+  created `0600`. On iOS that directory is marked `isExcludedFromBackup`, so the
+  phrase does not sync to iCloud, and there is deliberately no temp-directory
+  fallback (it is purgeable — a seed written there can vanish). Still to do:
+  move to iOS Keychain / Android Keystore as a new `SeedSource` variant, which
+  needs no call-site changes.
 - **Per-worker list.** OCEAN's public API reports a live worker *count*
   (`active_worker_count`) but no per-worker rows, so the design's worker list is
   not rendered. It needs an upstream endpoint, not a client change.

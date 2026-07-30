@@ -32,8 +32,11 @@ targets:
         # The generated Swift glue imports the C FFI through this modulemap.
         SWIFT_INCLUDE_PATHS:
           - "$(SRCROOT)/../core/generated/swift"
-        LIBRARY_SEARCH_PATHS:
+        # Per-SDK, not a fixed order: a flat list would let a device build link
+        # the simulator archive (or vice versa) depending on which resolved first.
+        LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]:
           - "$(SRCROOT)/../core/target/aarch64-apple-ios-sim/release"
+        LIBRARY_SEARCH_PATHS[sdk=iphoneos*]:
           - "$(SRCROOT)/../core/target/aarch64-apple-ios/release"
         OTHER_LDFLAGS:
           - "$(inherited)"
@@ -43,8 +46,9 @@ targets:
           - "-loceanln_mobile_core"
         # Let the Gradle run-script write the framework into the build dir.
         ENABLE_USER_SCRIPT_SANDBOXING: NO
-        # Simulator builds need no signing.
-        CODE_SIGNING_ALLOWED: NO
+        # Simulator builds need no signing. Scoped to the simulator SDK so this
+        # does not silently disable signing for device/archive builds too.
+        CODE_SIGNING_ALLOWED[sdk=iphonesimulator*]: NO
     preBuildScripts:
       - name: "Compile & embed Kotlin framework"
         basedOnDependencyAnalysis: false

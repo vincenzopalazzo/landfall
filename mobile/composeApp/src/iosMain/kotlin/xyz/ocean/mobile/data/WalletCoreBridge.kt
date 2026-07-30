@@ -21,13 +21,20 @@ package xyz.ocean.mobile.data
  */
 interface WalletCoreBridge {
     // ── synchronous: local seed-file reads, no network ──
+    //
+    // These can't `throw` across the Objective-C export, so each carries an
+    // `error` field instead. The adapter turns a non-null error into an
+    // exception. That matters more than it looks: without it the bridge would
+    // return a *degraded value* on failure, and the cache would happily store
+    // that as truth for the whole status TTL.
     /** `configured`, `miningAddress`, `offer` — from the on-device seed file. */
     fun status(): BridgeStatus
     fun backupConfirmed(): Boolean
-    fun confirmBackup()
+    /** Returns an error message, or null on success. */
+    fun confirmBackup(): String?
     fun generate(): BridgeWalletSetup
     fun importSeed(mnemonic: String): BridgeWalletSetup
-    fun revealSeed(): String
+    fun revealSeed(): BridgeSeed
     /** Fixed BOLT11 amount in sats, or null when the payable is amountless. */
     fun payableAmountSats(payable: String): Long?
 
@@ -51,11 +58,20 @@ data class BridgeStatus(
     val configured: Boolean,
     val miningAddress: String?,
     val offer: String?,
+    /** Non-null when the seed file could not be read; the other fields are then meaningless. */
+    val error: String? = null,
 )
 
 data class BridgeWalletSetup(
     val mnemonic: String?,
     val miningAddress: String,
+    val error: String? = null,
+)
+
+/** `revealSeed` result. Carries the error rather than an empty phrase. */
+data class BridgeSeed(
+    val mnemonic: String?,
+    val error: String? = null,
 )
 
 data class BridgeNodeStatus(

@@ -412,13 +412,32 @@ impl OceanlnCore {
 
     /// Generate a fresh 24-word seed, persist it, and return the phrase once.
     pub fn generate(&self) -> CoreResult<GenerateResp> {
-        Ok(service::generate(&self.seed, &self.default_path)?.into())
+        let resp = service::generate(&self.seed, &self.default_path)?;
+        self.clear_backup_marker();
+        Ok(resp.into())
     }
 
     /// Import an existing 24-word phrase. `force` overwrites an existing seed.
     pub fn import_seed(&self, mnemonic: String, force: bool) -> CoreResult<ImportResp> {
         let mut mnemonic = mnemonic;
-        Ok(service::import(&self.seed, &self.default_path, &mut mnemonic, force)?.into())
+        let resp = service::import(&self.seed, &self.default_path, &mut mnemonic, force)?;
+        self.clear_backup_marker();
+        Ok(resp.into())
+    }
+
+    /// Drop the backup acknowledgement whenever the seed it referred to is
+    /// replaced.
+    ///
+    /// The marker means "the user wrote *this* phrase down". Letting it outlive
+    /// its seed is a fund-loss trap: the next launch would see
+    /// `configured && backup_confirmed`, skip onboarding entirely, and the user
+    /// would never be shown the phrase for the wallet they now actually hold.
+    /// Callers re-confirm right after (a restored phrase is already in hand).
+    fn clear_backup_marker(&self) {
+        // Best-effort: a marker we failed to remove only means the user is
+        // asked to confirm a backup they already made, which is the safe way
+        // for this to fail.
+        let _ = std::fs::remove_file(&self.backup_marker);
     }
 
     /// Re-reveal the stored recovery phrase (user-initiated backup view).
@@ -468,6 +487,29 @@ mod tests {
         assert!(!core.backup_confirmed());
         core.confirm_backup().expect("confirm backup");
         assert!(OceanlnCore::new(path).backup_confirmed());
+    }
+
+    #[test]
+    fn replacing_the_seed_clears_the_backup_marker() {
+        // Regression: a marker that outlives its seed makes the next launch
+        // skip onboarding, so the user is never shown the phrase for the
+        // wallet they now hold.
+        let dir = tempfile::tempdir().expect("temp dir");
+        let core = OceanlnCore::new(dir.path().to_string_lossy().into_owned());
+
+        core.generate().expect("generate");
+        core.confirm_backup().expect("confirm backup");
+        assert!(core.backup_confirmed());
+
+        // A different phrase replaces the seed; the old acknowledgement must go.
+        let other = "abandon abandon abandon abandon abandon abandon abandon abandon \
+                     abandon abandon abandon abandon abandon abandon abandon abandon \
+                     abandon abandon abandon abandon abandon abandon abandon art";
+        core.import_seed(other.to_string(), true).expect("import");
+        assert!(
+            !core.backup_confirmed(),
+            "backup marker must not survive a seed replacement"
+        );
     }
 
     #[test]

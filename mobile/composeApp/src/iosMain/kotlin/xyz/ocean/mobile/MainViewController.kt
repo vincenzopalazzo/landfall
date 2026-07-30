@@ -37,7 +37,9 @@ fun MainViewController(bridge: WalletCoreBridge) = ComposeUIViewController {
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
-                    "OCEAN Lightning could not load its secure wallet core.\n\n${error.message.orEmpty()}",
+                    "OCEAN Lightning could not load its secure wallet core.\n\n" +
+                        error.message.orEmpty() +
+                        "\n\nYour wallet has not been changed. Restart the app and try again.",
                     style = OceanType.body.copy(color = OceanColors.error),
                 )
             }

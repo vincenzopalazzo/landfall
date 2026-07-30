@@ -39,7 +39,12 @@ private class CoreBridgeRepository(private val bridge: WalletCoreBridge) : Walle
 
     // One call serves offer / miningAddress / isWalletConfigured — those are
     // interface defaults over this.
+    //
+    // Throwing on `error` is what keeps a failed read out of the cache: the
+    // cache stores results, not exceptions, so a transient seed-file error
+    // retries instead of being served as "no address, no offer" for the TTL.
     override suspend fun status(): WalletStatus = bridge.status().let {
+        it.error?.let { msg -> throw CoreBridgeException(msg) }
         WalletStatus(
             configured = it.configured,
             miningAddress = it.miningAddress,
@@ -48,14 +53,24 @@ private class CoreBridgeRepository(private val bridge: WalletCoreBridge) : Walle
     }
 
     override suspend fun isBackupConfirmed(): Boolean = bridge.backupConfirmed()
-    override suspend fun confirmBackup() = bridge.confirmBackup()
-    override suspend fun revealSeed(): String = bridge.revealSeed()
 
-    override suspend fun generateWallet(): WalletSetup =
-        bridge.generate().let { WalletSetup(it.mnemonic, it.miningAddress) }
+    override suspend fun confirmBackup() {
+        bridge.confirmBackup()?.let { throw CoreBridgeException(it) }
+    }
+
+    override suspend fun revealSeed(): String = bridge.revealSeed().let {
+        it.error?.let { msg -> throw CoreBridgeException(msg) }
+        it.mnemonic ?: throw CoreBridgeException("the wallet core returned no recovery phrase")
+    }
+
+    override suspend fun generateWallet(): WalletSetup = bridge.generate().let {
+        it.error?.let { msg -> throw CoreBridgeException(msg) }
+        WalletSetup(it.mnemonic, it.miningAddress)
+    }
 
     override suspend fun restoreWallet(mnemonic: String): WalletSetup {
         val result = bridge.importSeed(mnemonic)
+        result.error?.let { throw CoreBridgeException(it) }
         completeWalletSetup()
         // A restored phrase is already in the user's hands; nothing to write down.
         bridge.confirmBackup()
