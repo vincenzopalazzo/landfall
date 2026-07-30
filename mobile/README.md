@@ -226,9 +226,26 @@ the live Rust core via the generated JNA bindings; iOS awaits the binding below.
   implementation and a mapper. [gobley](https://github.com/gobley/gobley)
   (KMP-native UniFFI bindings) would generate one Kotlin binding for both JVM
   and Native and delete `WalletCoreBridge` + `CoreBridge.swift` entirely.
-- **iOS device builds.** Only the simulator slice is exercised locally; the
-  `aarch64-apple-ios` archive is built by `build-ios.sh` and is on the link path,
-  but has not been run on hardware.
+- **iOS device builds** are wired and verified on an iPhone 14 Pro Max. Export
+  your Team ID first — it is deliberately not committed:
+
+  ```sh
+  export OCEAN_DEVELOPMENT_TEAM=XXXXXXXXXX
+  cd mobile/core && cargo build --release --target aarch64-apple-ios --lib
+  cd ../iosApp && xcodegen generate
+  xcodebuild -project iosApp.xcodeproj -scheme iosApp -configuration Debug \
+    -sdk iphoneos -destination "platform=iOS,id=<device-udid>" \
+    -derivedDataPath build-device -allowProvisioningUpdates build
+  xcrun devicectl device install app --device <device-udid> \
+    build-device/Build/Products/Debug-iphoneos/iosApp.app
+  ```
+
+  The core is linked by **explicit `.a` path per SDK**, never `-l<name>`: the
+  crate emits both `staticlib` and `cdylib`, and with the target dir on the
+  library search path the linker picks the `.dylib`. That still runs on the
+  simulator, which shares the Mac's filesystem, so the app silently loads the
+  core from the developer's machine — and dies on a real device with "Library
+  not loaded".
 - **Seed storage.** The core uses a file `SeedSource` under the app-data dir,
   created `0600`. On iOS that directory is marked `isExcludedFromBackup`, so the
   phrase does not sync to iCloud, and there is deliberately no temp-directory
