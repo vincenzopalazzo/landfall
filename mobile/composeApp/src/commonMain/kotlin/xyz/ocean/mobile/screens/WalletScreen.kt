@@ -18,7 +18,10 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -54,9 +57,28 @@ fun WalletScreen(
     onReceive: () -> Unit,
     onSeeAll: () -> Unit,
 ) {
-    val bal by produceState<Balances?>(initialValue = null, repo) { value = repo.balances() }
-    val txs by produceState<List<Tx>>(initialValue = emptyList(), repo) { value = repo.activity() }
-    val b = bal ?: return
+    var retry by remember { mutableStateOf(0) }
+    // Loaded together so the screen has one honest state: a node call can take
+    // seconds, and `bal ?: return` used to render an empty screen with no
+    // spinner and no error for the whole wait.
+    val loaded by produceState<Result<Pair<Balances, List<Tx>>>?>(null, repo, retry) {
+        value = runCatching {
+            if (retry > 0) repo.refresh()
+            repo.balances() to repo.activity()
+        }
+    }
+    val result = loaded
+    if (result == null) {
+        Box(Modifier.fillMaxWidth().padding(48.dp), contentAlignment = Alignment.Center) {
+            androidx.compose.material3.CircularProgressIndicator(color = OceanColors.accent)
+        }
+        return
+    }
+    if (result.isFailure) {
+        LoadFailure(result.exceptionOrNull()?.message) { retry += 1 }
+        return
+    }
+    val (b, txs) = result.getOrThrow()
     val recent = txs.take(if (fullMode) 5 else 3)
     val shown = if (fullMode) b.total else b.channel
 

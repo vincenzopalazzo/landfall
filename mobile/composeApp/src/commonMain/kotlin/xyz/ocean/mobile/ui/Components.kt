@@ -77,7 +77,15 @@ fun Pill(tone: PillTone, text: String, leading: String? = null) {
         horizontalArrangement = Arrangement.spacedBy(5.dp),
     ) {
         if (leading != null) OIcon(leading, 11, fg)
-        Text(text.uppercase(), style = OceanType.pill.copy(color = fg))
+        // A pill is a single-line badge: without this a long label ("FORMAT
+        // MATCH") wrapped and the rounded background rendered as a blob.
+        Text(
+            text.uppercase(),
+            style = OceanType.pill.copy(color = fg),
+            maxLines = 1,
+            softWrap = false,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 
@@ -173,8 +181,17 @@ fun TxRow(t: Tx, usdUnit: Boolean, nowMs: Long, compact: Boolean = false, onOpen
         }
         Column(Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                Text(t.party, style = OceanType.body.copy(fontWeight = FontWeight.SemiBold), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                if (oc) Pill(PillTone.ACC, "Format match")
+                // `weight(1f, fill = false)` so the counterparty name yields
+                // width to the badge instead of squeezing it to an ellipsis:
+                // both were unweighted, so the row overflowed and the pill lost.
+                Text(
+                    t.party,
+                    style = OceanType.body.copy(fontWeight = FontWeight.SemiBold),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+                if (oc) Pill(PillTone.ACC, "match")
             }
             if (!compact) {
                 val sub = (if (t.rail == xyz.ocean.mobile.data.Rail.LN) "Lightning" else "On-chain") +
