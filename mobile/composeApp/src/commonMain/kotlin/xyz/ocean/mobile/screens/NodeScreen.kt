@@ -81,7 +81,13 @@ fun NodeScreen(repo: WalletRepository, usdUnit: Boolean, fullMode: Boolean, onTo
 
         SectionLabel("Payouts")
         SettingsGroup {
-            SettingRow("offer", "OCEAN payout offer", offer?.let { short(it, 14, 10) } ?: "not created yet")
+            // "This device's offer", not "the OCEAN payout offer": on a restored
+            // wallet this is a freshly minted offer, not necessarily the one
+            // OCEAN is configured to pay.
+            SettingRow(
+                "offer", "This device's payout offer",
+                offer?.let { short(it, 14, 10) } ?: "not created yet",
+            )
             SettingRow("shield", "Payout verification", "Offer + payer-note format check")
         }
 

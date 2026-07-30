@@ -164,7 +164,17 @@ fun ReceiveSheet(repo: WalletRepository, onClose: () -> Unit) {
         }
         if (tab == "offer" && value != null) {
             Spacer(Modifier.height(8.dp))
-            Text("This is the offer registered with OCEAN — payouts to it are flagged as verified.", style = OceanType.bodySm.copy(color = OceanColors.fgMuted, fontSize = 11.5.sp))
+            // Deliberately not "this is the offer registered with OCEAN". The
+            // primary offer is a local file beside the seed, not derived from
+            // it, and Lexe does not record the offer on inbound offer payments
+            // — so a wallet restored onto a new device mints a *different*
+            // offer and cannot tell which one OCEAN actually has.
+            Text(
+                "Reusable offer from your node. OCEAN pays to the offer you registered with " +
+                    "them — if you restored this wallet, check this matches the one on your " +
+                    "other device before relying on it.",
+                style = OceanType.bodySm.copy(color = OceanColors.fgMuted, fontSize = 11.5.sp),
+            )
         }
         Spacer(Modifier.height(20.dp))
     }

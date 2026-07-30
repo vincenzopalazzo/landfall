@@ -32,6 +32,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
@@ -273,25 +274,70 @@ private fun ConfirmPhrase(words: List<String>, answers: MutableList<String>) {
     }
 }
 
+/**
+ * Route one recovery-phrase field's input into the phrase slots.
+ *
+ * Split out of the composable so it can be tested: getting this wrong silently
+ * corrupts the one thing standing between the user and their funds.
+ *
+ * Two properties matter:
+ *
+ * - **Multi-word input fills from [index] onward, not from slot 0.** Pasting a
+ *   phrase into any field works, and the tail is never dropped. The previous
+ *   version only handled `index == 0`, so a paste into any other field dumped
+ *   the entire phrase into that single box.
+ * - **Nothing is silently discarded.** `onValueChange` fires per input event,
+ *   not per paste — an iOS keyboard accepting a predictive-text suggestion
+ *   inserts a trailing space, which lands here as multi-word input mid-entry.
+ *   Blank fragments are dropped rather than written as empty slots, so a
+ *   trailing space cannot blank the next word.
+ */
+internal fun distributePhraseInput(words: MutableList<String>, index: Int, raw: String) {
+    val parts = raw.lowercase().split(Regex("\\s+")).filter { it.isNotBlank() }
+    if (parts.size > 1) {
+        parts.take(words.size - index).forEachIndexed { offset, word ->
+            words[index + offset] = word
+        }
+    } else {
+        words[index] = parts.firstOrNull().orEmpty()
+    }
+}
+
 @Composable
 private fun RestoreWallet(words: MutableList<String>, error: String?) {
-    Hero("Restore wallet", "Enter your recovery phrase", "Type each word in order. Nothing leaves your device.")
+    val clipboard = LocalClipboardManager.current
+    Hero(
+        "Restore wallet",
+        "Enter your recovery phrase",
+        "Paste the whole phrase, or type one word per box. Nothing leaves your device.",
+    )
     Note("OCEAN staff will never ask you for these words.", OceanColors.warning, "warn")
+    Spacer(Modifier.height(14.dp))
+    // An explicit paste is the reliable path for a 24-word phrase — and being
+    // explicit is the point: inferring "is this a paste?" from keystrokes is
+    // what corrupted the phrase before.
+    OButton(
+        "Paste phrase",
+        BtnVariant.GHOST,
+        icon = "copy",
+        fill = true,
+        onClick = {
+            clipboard.getText()?.text?.let { distributePhraseInput(words, 0, it) }
+        },
+    )
     Spacer(Modifier.height(14.dp))
     words.indices.chunked(2).forEach { row ->
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             row.forEach { index ->
                 OutlinedTextField(
                     value = words[index],
+                    // A slot holds exactly one word. Whitespace is stripped
+                    // rather than used to split, because `onValueChange` fires
+                    // per input event: splitting here rewrote the field's own
+                    // text mid-entry and the two desynced, dropping words.
+                    // Whole-phrase entry goes through "Paste phrase" instead.
                     onValueChange = { value ->
-                        val pasted = value.trim().lowercase().split(Regex("\\s+"))
-                        if (index == 0 && pasted.size > 1) {
-                            pasted.take(words.size).forEachIndexed { pastedIndex, word ->
-                                words[pastedIndex] = word
-                            }
-                        } else {
-                            words[index] = value.trim().lowercase()
-                        }
+                        words[index] = value.filter { !it.isWhitespace() }.lowercase()
                     },
                     prefix = { Text("${index + 1}", style = OceanType.monoXs) },
                     singleLine = true,
