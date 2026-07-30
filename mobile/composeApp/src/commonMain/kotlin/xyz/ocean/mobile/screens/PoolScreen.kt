@@ -10,10 +10,8 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
@@ -26,22 +24,19 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import xyz.ocean.mobile.data.Tx
-import xyz.ocean.mobile.data.TxStatus
 import xyz.ocean.mobile.data.Balances
 import xyz.ocean.mobile.data.PoolStats
-import xyz.ocean.mobile.data.Worker
+import xyz.ocean.mobile.data.Tx
 import xyz.ocean.mobile.data.WalletRepository
-import xyz.ocean.mobile.data.btc
 import xyz.ocean.mobile.data.commas
-import xyz.ocean.mobile.data.fmtUsd
-import xyz.ocean.mobile.data.usd
+import xyz.ocean.mobile.data.fiatOrNull
+import xyz.ocean.mobile.data.hashrate
+import xyz.ocean.mobile.data.pct
+import xyz.ocean.mobile.data.rel
 import xyz.ocean.mobile.theme.OceanColors
 import xyz.ocean.mobile.theme.OceanType
-import xyz.ocean.mobile.ui.MaturityCard
 import xyz.ocean.mobile.ui.OCard
 import xyz.ocean.mobile.ui.OButton
 import xyz.ocean.mobile.ui.OIcon
@@ -49,12 +44,24 @@ import xyz.ocean.mobile.ui.SectionLabel
 import xyz.ocean.mobile.ui.StatCard
 import xyz.ocean.mobile.ui.StatusDot
 
+/**
+ * Mining overview. Every figure is live: hashrate/workers/shares/balances come
+ * from OCEAN's public API (`OceanlnCore.poolStats`), spendable balance from the
+ * node.
+ *
+ * The design's pool-wide hashrate, blocks-found, last-block and reject-rate
+ * tiles are gone: OCEAN's public API exposes none of them, and this screen sits
+ * next to a real balance, so a decorative number here reads as a fact.
+ */
 @Composable
-fun PoolScreen(repo: WalletRepository, usdUnit: Boolean, onOpenTx: (Tx) -> Unit, onSeeWorkers: () -> Unit) {
+fun PoolScreen(repo: WalletRepository, usdUnit: Boolean, onOpenTx: (Tx) -> Unit) {
     var retry by remember { mutableStateOf(0) }
     val loaded by produceState<Result<PoolData>?>(initialValue = null, repo, retry) {
         value = runCatching {
-            PoolData(repo.pool(), repo.workers(), repo.balances(), repo.activity())
+            // An explicit Retry means the user wants fresh data, so drop the
+            // cache first rather than handing back what just failed to satisfy.
+            if (retry > 0) repo.refresh()
+            PoolData(repo.pool(), repo.balances(), repo.nowMs)
         }
     }
     val result = loaded
@@ -65,114 +72,67 @@ fun PoolScreen(repo: WalletRepository, usdUnit: Boolean, onOpenTx: (Tx) -> Unit,
         return
     }
     if (result.isFailure) {
-        Column(
-            Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 48.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            OIcon("warn", 30, OceanColors.warning)
-            Text("Could not load wallet data", style = OceanType.sheetTitle, modifier = Modifier.padding(top = 14.dp))
-            Text(
-                result.exceptionOrNull()?.message ?: "Check your connection and try again.",
-                style = OceanType.bodySm.copy(color = OceanColors.fgTertiary),
-                modifier = Modifier.padding(top = 8.dp, bottom = 18.dp),
-            )
-            OButton("Retry", icon = "refresh") { retry += 1 }
-        }
+        LoadFailure(result.exceptionOrNull()?.message) { retry += 1 }
         return
     }
     val data = result.getOrThrow()
     val p = data.pool
-    val workers = data.workers
     val b = data.balances
-    val txs = data.activity
-    val maturing = txs.firstOrNull { it.maturing }
 
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
         Spacer(Modifier.height(6.dp))
-        // hashrate hero
-        Column(
-            Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(OceanColors.bgCard)
-                .border(1.dp, OceanColors.border, RoundedCornerShape(16.dp)).padding(20.dp),
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                OIcon("chip", 12, OceanColors.fgMuted)
-                Text("TOTAL HASHRATE · LIVE", style = OceanType.monoXs.copy(letterSpacing = 0.8.sp))
-            }
+
+        if (p == null) {
+            NoMiningAddress()
             Spacer(Modifier.height(12.dp))
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
-                Row(verticalAlignment = Alignment.Bottom) {
-                    Text(p.hashrate.toString(), style = OceanType.hashrateValue.copy(color = OceanColors.fgPrimary))
-                    Text(" ${p.unit}", style = OceanType.bodySm.copy(color = OceanColors.fgTertiary, fontSize = 15.sp))
-                }
-                Spacer(Modifier.weight(1f))
-                Sparkline()
-            }
+        } else {
+            HashrateHero(p)
             Spacer(Modifier.height(12.dp))
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                StatusDot(OceanColors.success)
-                Text("${p.workersOnline}/${p.workersTotal} workers online · ${p.rejectPct}% reject", style = OceanType.bodySm.copy(color = OceanColors.fgTertiary))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                StatCard(
+                    "spark", "Unpaid", commas(p.unpaidSats), "sats",
+                    fiatOrNull(p.unpaidSats) ?: "awaiting payout",
+                    OceanColors.accent, Modifier.weight(1f),
+                )
+                StatCard(
+                    "hourglass", "Est. next block", commas(p.estPayoutNextBlockSats), "sats",
+                    fiatOrNull(p.estPayoutNextBlockSats) ?: "if OCEAN finds one",
+                    OceanColors.warning, Modifier.weight(1f),
+                )
             }
-        }
-
-        Spacer(Modifier.height(12.dp))
-        // stats grid 2x2
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            StatCard("spark", "Earned · 24h", "+${commas(p.earned24h)}", "sats", fmtUsd(usd(p.earned24h)), OceanColors.success, Modifier.weight(1f))
-            StatCard("hourglass", "Maturing", if (maturing != null) commas(maturing.amt ?: 0) else "0", "sats",
-                if (maturing != null) "matures ${xyz.ocean.mobile.data.matEta(maturing.mat!!)}" else "nothing pending",
-                OceanColors.warning, Modifier.weight(1f))
-        }
-        Spacer(Modifier.height(10.dp))
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            StatCard("wallet", "Spendable", commas(b.channel), "sats", fmtUsd(usd(b.channel)), modifier = Modifier.weight(1f))
-            StatCard("btc", "Lifetime paid", btc(p.lifetimePaid), "BTC", fmtUsd(usd(p.lifetimePaid)), modifier = Modifier.weight(1f))
-        }
-
-        // maturity explainer
-        if (maturing != null) {
-            SectionLabel("Next payout")
-            MaturityCard(maturing, showNote = true)
-        }
-
-        // pool position
-        SectionLabel("Pool")
-        OCard {
-            Row(Modifier.fillMaxWidth()) {
-                PoolStat("Your share", "${p.sharePct}", "%", Modifier.weight(1f))
-                PoolStat("Pool hashrate", p.poolHashrate, " ${p.poolUnit}", Modifier.weight(1f))
-                PoolStat("Blocks found", commas(p.blocksFound), "", Modifier.weight(1f))
+            Spacer(Modifier.height(10.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                StatCard(
+                    "wallet", "Spendable", commas(b.channel), "sats",
+                    fiatOrNull(b.channel) ?: "on your node", modifier = Modifier.weight(1f),
+                )
+                StatCard(
+                    "btc", "Lifetime", commas(p.lifetimeSats), "sats",
+                    fiatOrNull(p.lifetimeSats) ?: "paid + unpaid", modifier = Modifier.weight(1f),
+                )
             }
-            Spacer(Modifier.height(13.dp))
-            Row(Modifier.fillMaxWidth().padding(top = 13.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OIcon("cube", 14, OceanColors.accent)
-                Text("Last block ${commas(p.lastBlock)} · ${p.lastBlockAgo}", style = OceanType.bodySm.copy(color = OceanColors.fgTertiary, fontSize = 12.sp))
-            }
-        }
 
-        // workers
-        SectionLabel("Workers", more = "All workers", onMore = onSeeWorkers)
-        OCard {
-            workers.forEachIndexed { i, w ->
-                Row(Modifier.fillMaxWidth().padding(vertical = 13.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Box(Modifier.size(34.dp).clip(RoundedCornerShape(9.dp)).background(OceanColors.bgSecondary).border(1.dp, OceanColors.border, RoundedCornerShape(9.dp)), contentAlignment = Alignment.Center) {
-                        OIcon("chip", 18, if (w.online) OceanColors.fgTertiary else OceanColors.fgMuted)
-                    }
-                    Column(Modifier.weight(1f)) {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text(w.id, style = OceanType.body.copy(fontWeight = FontWeight.SemiBold))
-                            StatusDot(if (w.online) OceanColors.success else OceanColors.fgMuted, 6)
-                        }
-                        val meta = buildString {
-                            append(w.model)
-                            if (w.temp != null) append(" · ${w.temp}°C")
-                            append(" · ${w.ago}")
-                        }
-                        Text(meta, style = OceanType.bodySm.copy(color = OceanColors.fgTertiary, fontSize = 11.5.sp))
-                    }
-                    if (w.online) Text("${w.hr} Th/s", style = OceanType.monoSm.copy(color = OceanColors.fgPrimary, fontSize = 14.sp))
-                    else Text("offline", style = OceanType.monoSm.copy(color = OceanColors.fgMuted, fontSize = 14.sp))
+            SectionLabel("Pool")
+            OCard {
+                Row(Modifier.fillMaxWidth()) {
+                    PoolStatCell("Your share", pct(p.sharePct), "%", Modifier.weight(1f))
+                    PoolStatCell("Active miners", commas(p.poolActiveUsers), "", Modifier.weight(1f))
+                    PoolStatCell("Pool workers", commas(p.poolActiveWorkers), "", Modifier.weight(1f))
                 }
-                if (i != workers.lastIndex) Box(Modifier.fillMaxWidth().height(1.dp).background(OceanColors.borderSubtle))
+                if (p.lastShareTs > 0) {
+                    Spacer(Modifier.height(13.dp))
+                    Row(
+                        Modifier.fillMaxWidth().padding(top = 13.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        OIcon("cube", 14, OceanColors.accent)
+                        Text(
+                            "Last accepted share ${rel(p.lastShareTs * 1000L, data.nowMs)}",
+                            style = OceanType.bodySm.copy(color = OceanColors.fgTertiary, fontSize = 12.sp),
+                        )
+                    }
+                }
             }
         }
         Spacer(Modifier.height(20.dp))
@@ -180,33 +140,120 @@ fun PoolScreen(repo: WalletRepository, usdUnit: Boolean, onOpenTx: (Tx) -> Unit,
 }
 
 private data class PoolData(
-    val pool: PoolStats,
-    val workers: List<Worker>,
+    val pool: PoolStats?,
     val balances: Balances,
-    val activity: List<Tx>,
+    val nowMs: Long,
 )
 
 @Composable
-private fun PoolStat(label: String, value: String, unit: String, modifier: Modifier = Modifier) {
+private fun HashrateHero(p: PoolStats) {
+    val (value, unit) = hashrate(p.hashrate300s)
+    Column(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(OceanColors.bgCard)
+            .border(1.dp, OceanColors.border, RoundedCornerShape(16.dp)).padding(20.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+            OIcon("chip", 12, OceanColors.fgMuted)
+            Text("HASHRATE · 5 MIN AVG", style = OceanType.monoXs.copy(letterSpacing = 0.8.sp))
+        }
+        Spacer(Modifier.height(12.dp))
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
+            Row(verticalAlignment = Alignment.Bottom) {
+                Text(value, style = OceanType.hashrateValue.copy(color = OceanColors.fgPrimary))
+                Text(" $unit", style = OceanType.bodySm.copy(color = OceanColors.fgTertiary, fontSize = 15.sp))
+            }
+            Spacer(Modifier.weight(1f))
+            // Real windows, not a decorative sparkline: 24h / 3h / 1h / 5m.
+            WindowBars(p)
+        }
+        Spacer(Modifier.height(12.dp))
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            StatusDot(if (p.activeWorkers > 0) OceanColors.success else OceanColors.fgMuted)
+            Text(
+                if (p.activeWorkers > 0) "${p.activeWorkers} worker${if (p.activeWorkers == 1) "" else "s"} online"
+                else "no workers online",
+                style = OceanType.bodySm.copy(color = OceanColors.fgTertiary),
+            )
+        }
+    }
+}
+
+/**
+ * The four hashrate windows OCEAN actually reports, drawn to scale against the
+ * largest of them. Replaces the design's fixed decorative sparkline — there is
+ * no per-minute history endpoint to draw a real one from.
+ */
+@Composable
+private fun WindowBars(p: PoolStats) {
+    val windows = listOf(
+        "24h" to p.hashrate86400s,
+        "3h" to p.hashrate10800s,
+        "1h" to p.hashrate3600s,
+        "5m" to p.hashrate300s,
+    )
+    val peak = windows.maxOf { it.second }
+    if (peak <= 0.0) return
+    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.Bottom) {
+        windows.forEach { (label, v) ->
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Box(
+                    Modifier.width(10.dp)
+                        .height((6 + (38 * (v / peak)).toInt()).dp)
+                        .clip(RoundedCornerShape(2.dp))
+                        .background(OceanColors.accent.copy(alpha = 0.45f + 0.45f * (v / peak).toFloat())),
+                )
+                Text(label, style = OceanType.monoXs.copy(fontSize = 8.sp), modifier = Modifier.padding(top = 3.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun NoMiningAddress() {
+    OCard {
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            OIcon("info", 16, OceanColors.accent)
+            Column {
+                Text("No mining address yet", style = OceanType.body.copy(color = OceanColors.fgPrimary))
+                Text(
+                    "Mining stats appear once your wallet has derived a payout address and OCEAN has seen shares from it.",
+                    style = OceanType.bodySm.copy(color = OceanColors.fgTertiary, fontSize = 12.sp),
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+internal fun LoadFailure(message: String?, onRetry: () -> Unit) {
+    Column(
+        Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 48.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        OIcon("warn", 30, OceanColors.warning)
+        Text(
+            "Could not load live data",
+            style = OceanType.sheetTitle.copy(color = OceanColors.fgPrimary),
+            modifier = Modifier.padding(top = 14.dp),
+        )
+        Text(
+            message ?: "Check your connection and try again.",
+            style = OceanType.bodySm.copy(color = OceanColors.fgTertiary),
+            modifier = Modifier.padding(top = 8.dp, bottom = 18.dp),
+        )
+        OButton("Retry", icon = "refresh", onClick = onRetry)
+    }
+}
+
+@Composable
+private fun PoolStatCell(label: String, value: String, unit: String, modifier: Modifier = Modifier) {
     Column(modifier) {
         Text(label, style = OceanType.monoXs.copy(color = OceanColors.fgMuted))
         Spacer(Modifier.height(6.dp))
         Row(verticalAlignment = Alignment.Bottom) {
             Text(value, style = OceanType.splitValue.copy(color = OceanColors.fgPrimary))
             if (unit.isNotEmpty()) Text(unit, style = OceanType.bodySm.copy(color = OceanColors.fgTertiary, fontSize = 11.sp))
-        }
-    }
-}
-
-@Composable
-private fun Sparkline() {
-    val bars = listOf(58, 62, 60, 66, 63, 70, 68, 65, 72, 69, 74, 71)
-    Row(Modifier.height(44.dp), verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(3.dp)) {
-        bars.forEachIndexed { i, h ->
-            Box(
-                Modifier.width(6.dp).height((44 * h / 100).dp).clip(RoundedCornerShape(1.5.dp))
-                    .background(OceanColors.accent.copy(alpha = 0.35f + (i.toFloat() / bars.size) * 0.5f)),
-            )
         }
     }
 }

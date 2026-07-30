@@ -17,13 +17,17 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import xyz.ocean.mobile.data.NodeInfo
 import xyz.ocean.mobile.data.WalletRepository
+import xyz.ocean.mobile.data.commas
 import xyz.ocean.mobile.data.short
 import xyz.ocean.mobile.theme.OceanColors
 import xyz.ocean.mobile.theme.OceanType
@@ -35,6 +39,17 @@ import xyz.ocean.mobile.ui.StatusDot
 
 @Composable
 fun NodeScreen(repo: WalletRepository, usdUnit: Boolean, fullMode: Boolean, onToggleUnit: () -> Unit) {
+    // Node identity, channel counts and the payout offer all come off the core.
+    // Nothing on this screen is a written-in constant any more.
+    val node by produceState<NodeInfo?>(initialValue = null, repo) {
+        value = runCatching { repo.nodeInfo() }.getOrNull()
+    }
+    val offer by produceState<String?>(initialValue = null, repo) {
+        value = runCatching { repo.offer() }.getOrNull()
+    }
+    val backedUp by produceState<Boolean?>(initialValue = null, repo) {
+        value = runCatching { repo.isBackupConfirmed() }.getOrNull()
+    }
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
         Spacer(Modifier.height(6.dp))
         // node status card
@@ -47,34 +62,50 @@ fun NodeScreen(repo: WalletRepository, usdUnit: Boolean, fullMode: Boolean, onTo
                     OIcon("node", 20, OceanColors.accent)
                 }
                 Column(Modifier.weight(1f)) {
-                    Text("ocean-node", style = OceanType.body.copy(fontWeight = FontWeight.SemiBold, fontSize = 15.sp))
+                    Text(
+                        if (node != null) short(node!!.nodePk, 10, 6) else "Lexe node",
+                        style = OceanType.body.copy(fontWeight = FontWeight.SemiBold, fontSize = 15.sp),
+                    )
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        StatusDot(OceanColors.success, 6)
-                        Text("Online · CLN 24.02 · 6 channels", style = OceanType.bodySm.copy(color = OceanColors.fgTertiary, fontSize = 11.5.sp))
+                        StatusDot(if (node != null) OceanColors.success else OceanColors.fgMuted, 6)
+                        Text(
+                            node?.let { "Online · ${it.usableChannels}/${it.channels} channels usable" }
+                                ?: "Reading node status…",
+                            style = OceanType.bodySm.copy(color = OceanColors.fgTertiary, fontSize = 11.5.sp),
+                        )
                     }
                 }
-                Pill(PillTone.OK, "Synced")
+                if (node != null) Pill(PillTone.OK, "Online") else Pill(PillTone.MUTED, "…")
             }
         }
 
         SectionLabel("Payouts")
         SettingsGroup {
-            SettingRow("offer", "OCEAN payout offer", short(repo.offer, 14, 10))
-            SettingRow("shield", "Payout verification", "Offer + signed payer note")
-            SettingRow("hourglass", "Maturity window", "100 confirmations · resets on new block")
+            SettingRow("offer", "OCEAN payout offer", offer?.let { short(it, 14, 10) } ?: "not created yet")
+            SettingRow("shield", "Payout verification", "Offer + payer-note format check")
         }
 
         SectionLabel("Wallet")
         SettingsGroup {
             SettingRow("swap", "Display unit", if (usdUnit) "US Dollar" else "Bitcoin (sats)", toggle = usdUnit, onToggle = onToggleUnit)
             SettingRow("wallet", "Default view", if (fullMode) "Full node" else "Simple wallet")
-            SettingRow("bolt", "Channels & liquidity", "6 channels · 2.0M sats capacity")
+            SettingRow(
+                "bolt", "Channels & liquidity",
+                node?.let { "${it.channels} channels · ${commas(it.lightningTotalSats)} sats capacity" }
+                    ?: "unavailable",
+            )
         }
 
         SectionLabel("Security")
         SettingsGroup {
-            SettingRow("key", "Backup & recovery", "Seed verified · Jan 2026")
-            SettingRow("shield", "Face ID for sending", null, toggle = true, onToggle = {})
+            SettingRow(
+                "key", "Backup & recovery",
+                when (backedUp) {
+                    true -> "Recovery phrase confirmed"
+                    false -> "Recovery phrase not confirmed"
+                    null -> "checking…"
+                },
+            )
             SettingRow("ext", "Open pool dashboard", "ocean.xyz")
         }
 

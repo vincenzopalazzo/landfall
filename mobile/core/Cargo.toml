@@ -29,9 +29,14 @@ oceanln-common = { path = "../../oceanln-common" }
 # scaffolding (`setup_scaffolding!`), no UDL. `tokio` feature backs the
 # `async_runtime = "tokio"` exports.
 uniffi = { version = "0.31", features = ["tokio", "cli"] }
-tokio = { version = "1", features = ["rt-multi-thread"] }
+# `macros` backs the `tokio::join!` used to fan out the four ocean.xyz calls
+# a Pool refresh makes.
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 thiserror = "1"
 lightning-invoice = "0.34"
+# OCEAN serializes some numeric fields as JSON numbers and others as quoted
+# strings; `ocean::Payout` hands those back as `serde_json::Value` to coerce.
+serde_json = "1"
 
 [dev-dependencies]
 tempfile = "3"

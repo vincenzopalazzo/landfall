@@ -31,10 +31,8 @@ import xyz.ocean.mobile.data.Tx
 import xyz.ocean.mobile.data.TxStatus
 import xyz.ocean.mobile.data.amt
 import xyz.ocean.mobile.data.commas
-import xyz.ocean.mobile.data.fmtUsd
-import xyz.ocean.mobile.data.matEta
+import xyz.ocean.mobile.data.fiatOrNull
 import xyz.ocean.mobile.data.rel
-import xyz.ocean.mobile.data.usd
 import xyz.ocean.mobile.theme.OceanColors
 import xyz.ocean.mobile.theme.OceanType
 import xyz.ocean.mobile.theme.oceanIcon
@@ -143,15 +141,12 @@ fun OButton(
 fun TxRow(t: Tx, usdUnit: Boolean, nowMs: Long, compact: Boolean = false, onOpen: (Tx) -> Unit) {
     val oc = t.isOcean
     val inn = t.dir == Dir.IN
-    val mat = t.status == TxStatus.MATURING
     val icTint = when {
         t.status == TxStatus.FAILED -> OceanColors.error
-        mat -> OceanColors.warning
         inn -> OceanColors.success
         else -> OceanColors.fgSecondary
     }
     val amtColor = when {
-        mat -> OceanColors.warning
         inn && t.amt != null -> OceanColors.success
         else -> OceanColors.fgPrimary
     }
@@ -172,7 +167,7 @@ fun TxRow(t: Tx, usdUnit: Boolean, nowMs: Long, compact: Boolean = false, onOpen
             contentAlignment = Alignment.Center,
         ) {
             OIcon(
-                if (oc) "spark" else if (mat) "hourglass" else if (inn) "in" else "out",
+                if (oc) "spark" else if (inn) "in" else "out",
                 18, if (oc) OceanColors.onAccent else icTint,
             )
         }
@@ -182,8 +177,8 @@ fun TxRow(t: Tx, usdUnit: Boolean, nowMs: Long, compact: Boolean = false, onOpen
                 if (oc) Pill(PillTone.ACC, "Format match")
             }
             if (!compact) {
-                val sub = if (mat) "Matures ${matEta(t.mat!!)}"
-                else (if (t.rail == xyz.ocean.mobile.data.Rail.LN) "Lightning" else "On-chain") + " · " + rel(t.tsMs, nowMs)
+                val sub = (if (t.rail == xyz.ocean.mobile.data.Rail.LN) "Lightning" else "On-chain") +
+                    " · " + rel(t.tsMs, nowMs)
                 Text(sub, style = OceanType.bodySm.copy(color = OceanColors.fgTertiary, fontSize = 11.5.sp))
             }
         }
@@ -192,66 +187,14 @@ fun TxRow(t: Tx, usdUnit: Boolean, nowMs: Long, compact: Boolean = false, onOpen
                 amt(t.amt, usdUnit, t.dir) + (if (t.amt != null && !usdUnit) " sats" else ""),
                 style = OceanType.monoSm.copy(color = amtColor, fontWeight = FontWeight.Medium, fontSize = 14.sp),
             )
+            // Secondary line shows the *other* unit, and is simply omitted
+            // when there is no live rate to convert with.
             val f = when {
-                mat -> "not spendable"
                 t.amt == null -> "pending"
                 usdUnit -> commas(t.amt) + " sats"
-                else -> fmtUsd(usd(t.amt))
+                else -> fiatOrNull(t.amt)
             }
-            Text(f, style = OceanType.monoXs)
-        }
-    }
-}
-
-// ── maturity card (m-mat) ──
-@Composable
-fun MaturityCard(t: Tx, showNote: Boolean = true, onSimulate: (() -> Unit)? = null) {
-    val m = t.mat ?: return
-    Column(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
-            .background(OceanColors.warningDim)
-            .border(1.dp, OceanColors.warningLine, RoundedCornerShape(12.dp))
-            .padding(16.dp),
-    ) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OIcon("hourglass", 15, OceanColors.warning)
-                Text("Maturing", style = OceanType.body.copy(color = OceanColors.warning, fontWeight = FontWeight.SemiBold, fontSize = 13.sp))
-            }
-            Spacer(Modifier.weight(1f))
-            Text(commas(t.amt ?: 0) + " sats", style = OceanType.monoSm.copy(color = OceanColors.fgPrimary, fontSize = 16.sp))
-        }
-        Spacer(Modifier.height(11.dp))
-        ProgressBar(fraction = xyz.ocean.mobile.data.matPct(m) / 100f, color = OceanColors.warning)
-        Spacer(Modifier.height(8.dp))
-        Row(Modifier.fillMaxWidth()) {
-            Text("${m.confs} / ${m.target} confirmations", style = OceanType.monoXs)
-            Spacer(Modifier.weight(1f))
-            Text("${matEta(m)} left", style = OceanType.monoXs)
-        }
-        if (showNote) {
-            Spacer(Modifier.height(12.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OIcon("info", 14, OceanColors.warning)
-                Text(
-                    "Mined rewards can't be spent until ${m.target} confirmations. Each new block OCEAN finds resets the window — anchored to block ${commas(m.block)}.",
-                    style = OceanType.bodySm.copy(color = OceanColors.fgTertiary, fontSize = 11.5.sp),
-                )
-            }
-        }
-        if (onSimulate != null) {
-            Spacer(Modifier.height(12.dp))
-            Row(
-                Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp))
-                    .background(OceanColors.warningDim)
-                    .clickable { onSimulate() }
-                    .padding(11.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                OIcon("cube", 14, OceanColors.warning)
-                Text("Simulate: OCEAN finds a new block", style = OceanType.bodySm.copy(color = OceanColors.warning, fontWeight = FontWeight.SemiBold, fontSize = 12.5.sp))
-            }
+            if (f != null) Text(f, style = OceanType.monoXs)
         }
     }
 }

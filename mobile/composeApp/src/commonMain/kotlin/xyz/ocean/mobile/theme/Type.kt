@@ -17,7 +17,10 @@ object OceanType {
     val mono = FontFamily.Monospace
 
     // header title (.m-head-t: 21/700)
-    val headTitle = TextStyle(fontFamily = display, fontSize = 21.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.5).sp)
+    // Colour is set here, not left to the caller: without it the style falls
+    // back to the Material default (black) on our dark background, which is how
+    // every onboarding heading rendered invisible.
+    val headTitle = TextStyle(fontFamily = display, fontSize = 21.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.5).sp, color = OceanColors.fgPrimary)
     val headSub = TextStyle(fontFamily = sans, fontSize = 11.sp, color = OceanColors.fgTertiary)
 
     // section label (.m-sec-lbl: 11/600 uppercase)
@@ -34,7 +37,7 @@ object OceanType {
     // detail amount (.m-dt-amt: mono 34/500)
     val detailAmount = TextStyle(fontFamily = mono, fontSize = 34.sp, fontWeight = FontWeight.Medium, letterSpacing = (-0.7).sp)
 
-    val sheetTitle = TextStyle(fontFamily = display, fontSize = 18.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.3).sp)
+    val sheetTitle = TextStyle(fontFamily = display, fontSize = 18.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.3).sp, color = OceanColors.fgPrimary)
     val body = TextStyle(fontFamily = sans, fontSize = 14.sp, color = OceanColors.fgPrimary)
     val bodySm = TextStyle(fontFamily = sans, fontSize = 12.sp, color = OceanColors.fgSecondary)
     val monoSm = TextStyle(fontFamily = mono, fontSize = 12.sp, color = OceanColors.fgSecondary)

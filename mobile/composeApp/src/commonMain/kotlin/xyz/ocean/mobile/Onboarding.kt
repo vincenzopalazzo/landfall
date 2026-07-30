@@ -51,6 +51,9 @@ private enum class OnboardingStep { WELCOME, CREATING, PHRASE, CONFIRM, RESTORE 
 private val quizPositions = listOf(3, 12, 20)
 private val decoys = listOf("anchor", "tide", "forest", "puzzle", "candle", "quartz")
 
+/** A 24-word BIP39 phrase. Anything else is a generation/reveal failure. */
+private const val PHRASE_WORDS = 24
+
 @Composable
 fun Onboarding(repo: WalletRepository, resumeBackup: Boolean = false, onComplete: () -> Unit) {
     var step by remember { mutableStateOf(if (resumeBackup) OnboardingStep.CREATING else OnboardingStep.WELCOME) }
@@ -66,8 +69,14 @@ fun Onboarding(repo: WalletRepository, resumeBackup: Boolean = false, onComplete
         if (resumeBackup) {
             runCatching { repo.revealSeed() }
                 .onSuccess {
-                    mnemonic = it.trim().split(Regex("\\s+"))
-                    step = OnboardingStep.PHRASE
+                    val words = it.trim().split(Regex("\\s+"))
+                    if (words.size == PHRASE_WORDS) {
+                        mnemonic = words
+                        step = OnboardingStep.PHRASE
+                    } else {
+                        error = "Stored recovery phrase looks corrupted (${words.size} words, expected $PHRASE_WORDS)."
+                        step = OnboardingStep.WELCOME
+                    }
                 }
                 .onFailure {
                     error = it.message ?: "Could not resume wallet backup."
@@ -82,8 +91,16 @@ fun Onboarding(repo: WalletRepository, resumeBackup: Boolean = false, onComplete
         scope.launch {
             runCatching { repo.generateWallet() }
                 .onSuccess {
-                    mnemonic = it.mnemonic.orEmpty().trim().split(Regex("\\s+"))
-                    step = OnboardingStep.PHRASE
+                    // A short/absent phrase must never reach the quiz: it
+                    // indexes fixed positions and would crash on words[3].
+                    val words = it.mnemonic.orEmpty().trim().split(Regex("\\s+"))
+                    if (words.size == PHRASE_WORDS) {
+                        mnemonic = words
+                        step = OnboardingStep.PHRASE
+                    } else {
+                        error = "The wallet was created but its recovery phrase could not be read back."
+                        step = OnboardingStep.WELCOME
+                    }
                 }
                 .onFailure {
                     error = it.message ?: "Could not create the wallet."
@@ -195,7 +212,7 @@ private fun RecoveryPhrase(words: List<String>, revealed: Boolean, backedUp: Boo
         }
         if (!revealed) {
             Column(
-                Modifier.matchParentSize().background(OceanColors.bgPrimary.copy(alpha = .93f), RoundedCornerShape(8.dp))
+                Modifier.matchParentSize().background(OceanColors.bgPrimary, RoundedCornerShape(8.dp))
                     .border(1.dp, OceanColors.border, RoundedCornerShape(8.dp)).clickable { reveal() },
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center,
@@ -226,19 +243,30 @@ private fun ConfirmPhrase(words: List<String>, answers: MutableList<String>) {
     Hero("Quick check", "Confirm your backup", "Using the words you just wrote down, tap the right word for each position.")
     quizPositions.forEachIndexed { quizIndex, position ->
         Text("Word #${position + 1}", style = OceanType.bodySm.copy(color = OceanColors.fgTertiary), modifier = Modifier.padding(top = 13.dp, bottom = 8.dp))
-        val options = listOf(words[position], decoys[quizIndex * 2], decoys[quizIndex * 2 + 1], words[(position + 5) % words.size])
+        // Shuffled, and stable across recompositions so the options don't
+        // jump under the user's finger. Unshuffled, the answer was always
+        // first — three taps in the same corner passed the whole check.
+        val options = remember(words, position) {
+            listOf(
+                words[position],
+                decoys[quizIndex * 2],
+                decoys[quizIndex * 2 + 1],
+                words[(position + 5) % words.size],
+            ).shuffled()
+        }
         options.chunked(2).forEach { row ->
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 row.forEach { option ->
                     val selected = answers[quizIndex] == option
-                    val correct = option == words[position]
+                    // Selection is acknowledged, correctness is not. Per-tap
+                    // green/red made this a free guessing game.
                     Box(
                         Modifier.weight(1f).padding(bottom = 8.dp)
-                            .background(if (selected) (if (correct) OceanColors.successDim else OceanColors.errorDim) else OceanColors.bgCard, RoundedCornerShape(8.dp))
-                            .border(1.dp, if (!selected) OceanColors.border else if (correct) OceanColors.success else OceanColors.error, RoundedCornerShape(8.dp))
+                            .background(if (selected) OceanColors.accentDim else OceanColors.bgCard, RoundedCornerShape(8.dp))
+                            .border(1.dp, if (selected) OceanColors.accent else OceanColors.border, RoundedCornerShape(8.dp))
                             .clickable { answers[quizIndex] = option }.padding(12.dp),
                         contentAlignment = Alignment.Center,
-                    ) { Text(option, style = OceanType.monoSm.copy(color = if (!selected) OceanColors.fgSecondary else if (correct) OceanColors.success else OceanColors.error)) }
+                    ) { Text(option, style = OceanType.monoSm.copy(color = if (selected) OceanColors.accent else OceanColors.fgSecondary)) }
                 }
             }
         }

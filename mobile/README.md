@@ -22,13 +22,81 @@ mobile/
 
 ## Architecture
 
-The UI never talks to a node or the network directly — it renders against a
-`WalletRepository` (`composeApp/.../data/WalletRepository.kt`). Two impls:
+### The iOS binding (Swift ↔ Kotlin)
 
-- `MockWalletRepository` — the design's mock data; the app runs 1-1 with the
-  handoff with no node.
-- `CoreWalletRepository` — live data from the Rust core via UniFFI, provided per
-  platform by `createCoreRepository` (`expect`/`actual`).
+Kotlin/Native cannot call UniFFI's generated **Swift** API, so the dependency is
+inverted rather than reimplemented:
+
+1. Kotlin declares `WalletCoreBridge`
+   (`composeApp/src/iosMain/.../data/WalletCoreBridge.kt`), which the ComposeApp
+   framework exports as an Objective-C protocol.
+2. Swift implements it in `iosApp/iosApp/CoreBridge.swift`, calling the generated
+   `OceanlnCore` directly.
+3. `MainViewController(bridge:)` receives it; `CoreRepository.ios.kt` converts
+   the bridge's completion handlers back into `suspend` functions, so the shared
+   UI sees the same `WalletRepository` as Android.
+
+The bridge is deliberately callback-based (Kotlin `suspend` in an exported
+interface is awkward to conform to from Swift) and speaks signed types only
+(Kotlin/Native does not export unsigned), with `-1` as the "absent" sentinel
+where Objective-C has no optional `Int64`.
+
+The UI never talks to a node or the network directly — it renders against a
+`WalletRepository` (`composeApp/.../data/WalletRepository.kt`). There is exactly
+one implementation, `CoreWalletRepository`, backed by the Rust core via UniFFI
+and provided per platform by `createCoreRepository` (`expect`/`actual`).
+
+**There is no mock/fixture repository, by design.** An app that moves real funds
+must not be able to render a plausible fake balance, so a build that cannot
+reach the core shows an error instead (`MainActivity` / `MainViewController`).
+Every figure on screen has a real source:
+
+| Screen data | Source |
+|---|---|
+| Balances, channels, node identity | `lexe_wallet::node_status` (in-process node) |
+| Activity / payments | `lexe_wallet::list_payments` |
+| Hashrate, workers, shares, unpaid, lifetime paid | `ocean::OceanClient` → `api.ocean.xyz/v1` |
+| BTC/USD for the fiat toggle | `price::PriceClient` → mempool.space |
+| Payment fees | the node, at send time — never estimated in the UI |
+
+The pool figures are derived exactly as `oceanln-web/src/lib/StatsGrid.svelte`
+derives them, so mobile and the web dashboard cannot drift. Where OCEAN's public
+API has no field — pool-wide hashrate, blocks found, last block, reject rate, a
+per-worker list — the UI omits it rather than inventing a number.
+
+A missing BTC/USD rate is never a fabricated one: `btc_usd()` returns `0`, the
+sats/USD toggle hides itself, and every amount renders in sats.
+
+### Caching
+
+Every screen loads through `produceState`, which re-runs when the screen enters
+composition — so without a cache one lap of the tab bar cost **8 HTTP requests
+to ocean.xyz and 4 `nodeStatus()` calls**. `CachedWalletRepository` wraps the
+platform repository (`.cached()`, applied at both entry points) and fixes that.
+
+Three things about it matter more than the caching:
+
+- **TTLs are per-entry, matched to volatility.** Node balances 15s (money — a
+  payment landing while you're on another tab shows within 15s of returning);
+  activity 20s; the pool snapshot 60s (four HTTP calls behind one entry, against
+  an API that only samples periodically); seed-derived state until invalidated.
+  One global TTL would either hammer ocean.xyz or show a stale balance.
+- **Mutations invalidate.** `pay()` drops the balance and activity entries,
+  `createInvoice()` drops activity, the seed operations drop everything. Serving
+  a pre-send balance is the one bug this layer must not introduce.
+- **Single-flight.** Concurrent callers of the same key share one in-flight
+  request, and the load is owned by the repository's own scope so leaving a tab
+  mid-fetch doesn't cancel it — otherwise coming back would refetch, which is
+  exactly the behaviour being removed.
+
+Never cached: `pay`, `createInvoice`, the seed operations, `revealSeed` (a cached
+reveal would hold the phrase in memory past the one call that needs it), and
+`payableAmountSats`. Retry buttons call `refresh()` to force a refetch.
+
+Several interface methods are *derived defaults* rather than their own calls:
+`offer()`/`miningAddress()`/`isWalletConfigured()` read one cached `status()`,
+and `balances()` reads one cached `nodeInfo()`. That collapsed a duplicate
+`nodeStatus()` round-trip that existed even before caching.
 
 On first launch, the Compose shell checks the core for a configured seed and
 shows the OCEAN onboarding flow when none exists. Creating a wallet generates
@@ -55,8 +123,17 @@ FFI boundary only on an explicit `reveal_seed`.
 ```sh
 cd mobile/core
 cargo check                 # host sanity (also builds the full Lexe SDK tree)
-./build-ios.sh              # → generated/OceanlnMobileCore.xcframework + Swift glue
+./build-ios.sh              # → generated/swift/* + the per-target static libs
 ./build-android.sh          # → composeApp jniLibs/*.so + generated Kotlin (androidMain)
+```
+
+`build-ios.sh` is required before the iOS app builds: it emits
+`generated/swift/OceanlnMobileCore.swift` (+ the FFI header and
+`module.modulemap`) and the `liboceanln_mobile_core.a` archives the Xcode target
+links. For a simulator-only loop that is just:
+
+```sh
+cargo build --release --target aarch64-apple-ios-sim --lib
 ```
 
 `build-android.sh` needs `cargo-ndk` (`cargo install cargo-ndk`) + the Android NDK.
@@ -65,7 +142,6 @@ cargo check                 # host sanity (also builds the full Lexe SDK tree)
 
 ```sh
 cd mobile
-gradle wrapper             # once, to fetch the wrapper jar (no wrapper jar is committed)
 ./gradlew :composeApp:assembleDebug
 ./gradlew :composeApp:installDebug   # onto a running emulator/device
 ```
@@ -92,9 +168,13 @@ xcrun simctl install booted build/Build/Products/Debug-iphonesimulator/iosApp.ap
 xcrun simctl launch booted xyz.ocean.mobile
 ```
 
-Verified running on the iPhone 16 Pro simulator (Xcode 26, iOS 18) — Pool, Wallet,
-Activity, Node all render on the mock repository. The iOS build needs no Rust
-xcframework yet (iOS uses the mock repo until the core binding lands — see below).
+Requires the Rust core built for the simulator first (step 1) — `project.yml`
+links `-loceanln_mobile_core` from `core/target/<triple>/release` and puts the
+generated Swift glue on the compile path.
+
+Verified running on the iPhone 16 Pro simulator (Xcode 26): real seed generation,
+a real BOLT12 offer + BOLT11 invoice + BIP84 address from the live node, and live
+pool stats from ocean.xyz.
 
 ## Status (this increment = walking skeleton)
 
@@ -106,27 +186,40 @@ Verified here (2026-07-29, this machine):
   the brainstorm's biggest open risk: no thin-surface fallback is needed on iOS.
 - ✅ UniFFI `generate` emits Kotlin + Swift bindings for all 12 core methods.
 
-- ✅ **The Compose Multiplatform app builds and runs on the iOS simulator**
-  (iPhone 16 Pro, Xcode 26 / iOS 18) — Pool, Wallet, Activity, Node all render
-  1-1 with the design on the mock repository.
+- ✅ All fixtures removed. `MockData.kt` / `MockWalletRepository` are gone; the
+  Pool screen is driven by `OceanlnCore.pool_stats` (ocean.xyz) and the fiat
+  toggle by `OceanlnCore.btc_usd` (mempool.space).
+- ✅ Both source sets typecheck against the real generated bindings
+  (`:composeApp:compileDebugKotlinAndroid`, `:composeApp:compileKotlinIosSimulatorArm64`).
+- ✅ **iOS runs on the live Rust core** via the Swift↔Kotlin bridge. Verified on
+  the iPhone 16 Pro simulator: real 24-word generation persisted at `0600`,
+  Lexe node provisioned (`initWallet` + `createOffer`), real BOLT12 offer,
+  BOLT11 invoice and BIP84 address in Receive, live ocean.xyz pool figures, and
+  the wallet reloaded from disk across a relaunch.
 
-Screens implemented 1-1: **Pool**, **Wallet** (simple + full), **Activity**,
-**Node**, plus the **Send / Receive / Transaction-detail** sheets. iOS currently
-runs on the mock repository (the core binding is the next step, below); Android
-wires the live Rust core via the generated JNA bindings.
+Screens implemented: **Pool**, **Wallet** (simple + full), **Activity**,
+**Node**, plus the **Send / Receive / Transaction-detail** sheets. Android wires
+the live Rust core via the generated JNA bindings; iOS awaits the binding below.
 
 ## Open follow-ups
 
-- **iOS core binding.** The Rust core builds for iOS and UniFFI emits Swift, but
-  bridging that into the Compose (Kotlin/Native) data layer isn't wired — iOS
-  runs on mock data today. Preferred fix: KMP-native UniFFI bindings via
-  [gobley](https://github.com/gobley/gobley) so one Kotlin binding serves both
-  JVM and Native; alternative: a thin Swift↔Kotlin shim.
+- **Collapse the iOS bridge boilerplate.** The Swift↔Kotlin bridge works but is
+  hand-maintained: every new core method needs a Kotlin declaration, a Swift
+  implementation and a mapper. [gobley](https://github.com/gobley/gobley)
+  (KMP-native UniFFI bindings) would generate one Kotlin binding for both JVM
+  and Native and delete `WalletCoreBridge` + `CoreBridge.swift` entirely.
+- **iOS device builds.** Only the simulator slice is exercised locally; the
+  `aarch64-apple-ios` archive is built by `build-ios.sh` and is on the link path,
+  but has not been run on hardware.
 - **Seed storage.** The core uses a file `SeedSource` under the app-data dir.
   Move to iOS Keychain / Android Keystore (a new `SeedSource` variant — no
   call-site changes).
-- **Pool/worker stats.** Come from the ocean.xyz pool API, not the node; still
-  mock in `CoreWalletRepository`.
+- **Per-worker list.** OCEAN's public API reports a live worker *count*
+  (`active_worker_count`) but no per-worker rows, so the design's worker list is
+  not rendered. It needs an upstream endpoint, not a client change.
+- **Confirmation depth.** `Activity` carries a confirming block height but the
+  node status exposes no chain tip, so the detail sheet shows the height rather
+  than an "N / 6 confirmations" count.
 - **Fonts.** Vendor Inter + Geist Mono into compose resources (see design/README).
 - **CI.** Add a mobile workflow (macOS + Android SDK); the root `cargo --workspace`
   CI excludes `mobile/core` by design.

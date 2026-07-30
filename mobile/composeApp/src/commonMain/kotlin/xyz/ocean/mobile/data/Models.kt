@@ -1,18 +1,15 @@
 package xyz.ocean.mobile.data
 
-// UI models mirroring the design's data.jsx shapes. These are what the screens
-// render; the repository maps either mock data or the Rust core's UniFFI records
-// into them.
+// UI models. Every field here must be sourceable from something real — the
+// Rust core (node balances, payments, seed state) or OCEAN's public API via
+// `OceanlnCore.poolStats`. If a screen wants a number no backend can produce,
+// the number does not belong in this file.
 
 enum class Dir { IN, OUT }
 enum class Rail { LN, ONCHAIN }
-enum class TxStatus { SETTLED, PENDING, CONFIRMING, MATURING, FAILED }
-
-data class Maturity(
-    val confs: Int,
-    val target: Int,
-    val block: Long,
-)
+// The core reports exactly these three (lexe_wallet::activity_from maps
+// Completed/Failed/_ → settled/failed/pending). No other state is reachable.
+enum class TxStatus { SETTLED, PENDING, FAILED }
 
 data class Tx(
     val id: String,
@@ -31,39 +28,81 @@ data class Tx(
     val hash: String? = null,
     val preimage: String? = null,
     val txid: String? = null,
-    val conf: Int? = null,
-    val maturing: Boolean = false,
-    val mat: Maturity? = null,
+    // Block height parsed out of the OCEAN payer note — i.e. the block whose
+    // reward this payout is for. Present only on OCEAN-format payments, and
+    // NOT a chain confirmation depth (the app has no tip to measure against).
+    val oceanBlockHeight: Long? = null,
 ) {
     // OCEAN-format candidate: paid to an offer with the expected public note
     // format. This is classification only, not cryptographic authentication.
     val isOcean: Boolean get() = dir == Dir.IN && offer && noteMatch
 }
 
-data class Worker(
-    val id: String,
-    val model: String,
-    val hr: Double,            // Th/s
-    val online: Boolean,
-    val temp: Int? = null,
-    val ago: String,
+/**
+ * Live mining stats, 1-1 with the Rust `PoolStats` record — which in turn is
+ * 1-1 with what `api.ocean.xyz/v1` actually returns.
+ *
+ * Note what is *not* here: pool-wide hashrate, blocks-found, last-block
+ * height/age, reject rate, and a per-worker list. OCEAN's public API exposes
+ * none of them, so the UI does not show them.
+ */
+data class PoolStats(
+    // hashes/sec per window
+    val hashrate300s: Double,
+    val hashrate3600s: Double,
+    val hashrate10800s: Double,
+    val hashrate86400s: Double,
+    /** Live worker count. There is no "total configured" figure upstream. */
+    val activeWorkers: Int,
+    /** Unix seconds of the most recent accepted share; 0 = never. */
+    val lastShareTs: Long,
+    val unpaidSats: Long,
+    val estPayoutNextBlockSats: Long,
+    val estEarnNextBlockSats: Long,
+    val totalPaidSats: Long,
+    val lifetimeSats: Long,
+    val tidesShares: Double,
+    val poolTidesShares: Double,
+    val sharePct: Double,
+    val poolActiveUsers: Long,
+    val poolActiveWorkers: Long,
+    val networkDifficulty: Double,
+    /** Address has never mined here — a real empty state, not a fetch error. */
+    val addressUnknown: Boolean,
 )
 
-data class PoolStats(
-    val hashrate: Double,
-    val unit: String,
-    val workersOnline: Int,
-    val workersTotal: Int,
-    val poolHashrate: String,
-    val poolUnit: String,
-    val sharePct: Double,
-    val blocksFound: Long,
-    val lastBlock: Long,
-    val lastBlockAgo: String,
-    val earned24h: Long,
-    val lifetimePaid: Long,
-    val rejectPct: Double,
+/** Seed-derived wallet state — mirrors the core's `StatusResp`. */
+data class WalletStatus(
+    val configured: Boolean,
+    val miningAddress: String?,
+    val offer: String?,
 )
+
+/**
+ * Identity, channel shape and balances of the in-process Lexe node — the whole
+ * of one `nodeStatus()` call.
+ *
+ * [Balances] is derived from this rather than fetched separately: both came from
+ * the same core call, so keeping them as one value means one round-trip and one
+ * cache entry instead of two of each.
+ */
+data class NodeInfo(
+    val nodePk: String,
+    val channels: Int,
+    val usableChannels: Int,
+    val lightningTotalSats: Long,
+    val lightningSendableSats: Long,
+    val onchainTotalSats: Long,
+    val onchainTrustedSats: Long,
+    val totalBalanceSats: Long,
+) {
+    fun toBalances(): Balances = Balances(
+        channel = lightningSendableSats,
+        // Floored at 1 so the channel-capacity progress bar can't divide by zero.
+        capacity = maxOf(lightningTotalSats, 1L),
+        onchain = onchainTrustedSats,
+    )
+}
 
 data class Balances(
     val channel: Long,
@@ -72,11 +111,3 @@ data class Balances(
 ) {
     val total: Long get() = channel + onchain
 }
-
-data class Exchange(
-    val id: String,
-    val name: String,
-    val colorHex: Long,
-    val addr: String,
-    val lightning: Boolean,
-)

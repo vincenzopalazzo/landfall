@@ -39,6 +39,11 @@ kotlin {
             implementation(libs.androidx.lifecycle.runtime.compose)
             implementation("io.github.g0dkar:qrcode-kotlin:4.5.0")
         }
+        commonTest.dependencies {
+            implementation(kotlin("test"))
+            // `runTest` — the cache's single-flight path needs a test scheduler.
+            implementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")
+        }
         androidMain.dependencies {
             implementation(compose.uiTooling)
             implementation(libs.androidx.activity.compose)

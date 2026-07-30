@@ -19,6 +19,8 @@ use std::sync::Arc;
 
 use oceanln_common::client;
 use oceanln_common::error::Error;
+use oceanln_common::ocean::OceanClient;
+use oceanln_common::price::PriceClient;
 use oceanln_common::seed::SeedSource;
 use oceanln_common::service;
 use oceanln_common::sign::DEFAULT_BIP32_PATH;
@@ -268,6 +270,97 @@ impl From<oceanln_common::lexe_wallet::PaySummary> for PaySummary {
     }
 }
 
+// ── Pool stats (ocean.xyz public API) ────────────────────────────────
+//
+// Every field below comes from a real endpoint on `api.ocean.xyz/v1` via
+// `oceanln_common::ocean::OceanClient`. The derivations are 1-1 with the
+// frontend's `oceanln-web/src/lib/StatsGrid.svelte`, so the mobile Pool screen
+// and the web dashboard cannot drift apart.
+//
+// Deliberately absent, because OCEAN's public API does not expose them and we
+// will not invent them: pool-wide hashrate, blocks-found count, last-block
+// height/age, share reject rate, a per-worker list (only a live *count* exists),
+// and a total-workers figure.
+#[derive(uniffi::Record)]
+pub struct PoolStats {
+    // ── user_hashrate: hashes/sec over each window ──
+    pub hashrate_300s: f64,
+    pub hashrate_3600s: f64,
+    pub hashrate_10800s: f64,
+    pub hashrate_86400s: f64,
+    /// Live worker count. OCEAN reports how many are *active*; there is no
+    /// "total configured" figure, so the UI shows this alone.
+    pub active_workers: u32,
+    /// Unix seconds of the most recent accepted share (0 = never).
+    pub last_share_ts: i64,
+
+    // ── statsnap: balances, all converted BTC→sats ──
+    pub unpaid_sats: u64,
+    pub est_payout_next_block_sats: u64,
+    pub est_earn_next_block_sats: u64,
+
+    // ── earnpay: payout history ──
+    pub total_paid_sats: u64,
+    /// `unpaid + total_paid`, matching the dashboard's "Lifetime" stat.
+    pub lifetime_sats: u64,
+
+    // ── TIDES window share ──
+    pub tides_shares: f64,
+    pub pool_tides_shares: f64,
+    /// Your share of the current TIDES window, as a percentage — the same
+    /// figure as the "Share Log Percentage" column on ocean.xyz/stats.
+    pub share_pct: f64,
+
+    // ── pool_stat: pool-wide context ──
+    pub pool_active_users: u64,
+    pub pool_active_workers: u64,
+    pub network_difficulty: f64,
+
+    /// True when `user_hashrate`/`statsnap` reported this address as unknown —
+    /// a valid state for an address that has never mined, and distinct from a
+    /// fetch failure (which surfaces as an error instead).
+    pub address_unknown: bool,
+}
+
+/// OCEAN returns every numeric field as a string, and sometimes as a JSON
+/// number. Coerce defensively: a missing/garbage value reads as `0.0` rather
+/// than poisoning a total with NaN. Mirrors `num()` in `ocean.ts`.
+fn num(s: &str) -> f64 {
+    let n: f64 = s.trim().parse().unwrap_or(0.0);
+    if n.is_finite() {
+        n
+    } else {
+        0.0
+    }
+}
+
+/// `num()` over a `serde_json::Value` that may be a number or a quoted string.
+fn num_value(v: &serde_json::Value) -> f64 {
+    match v {
+        serde_json::Value::Number(n) => n.as_f64().filter(|f| f.is_finite()).unwrap_or(0.0),
+        serde_json::Value::String(s) => num(s),
+        _ => 0.0,
+    }
+}
+
+/// Decimal BTC string → whole sats. Mirrors `btcToSats()` in `ocean.ts`.
+/// Negative or non-finite inputs clamp to 0 rather than wrapping on cast.
+fn btc_to_sats(btc: &str) -> u64 {
+    let sats = (num(btc) * 1e8).round();
+    if sats.is_finite() && sats > 0.0 {
+        sats as u64
+    } else {
+        0
+    }
+}
+
+/// OCEAN answers "this address has never mined here" with an error string
+/// rather than an empty result. That is a legitimate empty state, not a
+/// failure, so it must not be reported to the user as a broken fetch.
+fn is_no_such_user(e: &Error) -> bool {
+    e.to_string().to_lowercase().contains("no such user")
+}
+
 // ── Core object ──────────────────────────────────────────────────────
 //
 // One instance per app process. Constructed with the platform's app-data
@@ -283,6 +376,11 @@ pub struct OceanlnCore {
     backup_marker: PathBuf,
     sidecar_url: String,
     sidecar_credentials: Option<String>,
+    /// One per process, as `ocean.rs` documents: the inner `reqwest::Client`
+    /// pools TCP/TLS sessions across the four calls a Pool refresh makes.
+    ocean: OceanClient,
+    /// Holds the 60s BTC/USD cache, so it must be shared, not per-call.
+    price: PriceClient,
 }
 
 #[uniffi::export]
@@ -301,6 +399,8 @@ impl OceanlnCore {
             wallet: Arc::new(LexeWalletProvider),
             sidecar_url: client::DEFAULT_BASE_URL.to_string(),
             sidecar_credentials: None,
+            ocean: OceanClient::default(),
+            price: PriceClient::default(),
         })
     }
 
@@ -366,6 +466,51 @@ mod tests {
         assert!(!core.backup_confirmed());
         core.confirm_backup().expect("confirm backup");
         assert!(OceanlnCore::new(path).backup_confirmed());
+    }
+
+    #[test]
+    fn num_coerces_ocean_string_fields() {
+        assert_eq!(super::num("2000000000000"), 2e12);
+        assert_eq!(super::num(" 0.00015 "), 0.00015);
+        // Garbage/empty must read as 0, not NaN — a NaN here would poison
+        // every total it touches and render as "NaN sats".
+        assert_eq!(super::num(""), 0.0);
+        assert_eq!(super::num("not-a-number"), 0.0);
+        assert_eq!(super::num("NaN"), 0.0);
+        assert_eq!(super::num("inf"), 0.0);
+    }
+
+    #[test]
+    fn num_value_accepts_numbers_and_quoted_strings() {
+        // OCEAN sends `total_satoshis_net_paid` both ways across endpoints.
+        assert_eq!(super::num_value(&serde_json::json!(42)), 42.0);
+        assert_eq!(super::num_value(&serde_json::json!("42")), 42.0);
+        assert_eq!(super::num_value(&serde_json::json!(null)), 0.0);
+        assert_eq!(super::num_value(&serde_json::json!("junk")), 0.0);
+    }
+
+    #[test]
+    fn btc_to_sats_matches_the_frontend() {
+        assert_eq!(super::btc_to_sats("0.00015"), 15_000);
+        assert_eq!(super::btc_to_sats("1"), 100_000_000);
+        assert_eq!(super::btc_to_sats("0"), 0);
+        // Never wrap on cast: a negative or garbage amount clamps to 0.
+        assert_eq!(super::btc_to_sats("-1"), 0);
+        assert_eq!(super::btc_to_sats("junk"), 0);
+    }
+
+    #[test]
+    fn no_such_user_is_recognised_as_an_empty_state() {
+        use oceanln_common::error::Error;
+        let e = Error::Wallet(
+            "ocean.xyz https://api.ocean.xyz/v1/statsnap/bc1q returned error: \
+             No such user or user has no active workers"
+                .to_string(),
+        );
+        assert!(super::is_no_such_user(&e));
+        assert!(!super::is_no_such_user(&Error::Wallet(
+            "connection refused".to_string()
+        )));
     }
 
     #[test]
@@ -472,6 +617,133 @@ impl OceanlnCore {
         )
         .await
         .map_err(Into::into)
+    }
+
+    /// Live mining stats for `address` from OCEAN's public API.
+    ///
+    /// Four endpoints in parallel, each best-effort in the same way the web
+    /// dashboard treats them (`StatsGrid.svelte`): `user_hashrate`, `earnpay`
+    /// and `pool_stat` contribute zeros when they fail, because a brand-new
+    /// address legitimately 404s on them.
+    ///
+    /// `statsnap` is the exception — if *it* fails for any reason other than
+    /// "no such user", the whole call errors. Returning a screen full of
+    /// plausible zeros for what is really a dead network is the failure mode
+    /// this app can least afford.
+    pub async fn pool_stats(&self, address: String) -> CoreResult<PoolStats> {
+        let (snap, hashrate, earnpay, pool) = tokio::join!(
+            self.ocean.statsnap(&address),
+            self.ocean.user_hashrate(&address),
+            self.ocean.earnpay(&address),
+            self.ocean.pool_stat(),
+        );
+
+        let mut address_unknown = false;
+        let snap = match snap {
+            Ok(s) => Some(s),
+            Err(e) if is_no_such_user(&e) => {
+                address_unknown = true;
+                None
+            }
+            Err(e) => return Err(e.into()),
+        };
+
+        // statsnap: balances + TIDES shares + the 5m hashrate window.
+        let (unpaid_sats, est_payout_next_block_sats, est_earn_next_block_sats) = snap
+            .as_ref()
+            .map(|s| {
+                (
+                    btc_to_sats(&s.unpaid),
+                    btc_to_sats(&s.estimated_payout_next_block),
+                    btc_to_sats(&s.estimated_earn_next_block),
+                )
+            })
+            .unwrap_or((0, 0, 0));
+        let tides_shares = snap.as_ref().map(|s| num(&s.shares_in_tides)).unwrap_or(0.0);
+        let mut hashrate_300s = snap.as_ref().map(|s| num(&s.hashrate_300s)).unwrap_or(0.0);
+        let mut last_share_ts = snap
+            .as_ref()
+            .map(|s| num(&s.lastest_share_ts) as i64)
+            .unwrap_or(0);
+
+        // user_hashrate: live worker count + the longer windows.
+        let (mut active_workers, mut hashrate_3600s, mut hashrate_10800s, mut hashrate_86400s) =
+            (0u32, 0.0, 0.0, 0.0);
+        if let Ok(h) = hashrate {
+            active_workers = h.active_worker_count.min(u32::MAX as u64) as u32;
+            hashrate_3600s = num(&h.hashrate_3600s);
+            hashrate_10800s = num(&h.hashrate_10800s);
+            hashrate_86400s = num(&h.hashrate_86400s);
+            // Prefer statsnap's 5m window, but take this one when statsnap was
+            // the endpoint that had no record of the address.
+            if hashrate_300s == 0.0 {
+                hashrate_300s = num(&h.hashrate_300s);
+            }
+            last_share_ts = last_share_ts.max(num(&h.lastest_share_ts) as i64);
+        }
+
+        // earnpay: sum the payout history. We ignore the `earnings` array for
+        // the same reason the web does — per-block credits duplicate what the
+        // payouts list already implies.
+        let total_paid_sats: u64 = earnpay
+            .map(|e| {
+                e.payouts
+                    .iter()
+                    .map(|p| {
+                        let v = num_value(&p.total_satoshis_net_paid);
+                        if v.is_finite() && v > 0.0 {
+                            v as u64
+                        } else {
+                            0
+                        }
+                    })
+                    .sum()
+            })
+            .unwrap_or(0);
+
+        // pool_stat: pool-wide context + the denominator for the TIDES share.
+        let (mut pool_tides_shares, mut pool_active_users, mut pool_active_workers, mut difficulty) =
+            (0.0, 0u64, 0u64, 0.0);
+        if let Ok(p) = pool {
+            pool_tides_shares = num(&p.current_tides_shares);
+            pool_active_users = num(&p.active_users) as u64;
+            pool_active_workers = num(&p.active_workers) as u64;
+            difficulty = num(&p.network_difficulty);
+        }
+        let share_pct = if pool_tides_shares > 0.0 {
+            (tides_shares / pool_tides_shares) * 100.0
+        } else {
+            0.0
+        };
+
+        Ok(PoolStats {
+            hashrate_300s,
+            hashrate_3600s,
+            hashrate_10800s,
+            hashrate_86400s,
+            active_workers,
+            last_share_ts,
+            unpaid_sats,
+            est_payout_next_block_sats,
+            est_earn_next_block_sats,
+            total_paid_sats,
+            lifetime_sats: unpaid_sats.saturating_add(total_paid_sats),
+            tides_shares,
+            pool_tides_shares,
+            share_pct,
+            pool_active_users,
+            pool_active_workers,
+            network_difficulty: difficulty,
+            address_unknown,
+        })
+    }
+
+    /// Current BTC/USD spot, or `0.0` when unavailable.
+    ///
+    /// `0` is not an error — it means "show sats". The UI must never render a
+    /// fiat figure from a rate it does not actually have.
+    pub async fn btc_usd(&self) -> f64 {
+        self.price.btc_usd().await
     }
 
     /// Send to any payable string (Send flow). **Moves real funds.**

@@ -12,7 +12,7 @@ import androidx.compose.material3.Text
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import xyz.ocean.mobile.data.MockWalletRepository
+import xyz.ocean.mobile.data.cached
 import xyz.ocean.mobile.data.createCoreRepository
 import xyz.ocean.mobile.theme.OceanColors
 import xyz.ocean.mobile.theme.OceanType
@@ -21,17 +21,18 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        // Seed + node data live under the app's private files dir. Production
-        // must fail closed if the native core cannot load; fixtures are allowed
-        // only in an explicit debug build.
+        // Seed + node data live under the app's private files dir. The core is
+        // the only data source in every build configuration — there is no
+        // debug-only fixture path, because a fixture that renders a balance is
+        // one build-flag mistake away from shipping.
         val dir = filesDir.resolve("ocean").absolutePath
-        val repo = runCatching { createCoreRepository(dir) }
+        // `.cached()` keeps tab switches from refetching; see CachedWalletRepository.
+        val repo = runCatching { createCoreRepository(dir).cached() }
         setContent {
             repo.fold(
                 onSuccess = { App(it) },
                 onFailure = { error ->
-                    if (BuildConfig.DEBUG) App(MockWalletRepository())
-                    else Box(
+                    Box(
                         Modifier.fillMaxSize().background(OceanColors.bgPrimary).padding(28.dp),
                         contentAlignment = Alignment.Center,
                     ) {

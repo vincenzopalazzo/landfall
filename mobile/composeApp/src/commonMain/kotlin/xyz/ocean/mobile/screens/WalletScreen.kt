@@ -31,13 +31,10 @@ import xyz.ocean.mobile.data.TxStatus
 import xyz.ocean.mobile.data.WalletRepository
 import xyz.ocean.mobile.data.btc
 import xyz.ocean.mobile.data.commas
-import xyz.ocean.mobile.data.fmtUsd
-import xyz.ocean.mobile.data.matEta
-import xyz.ocean.mobile.data.usd
+import xyz.ocean.mobile.data.fiatOrNull
 import xyz.ocean.mobile.theme.OceanColors
 import xyz.ocean.mobile.theme.OceanType
 import xyz.ocean.mobile.ui.BtnVariant
-import xyz.ocean.mobile.ui.MaturityCard
 import xyz.ocean.mobile.ui.OButton
 import xyz.ocean.mobile.ui.OCard
 import xyz.ocean.mobile.ui.OIcon
@@ -60,8 +57,7 @@ fun WalletScreen(
     val bal by produceState<Balances?>(initialValue = null, repo) { value = repo.balances() }
     val txs by produceState<List<Tx>>(initialValue = emptyList(), repo) { value = repo.activity() }
     val b = bal ?: return
-    val maturing = txs.firstOrNull { it.maturing }
-    val recent = txs.filter { it.status != TxStatus.MATURING }.take(if (fullMode) 5 else 3)
+    val recent = txs.take(if (fullMode) 5 else 3)
     val shown = if (fullMode) b.total else b.channel
 
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
@@ -83,14 +79,21 @@ fun WalletScreen(
                 )
             }
             Spacer(Modifier.height(12.dp))
+            // Null when no live rate is available; the hero then stays in sats
+            // and the secondary line is omitted rather than showing a figure
+            // derived from a stale constant.
+            val heroFiat = fiatOrNull(shown)
+            val showFiatHero = usdUnit && heroFiat != null
             Row(verticalAlignment = Alignment.Bottom) {
-                Text(if (usdUnit) fmtUsd(usd(shown)) else commas(shown), style = OceanType.heroValue.copy(color = OceanColors.fgPrimary))
-                if (!usdUnit) Text(" sats", style = OceanType.bodySm.copy(color = OceanColors.fgTertiary, fontSize = 16.sp))
+                Text(
+                    if (showFiatHero) heroFiat!! else commas(shown),
+                    style = OceanType.heroValue.copy(color = OceanColors.fgPrimary),
+                )
+                if (!showFiatHero) Text(" sats", style = OceanType.bodySm.copy(color = OceanColors.fgTertiary, fontSize = 16.sp))
             }
             Spacer(Modifier.height(9.dp))
-            val fiat = if (usdUnit) "${commas(shown)} sats" else fmtUsd(usd(shown))
-            val matStr = if (maturing != null && !fullMode) " · +${commas(maturing.amt ?: 0)} maturing" else ""
-            Text(fiat + matStr, style = OceanType.monoSm.copy(color = OceanColors.fgTertiary, fontSize = 13.sp))
+            val alt = if (showFiatHero) "${commas(shown)} sats" else heroFiat
+            if (alt != null) Text(alt, style = OceanType.monoSm.copy(color = OceanColors.fgTertiary, fontSize = 13.sp))
             Spacer(Modifier.height(18.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Box(Modifier.weight(1f)) { OButton("Receive", BtnVariant.GHOST, icon = "in", fill = true, onClick = onReceive) }
@@ -109,7 +112,7 @@ fun WalletScreen(
                         Text(commas(b.channel), style = OceanType.splitValue.copy(color = OceanColors.fgPrimary))
                         Text(" sats", style = OceanType.monoXs)
                     }
-                    Text("${fmtUsd(usd(b.channel))} spendable", style = OceanType.monoXs)
+                    fiatOrNull(b.channel)?.let { Text("$it spendable", style = OceanType.monoXs) }
                     Spacer(Modifier.height(12.dp))
                     val capPct = (b.channel.toFloat() / b.capacity).coerceIn(0.04f, 1f)
                     ProgressBar(capPct)
@@ -127,17 +130,11 @@ fun WalletScreen(
                         Text(btc(b.onchain), style = OceanType.splitValue.copy(color = OceanColors.fgPrimary))
                         Text(" BTC", style = OceanType.monoXs)
                     }
-                    Text("${fmtUsd(usd(b.onchain))} confirmed", style = OceanType.monoXs)
+                    fiatOrNull(b.onchain)?.let { Text("$it confirmed", style = OceanType.monoXs) }
                     Spacer(Modifier.height(12.dp))
                     Text("Held in your node wallet — withdraw to cold storage or open a channel.", style = OceanType.bodySm.copy(color = OceanColors.fgMuted, fontSize = 11.5.sp))
                 }
             }
-        }
-
-        // maturity summary
-        if (maturing != null) {
-            Spacer(Modifier.height(12.dp))
-            MaturityCard(maturing, showNote = fullMode)
         }
 
         // recent activity

@@ -1748,6 +1748,7 @@ version = "0.3.1"
 dependencies = [
  "lightning-invoice",
  "oceanln-common",
+ "serde_json",
  "tempfile",
  "thiserror 1.0.69",
  "tokio",

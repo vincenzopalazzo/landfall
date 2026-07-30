@@ -52,13 +52,11 @@ import xyz.ocean.mobile.data.TxStatus
 import xyz.ocean.mobile.data.WalletRepository
 import xyz.ocean.mobile.data.amt
 import xyz.ocean.mobile.data.commas
-import xyz.ocean.mobile.data.fmtUsd
+import xyz.ocean.mobile.data.fiatOrNull
 import xyz.ocean.mobile.data.short
-import xyz.ocean.mobile.data.usd
 import xyz.ocean.mobile.theme.OceanColors
 import xyz.ocean.mobile.theme.OceanType
 import xyz.ocean.mobile.ui.BtnVariant
-import xyz.ocean.mobile.ui.MaturityCard
 import xyz.ocean.mobile.ui.OButton
 import xyz.ocean.mobile.ui.OIcon
 import xyz.ocean.mobile.ui.Pill
@@ -116,6 +114,15 @@ fun ReceiveSheet(repo: WalletRepository, onClose: () -> Unit) {
     var tab by remember { mutableStateOf("offer") }
     var invoice by remember { mutableStateOf<String?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
+    // The offer and mining address are read off the core (file I/O + BIP32
+    // derivation), so they load in a coroutine rather than being pulled from a
+    // property getter during composition on the main thread.
+    var offer by remember { mutableStateOf<String?>(null) }
+    var onchain by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(repo) {
+        runCatching { repo.offer() }.onSuccess { offer = it }
+        runCatching { repo.miningAddress() }.onSuccess { onchain = it }
+    }
     LaunchedEffect(tab, repo) {
         if (tab == "invoice" && invoice == null) {
             error = null
@@ -125,9 +132,9 @@ fun ReceiveSheet(repo: WalletRepository, onClose: () -> Unit) {
         }
     }
     val value = when (tab) {
-        "offer" -> repo.offer
+        "offer" -> offer
         "invoice" -> invoice
-        else -> repo.miningAddress
+        else -> onchain
     }
     val label = when (tab) { "offer" -> "Reusable BOLT12 offer"; "invoice" -> "Lightning invoice"; else -> "On-chain address" }
     SheetShell("Receive", full = false, onClose = onClose) {
@@ -142,7 +149,7 @@ fun ReceiveSheet(repo: WalletRepository, onClose: () -> Unit) {
         Box(Modifier.fillMaxWidth().padding(vertical = 18.dp), contentAlignment = Alignment.Center) {
             Box(Modifier.size(190.dp).clip(RoundedCornerShape(8.dp)).background(Color(0xFFFAFAFA)), contentAlignment = Alignment.Center) {
                 if (value != null) DestinationQr(value, Modifier.size(166.dp))
-                else if (tab == "invoice" && error == null) {
+                else if (error == null) {
                     androidx.compose.material3.CircularProgressIndicator(color = OceanColors.accent)
                 } else {
                     OIcon("warn", 42, OceanColors.fgMuted)
@@ -189,21 +196,22 @@ private fun DestinationQr(value: String, modifier: Modifier = Modifier) {
 @Composable
 fun TxDetailSheet(t: Tx, usdUnit: Boolean, onClose: () -> Unit) {
     val inn = t.dir == Dir.IN
-    val mat = t.status == TxStatus.MATURING
     SheetShell("Transaction", full = true, onClose = onClose) {
         // hero
         Column(Modifier.fillMaxWidth().padding(bottom = 20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            val dirColor = when { t.status == TxStatus.FAILED -> OceanColors.error; mat -> OceanColors.warning; inn -> OceanColors.success; else -> OceanColors.fgSecondary }
+            val dirColor = when { t.status == TxStatus.FAILED -> OceanColors.error; inn -> OceanColors.success; else -> OceanColors.fgSecondary }
             Box(Modifier.size(52.dp).clip(CircleShape).background(OceanColors.bgCard).border(1.dp, OceanColors.border, CircleShape), contentAlignment = Alignment.Center) {
-                OIcon(if (t.isOcean) "spark" else if (mat) "hourglass" else if (inn) "in" else "out", 26, if (t.isOcean) OceanColors.accent else dirColor)
+                OIcon(if (t.isOcean) "spark" else if (inn) "in" else "out", 26, if (t.isOcean) OceanColors.accent else dirColor)
             }
             Spacer(Modifier.height(14.dp))
             Row(verticalAlignment = Alignment.Bottom) {
-                Text(amt(t.amt, usdUnit, t.dir), style = OceanType.detailAmount.copy(color = if (mat) OceanColors.warning else if (inn) OceanColors.success else OceanColors.fgPrimary))
+                Text(amt(t.amt, usdUnit, t.dir), style = OceanType.detailAmount.copy(color = if (inn) OceanColors.success else OceanColors.fgPrimary))
                 if (t.amt != null && !usdUnit) Text(" sats", style = OceanType.bodySm.copy(color = OceanColors.fgTertiary, fontSize = 15.sp))
             }
             Spacer(Modifier.height(6.dp))
-            Text(if (mat) "not yet spendable" else if (t.amt == null) "pending" else if (usdUnit) "${commas(t.amt)} sats" else fmtUsd(usd(t.amt)), style = OceanType.monoSm.copy(color = OceanColors.fgTertiary, fontSize = 13.sp))
+            val secondary = if (t.amt == null) "pending"
+            else if (usdUnit) "${commas(t.amt)} sats" else fiatOrNull(t.amt)
+            if (secondary != null) Text(secondary, style = OceanType.monoSm.copy(color = OceanColors.fgTertiary, fontSize = 13.sp))
             Spacer(Modifier.height(13.dp))
             StatusPill(t)
         }
@@ -212,15 +220,14 @@ fun TxDetailSheet(t: Tx, usdUnit: Boolean, onClose: () -> Unit) {
         } else if (t.dir == Dir.IN && t.offer && !t.noteMatch) {
             Caution(t)
         }
-        if (mat && t.mat != null) {
-            Spacer(Modifier.height(18.dp))
-            MaturityCard(t, showNote = true)
-        }
         SecLabel("Details")
         DetailRow(if (inn) "From" else "To", t.party)
         if (t.note != null) DetailRow("Note", t.note)
-        DetailRow("Date", t.tsIso)
+        if (t.tsIso.isNotBlank()) DetailRow("Date", t.tsIso)
         DetailRow("Network", if (t.rail == Rail.LN) "Lightning" else "On-chain")
+        // Comes from the OCEAN payer note: the block this reward is for. Not a
+        // confirmation depth.
+        t.oceanBlockHeight?.let { DetailRow("OCEAN block", commas(it)) }
         if (t.fee != null) DetailRow("Fee", if (t.fee == 0L) "0 sats (free)" else "${commas(t.fee)} sats")
         SecLabel("Proof & references")
         if (t.rail == Rail.LN) {
@@ -228,7 +235,6 @@ fun TxDetailSheet(t: Tx, usdUnit: Boolean, onClose: () -> Unit) {
             if (t.preimage != null) DetailRow("Preimage", short(t.preimage, 10, 8), copy = t.preimage)
         } else {
             DetailRow("Transaction ID", short(t.txid, 10, 8), copy = t.txid)
-            DetailRow("Confirmations", if ((t.conf ?: 0) >= 6) "${t.conf} (final)" else "${t.conf} / 6")
         }
         Spacer(Modifier.height(20.dp))
     }
@@ -237,9 +243,7 @@ fun TxDetailSheet(t: Tx, usdUnit: Boolean, onClose: () -> Unit) {
 @Composable
 private fun StatusPill(t: Tx) = when (t.status) {
     TxStatus.SETTLED -> Pill(PillTone.OK, "Settled", "check")
-    TxStatus.MATURING -> Pill(PillTone.MAT, "Maturing · ${t.mat?.confs}/${t.mat?.target}", "hourglass")
     TxStatus.PENDING -> Pill(PillTone.ACC, "In-flight")
-    TxStatus.CONFIRMING -> Pill(PillTone.ACC, "${t.conf}/6 conf", "refresh")
     TxStatus.FAILED -> Pill(PillTone.ERR, "Failed", "warn")
 }
 
@@ -289,11 +293,14 @@ private fun DetailRow(k: String, v: String, copy: String? = null) {
 
 // ── Send (dest → amount → review → sending → done) ──
 private data class Dest(val key: String, val name: String, val icon: String, val onchain: Boolean)
+// One entry per destination the core can actually pay. The design also had an
+// "Exchange" tile, but it only listed provider names with no address field, so
+// it could never produce a payable string — sending to an exchange is the
+// on-chain (or LN address) path.
 private val DESTS = listOf(
     Dest("invoice", "Invoice", "bolt", false),
     Dest("lnaddr", "LN address", "at", false),
     Dest("onchain", "On-chain", "btc", true),
-    Dest("exchange", "Exchange", "bank", true),
 )
 
 @Composable
@@ -304,6 +311,7 @@ fun SendSheet(repo: WalletRepository, usdUnit: Boolean, onClose: () -> Unit) {
     var amount by remember { mutableStateOf(0L) }
     var fixedAmount by remember { mutableStateOf<Long?>(null) }
     var proof by remember { mutableStateOf("") }
+    var paidSats by remember { mutableStateOf(0L) }
     var sendError by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
     val dest = DESTS.first { it.key == destKey }
@@ -313,7 +321,9 @@ fun SendSheet(repo: WalletRepository, usdUnit: Boolean, onClose: () -> Unit) {
     val available = bal ?: xyz.ocean.mobile.data.Balances(0, 1, 0)
     val srcBal = if (dest.onchain) available.onchain else available.channel
     val srcName = if (dest.onchain) "On-chain balance" else "Lightning channel"
-    val fee = if (dest.onchain) 2400L else maxOf(1L, (amount * 0.0006).toLong())
+    // No fee estimate is shown. The node quotes the routing/on-chain fee when
+    // it builds the payment; anything we displayed here would be a guess on the
+    // last screen before an irreversible send.
 
     when (step) {
         98 -> SheetShell("Sending", full = true, onClose = null) {
@@ -331,7 +341,11 @@ fun SendSheet(repo: WalletRepository, usdUnit: Boolean, onClose: () -> Unit) {
                 }
                 Spacer(Modifier.height(18.dp))
                 Text("Payment sent", style = OceanType.sheetTitle.copy(fontSize = 21.sp))
-                Text("${commas(amount)} sats · ${fmtUsd(usd(amount))}", style = OceanType.monoSm.copy(color = OceanColors.fgTertiary))
+                val paidFiat = fiatOrNull(paidSats)
+                Text(
+                    "${commas(paidSats)} sats" + (if (paidFiat != null) " · $paidFiat" else ""),
+                    style = OceanType.monoSm.copy(color = OceanColors.fgTertiary),
+                )
                 Spacer(Modifier.height(20.dp))
                 Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(OceanColors.bgCard).border(1.dp, OceanColors.border, RoundedCornerShape(8.dp)).padding(13.dp)) {
                     Text((if (dest.onchain) "TRANSACTION ID" else "PAYMENT REFERENCE"), style = OceanType.monoXs.copy(letterSpacing = 0.6.sp))
@@ -366,10 +380,9 @@ fun SendSheet(repo: WalletRepository, usdUnit: Boolean, onClose: () -> Unit) {
                 amount = 0
             }
             when (destKey) {
-                "invoice" -> { FieldLabel("BOLT11 invoice"); InputField(value, "lnbc1…  Paste or scan", multiline = true) { value = it } }
+                "invoice" -> { FieldLabel("BOLT11 invoice"); InputField(value, "lnbc1…  Paste the invoice", multiline = true) { value = it } }
                 "lnaddr" -> { FieldLabel("Lightning address"); InputField(value, "you@domain.com") { value = it } }
                 "onchain" -> { FieldLabel("Bitcoin address"); InputField(value, "bc1q…") { value = it } }
-                "exchange" -> { FieldLabel("Choose a service"); Text("Kraken · Coinbase · River · Strike", style = OceanType.bodySm.copy(color = OceanColors.fgTertiary)) }
             }
             if (sendError != null) Text(sendError!!, style = OceanType.bodySm.copy(color = OceanColors.error), modifier = Modifier.padding(top = 10.dp))
             Spacer(Modifier.height(12.dp))
@@ -387,12 +400,18 @@ fun SendSheet(repo: WalletRepository, usdUnit: Boolean, onClose: () -> Unit) {
                     cursorBrush = androidx.compose.ui.graphics.SolidColor(OceanColors.accent),
                     readOnly = fixedAmount != null,
                 )
-                Text(if (amount > 0) (if (usdUnit) "${commas(amount)} sats" else "≈ ${fmtUsd(usd(amount))}") else "≈ \$0.00", style = OceanType.monoSm.copy(color = OceanColors.fgTertiary))
+                val altUnit = if (amount > 0) {
+                    if (usdUnit) "${commas(amount)} sats" else fiatOrNull(amount)?.let { "≈ $it" }
+                } else null
+                if (altUnit != null) Text(altUnit, style = OceanType.monoSm.copy(color = OceanColors.fgTertiary))
                 if (fixedAmount != null) Text("Amount set by invoice", style = OceanType.bodySm.copy(color = OceanColors.accent), modifier = Modifier.padding(top = 6.dp))
             }
             if (fixedAmount == null) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally)) {
-                    ToolBtn("Max") { amount = maxOf(0, srcBal - fee) }
+                    // Whole balance. The node deducts its fee from what it
+                    // can actually route; we no longer subtract a made-up one,
+                    // which used to yield a total above the balance.
+                    ToolBtn("Max") { amount = srcBal }
                     ToolBtn("50%") { amount = srcBal / 2 }
                 }
             }
@@ -403,7 +422,6 @@ fun SendSheet(repo: WalletRepository, usdUnit: Boolean, onClose: () -> Unit) {
             }
         }
         else -> { // 3: review
-            val total = amount + fee
             SheetShell("Review & confirm", full = false, onClose = onClose, onBack = { step = 2 }, right = { Dots(3) }, footer = {
                 OButton("Back", BtnVariant.GHOST) { step = 2 }
                 Box(Modifier.weight(1f)) {
@@ -414,6 +432,8 @@ fun SendSheet(repo: WalletRepository, usdUnit: Boolean, onClose: () -> Unit) {
                             runCatching { repo.pay(value.trim(), if (fixedAmount == null) amount else null, null) }
                                 .onSuccess {
                                     proof = it.id
+                                    // What the node actually sent, not what we asked for.
+                                    paidSats = it.amountSats
                                     step = 99
                                 }
                                 .onFailure {
@@ -427,17 +447,22 @@ fun SendSheet(repo: WalletRepository, usdUnit: Boolean, onClose: () -> Unit) {
                 Spacer(Modifier.height(6.dp))
                 ReviewRow("To", if (value.length > 26) short(value, 10, 8) else value.ifEmpty { dest.name })
                 ReviewRow("Network", if (dest.onchain) "On-chain" else "Lightning")
-                ReviewRow("Amount", "${commas(amount)} sats")
-                ReviewRow("Network fee", "${commas(fee)} sats")
                 ReviewRow("From", srcName)
                 Row(Modifier.fillMaxWidth().padding(top = 15.dp).border(0.dp, Color.Transparent), verticalAlignment = Alignment.Bottom) {
-                    Text("Total", style = OceanType.body.copy(fontWeight = FontWeight.SemiBold, fontSize = 14.sp))
+                    Text("Amount", style = OceanType.body.copy(fontWeight = FontWeight.SemiBold, fontSize = 14.sp))
                     Spacer(Modifier.weight(1f))
-                    Text("${commas(total)}", style = OceanType.splitValue.copy(color = OceanColors.fgPrimary, fontSize = 20.sp))
+                    Text("${commas(amount)}", style = OceanType.splitValue.copy(color = OceanColors.fgPrimary, fontSize = 20.sp))
                     Text(" sats", style = OceanType.bodySm.copy(color = OceanColors.fgTertiary, fontSize = 12.sp))
                 }
                 Spacer(Modifier.height(14.dp))
-                Text("≈ ${fmtUsd(usd(total))} · Bitcoin payments can't be reversed — check the destination.", style = OceanType.bodySm.copy(color = OceanColors.fgMuted, fontSize = 11.5.sp), modifier = Modifier.fillMaxWidth())
+                val reviewFiat = fiatOrNull(amount)
+                Text(
+                    (if (reviewFiat != null) "≈ $reviewFiat · " else "") +
+                        "The network fee is set by your node when it sends. " +
+                        "Bitcoin payments can't be reversed — check the destination.",
+                    style = OceanType.bodySm.copy(color = OceanColors.fgMuted, fontSize = 11.5.sp),
+                    modifier = Modifier.fillMaxWidth(),
+                )
                 if (sendError != null) {
                     Spacer(Modifier.height(10.dp))
                     Text(sendError!!, style = OceanType.bodySm.copy(color = OceanColors.error))
