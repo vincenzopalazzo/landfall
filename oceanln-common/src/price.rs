@@ -38,10 +38,7 @@ struct Cache {
 
 impl Cache {
     fn fresh(&self) -> bool {
-        self.value > 0.0
-            && self
-                .fetched_at
-                .is_some_and(|at| at.elapsed() < TTL)
+        self.value > 0.0 && self.fetched_at.is_some_and(|at| at.elapsed() < TTL)
     }
 }
 

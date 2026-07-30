@@ -17,6 +17,7 @@ use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
 
+use lightning_invoice::Bolt11Invoice;
 use oceanln_common::client;
 use oceanln_common::error::Error;
 use oceanln_common::ocean::OceanClient;
@@ -25,7 +26,6 @@ use oceanln_common::seed::SeedSource;
 use oceanln_common::service;
 use oceanln_common::sign::DEFAULT_BIP32_PATH;
 use oceanln_common::wallet_provider::{LexeWalletProvider, WalletProvider};
-use lightning_invoice::Bolt11Invoice;
 
 uniffi::setup_scaffolding!();
 
@@ -450,7 +450,9 @@ impl OceanlnCore {
         }
         let invoice = Bolt11Invoice::from_str(value)
             .map_err(|e| Error::Wallet(format!("invalid BOLT11 invoice: {e}")))?;
-        Ok(invoice.amount_milli_satoshis().map(|msat| msat.div_ceil(1000)))
+        Ok(invoice
+            .amount_milli_satoshis()
+            .map(|msat| msat.div_ceil(1000)))
     }
 }
 
@@ -659,7 +661,10 @@ impl OceanlnCore {
                 )
             })
             .unwrap_or((0, 0, 0));
-        let tides_shares = snap.as_ref().map(|s| num(&s.shares_in_tides)).unwrap_or(0.0);
+        let tides_shares = snap
+            .as_ref()
+            .map(|s| num(&s.shares_in_tides))
+            .unwrap_or(0.0);
         let mut hashrate_300s = snap.as_ref().map(|s| num(&s.hashrate_300s)).unwrap_or(0.0);
         let mut last_share_ts = snap
             .as_ref()
