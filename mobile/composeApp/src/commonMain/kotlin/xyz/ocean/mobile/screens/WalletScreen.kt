@@ -80,7 +80,9 @@ fun WalletScreen(
     }
     val (b, txs) = result.getOrThrow()
     val recent = txs.take(if (fullMode) 5 else 3)
-    val shown = if (fullMode) b.total else b.channel
+    // The wallet's actual holdings. Showing only the sendable figure hid the
+    // channel reserve and understated the balance.
+    val shown = b.total
 
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
         Spacer(Modifier.height(4.dp))
@@ -96,7 +98,7 @@ fun WalletScreen(
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                 StatusDot(OceanColors.success, 7)
                 Text(
-                    (if (fullMode) "TOTAL BALANCE · NODE ONLINE" else "SPENDABLE BALANCE"),
+                    (if (fullMode) "TOTAL BALANCE · NODE ONLINE" else "WALLET BALANCE"),
                     style = OceanType.monoXs.copy(letterSpacing = 0.8.sp),
                 )
             }
@@ -115,7 +117,11 @@ fun WalletScreen(
             }
             Spacer(Modifier.height(9.dp))
             val alt = if (showFiatHero) "${commas(shown)} sats" else heroFiat
-            if (alt != null) Text(alt, style = OceanType.monoSm.copy(color = OceanColors.fgTertiary, fontSize = 13.sp))
+            // Spell out the split when part of the balance is reserve, so the
+            // headline and what Send will actually allow never disagree.
+            val spendable = if (b.reserved > 0) "${commas(b.channel)} spendable now" else null
+            val line = listOfNotNull(alt, spendable).joinToString(" · ")
+            if (line.isNotEmpty()) Text(line, style = OceanType.monoSm.copy(color = OceanColors.fgTertiary, fontSize = 13.sp))
             Spacer(Modifier.height(18.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Box(Modifier.weight(1f)) { OButton("Receive", BtnVariant.GHOST, icon = "in", fill = true, onClick = onReceive) }

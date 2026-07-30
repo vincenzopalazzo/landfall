@@ -328,7 +328,11 @@ fun SendSheet(repo: WalletRepository, usdUnit: Boolean, onClose: () -> Unit) {
     val bal by produceState<xyz.ocean.mobile.data.Balances?>(null, repo) {
         this.value = runCatching { repo.balances() }.getOrNull()
     }
-    val available = bal ?: xyz.ocean.mobile.data.Balances(0, 1, 0)
+    // Zeroed until the balance loads: Send gates on `amount in 1..srcBal`, so a
+    // failed load can never enable a send against a balance we don't know.
+    val available = bal ?: xyz.ocean.mobile.data.Balances(
+        channel = 0, capacity = 1, onchain = 0, total = 0,
+    )
     val srcBal = if (dest.onchain) available.onchain else available.channel
     val srcName = if (dest.onchain) "On-chain balance" else "Lightning channel"
     // No fee estimate is shown. The node quotes the routing/on-chain fee when

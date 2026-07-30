@@ -15,3 +15,6 @@ iosApp/*.xcodeproj/
 iosApp/**/xcuserdata/
 iosApp/**/*.xcworkspace/xcuserdata/
 *.xcuserstate
+
+# Device-build derived data (iosApp/build-device via -derivedDataPath)
+iosApp/build-device/

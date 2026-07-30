@@ -30,6 +30,7 @@ import xyz.ocean.mobile.data.Balances
 import xyz.ocean.mobile.data.PoolStats
 import xyz.ocean.mobile.data.Tx
 import xyz.ocean.mobile.data.WalletRepository
+import xyz.ocean.mobile.data.bestHashrate
 import xyz.ocean.mobile.data.commas
 import xyz.ocean.mobile.data.fiatOrNull
 import xyz.ocean.mobile.data.hashrate
@@ -147,14 +148,18 @@ private data class PoolData(
 
 @Composable
 private fun HashrateHero(p: PoolStats) {
-    val (value, unit) = hashrate(p.hashrate300s)
+    // Shortest window with an actual reading. Pinning this to 5m reported
+    // "0 H/s" for a rig that had merely paused.
+    val best = p.bestHashrate()
+    val (value, unit) = hashrate(best?.first ?: 0.0)
+    val window = best?.second ?: "5 MIN"
     Column(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(OceanColors.bgCard)
             .border(1.dp, OceanColors.border, RoundedCornerShape(16.dp)).padding(20.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
             OIcon("chip", 12, OceanColors.fgMuted)
-            Text("HASHRATE · 5 MIN AVG", style = OceanType.monoXs.copy(letterSpacing = 0.8.sp))
+            Text("HASHRATE · $window AVG", style = OceanType.monoXs.copy(letterSpacing = 0.8.sp))
         }
         Spacer(Modifier.height(12.dp))
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
@@ -168,10 +173,24 @@ private fun HashrateHero(p: PoolStats) {
         }
         Spacer(Modifier.height(12.dp))
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            StatusDot(if (p.activeWorkers > 0) OceanColors.success else OceanColors.fgMuted)
+            // A rig between shares reports 0 active workers while still having
+            // a real 3h/24h average, so "no workers online" alone read as "not
+            // mining" when the miner was simply idle for a moment.
+            val mining = best != null
+            StatusDot(
+                when {
+                    p.activeWorkers > 0 -> OceanColors.success
+                    mining -> OceanColors.warning
+                    else -> OceanColors.fgMuted
+                },
+            )
             Text(
-                if (p.activeWorkers > 0) "${p.activeWorkers} worker${if (p.activeWorkers == 1) "" else "s"} online"
-                else "no workers online",
+                when {
+                    p.activeWorkers > 0 ->
+                        "${p.activeWorkers} worker${if (p.activeWorkers == 1) "" else "s"} online"
+                    mining -> "no workers reporting right now"
+                    else -> "not mining"
+                },
                 style = OceanType.bodySm.copy(color = OceanColors.fgTertiary),
             )
         }

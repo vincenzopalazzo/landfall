@@ -101,13 +101,29 @@ data class NodeInfo(
         // Floored at 1 so the channel-capacity progress bar can't divide by zero.
         capacity = maxOf(lightningTotalSats, 1L),
         onchain = onchainTrustedSats,
+        // The node's own figure. Deriving this as `sendable + onchain` silently
+        // dropped the channel reserve — funds you own but cannot send right now
+        // — so a 6,586 sat wallet reported 5,553.
+        total = totalBalanceSats,
     )
 }
 
+/**
+ * What the wallet holds.
+ *
+ * [channel] is what Lightning can send *right now*; [total] is everything the
+ * node owns, including the channel reserve — yours, but not currently
+ * spendable. Conflating the two understates the balance.
+ */
 data class Balances(
+    /** Lightning outbound liquidity — the spendable figure. */
     val channel: Long,
+    /** Total channel capacity, for the liquidity bar. */
     val capacity: Long,
     val onchain: Long,
+    /** Everything the node owns, reserve included. */
+    val total: Long,
 ) {
-    val total: Long get() = channel + onchain
+    /** Held but not spendable right now (channel reserve). */
+    val reserved: Long get() = (total - channel - onchain).coerceAtLeast(0L)
 }
