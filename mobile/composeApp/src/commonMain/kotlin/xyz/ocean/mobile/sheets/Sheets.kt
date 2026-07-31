@@ -331,7 +331,7 @@ fun SendSheet(repo: WalletRepository, usdUnit: Boolean, onClose: () -> Unit) {
     // Zeroed until the balance loads: Send gates on `amount in 1..srcBal`, so a
     // failed load can never enable a send against a balance we don't know.
     val available = bal ?: xyz.ocean.mobile.data.Balances(
-        channel = 0, capacity = 1, onchain = 0, total = 0,
+        channel = 0, capacity = 1, onchain = 0, total = 0, reserved = 0,
     )
     val srcBal = if (dest.onchain) available.onchain else available.channel
     val srcName = if (dest.onchain) "On-chain balance" else "Lightning channel"

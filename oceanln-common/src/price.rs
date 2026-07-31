@@ -9,8 +9,9 @@
 //! **A missing price is never a fabricated price.** [`PriceClient::btc_usd`]
 //! returns `0.0` when the value is unavailable (offline, blocked, or a bad
 //! response) and callers treat `0` as "USD not available" and fall back to
-//! sats. The last good value is kept across failures so a single flaky fetch
-//! doesn't blank the UI.
+//! sats. The last good value survives a flaky fetch so the display doesn't
+//! flicker, but only up to [`MAX_STALE`] — an hours-old rate shown as current
+//! next to a wallet balance is exactly the fabricated figure this avoids.
 
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -23,6 +24,15 @@ pub const PRICE_URL: &str = "https://mempool.space/api/v1/prices";
 
 /// How long a fetched price stays fresh. Matches `price.ts`'s `TTL_MS`.
 const TTL: Duration = Duration::from_secs(60);
+
+/// How long a *stale* price may still be served when refreshes are failing.
+///
+/// Past this, `btc_usd` reports unavailable rather than a price from an
+/// unknown time ago. The frontend's `price.ts` keeps the last good value
+/// indefinitely, which is fine for a dashboard; here the figure sits under a
+/// wallet balance and on the send-review screen, and BTC can move a long way
+/// in an hour offline. Showing sats beats showing a confident wrong number.
+const MAX_STALE: Duration = Duration::from_secs(15 * 60);
 
 #[derive(Debug, Deserialize)]
 struct Prices {
@@ -38,7 +48,16 @@ struct Cache {
 
 impl Cache {
     fn fresh(&self) -> bool {
-        self.value > 0.0 && self.fetched_at.is_some_and(|at| at.elapsed() < TTL)
+        self.value > 0.0 && self.age().is_some_and(|age| age < TTL)
+    }
+
+    /// Still worth serving while refreshes fail — recent enough to be honest.
+    fn servable(&self) -> bool {
+        self.value > 0.0 && self.age().is_some_and(|age| age < MAX_STALE)
+    }
+
+    fn age(&self) -> Option<Duration> {
+        self.fetched_at.map(|at| at.elapsed())
     }
 }
 
@@ -82,7 +101,9 @@ impl PriceClient {
     ///
     /// Never returns an error: a price we could not fetch is not an error
     /// condition for the caller, it is a reason to show sats. Cached for
-    /// [`TTL`]; a failed refresh returns the previous value (or `0.0`).
+    /// [`TTL`]. A failed refresh keeps serving the previous value only while
+    /// it is under [`MAX_STALE`] old — past that the caller is told the price
+    /// is unavailable rather than handed one from an unknown time ago.
     pub async fn btc_usd(&self) -> f64 {
         // Fast path: still fresh. The lock is never held across an await.
         if let Ok(cache) = self.cache.lock() {
@@ -101,8 +122,15 @@ impl PriceClient {
         if let Some(usd) = fetched {
             cache.value = usd;
             cache.fetched_at = Some(Instant::now());
+            return cache.value;
         }
-        cache.value
+        // Refresh failed. Serve the last good value only while it is recent
+        // enough to still mean something.
+        if cache.servable() {
+            cache.value
+        } else {
+            0.0
+        }
     }
 
     /// One request; `None` on any failure (network, non-2xx, bad JSON, or a
@@ -146,6 +174,38 @@ mod tests {
             fetched_at: Some(Instant::now()),
         };
         assert!(cache.fresh());
+    }
+
+    #[test]
+    fn a_recently_stale_price_is_still_servable() {
+        // Refreshes failing for a minute should not blank the fiat display.
+        let cache = Cache {
+            value: 96_200.0,
+            fetched_at: Some(Instant::now()),
+        };
+        assert!(cache.servable());
+        assert!(cache.fresh());
+    }
+
+    #[test]
+    fn a_zero_value_is_never_servable() {
+        let cache = Cache {
+            value: 0.0,
+            fetched_at: Some(Instant::now()),
+        };
+        assert!(!cache.servable());
+    }
+
+    #[test]
+    fn a_never_fetched_cache_is_not_servable() {
+        assert!(!Cache::default().servable());
+    }
+
+    #[test]
+    fn max_stale_is_longer_than_the_freshness_window() {
+        // Otherwise a value would go unavailable the moment it went stale,
+        // and a single flaky request would blank the display.
+        assert!(MAX_STALE > TTL);
     }
 
     #[test]

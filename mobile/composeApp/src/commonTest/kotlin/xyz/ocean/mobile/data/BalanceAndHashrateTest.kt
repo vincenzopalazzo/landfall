@@ -49,10 +49,23 @@ class BalanceAndHashrateTest {
 
     @Test
     fun reserved_never_goes_negative() {
-        // Defensive: a node reporting sendable > total must not produce a
-        // negative "reserved" that would render as nonsense.
-        val b = node(sendable = 9_000, total = 6_586).toBalances()
+        // Defensive: a node reporting sendable above the channel total must not
+        // produce a negative "reserved" that would render as nonsense.
+        val b = node(sendable = 9_000, lightningTotal = 6_586).toBalances()
         assertEquals(0, b.reserved)
+    }
+
+    @Test
+    fun unconfirmed_on_chain_is_not_counted_as_channel_reserve() {
+        // `total_balance_sats` includes unconfirmed on-chain but `onchain` is
+        // the trusted figure, so deriving reserve by subtraction would label
+        // someone's unconfirmed funds as channel reserve. It is the Lightning
+        // gap and nothing else.
+        val b = node(
+            sendable = 5_553, lightningTotal = 6_586,
+            onchainTrusted = 1_000, onchainTotal = 4_000, total = 10_586,
+        ).toBalances()
+        assertEquals(1_033, b.reserved, "reserve is lightningTotal - sendable, only")
     }
 
     @Test

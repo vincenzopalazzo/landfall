@@ -105,6 +105,11 @@ data class NodeInfo(
         // dropped the channel reserve — funds you own but cannot send right now
         // — so a 6,586 sat wallet reported 5,553.
         total = totalBalanceSats,
+        // Exactly the Lightning channel reserve. Deriving it as
+        // `total - channel - onchain` would instead absorb the gap between
+        // `onchain_total` (includes unconfirmed) and `onchain_trusted`, and
+        // label someone's unconfirmed on-chain funds as "reserve".
+        reserved = (lightningTotalSats - lightningSendableSats).coerceAtLeast(0L),
     )
 }
 
@@ -123,7 +128,6 @@ data class Balances(
     val onchain: Long,
     /** Everything the node owns, reserve included. */
     val total: Long,
-) {
-    /** Held but not spendable right now (channel reserve). */
-    val reserved: Long get() = (total - channel - onchain).coerceAtLeast(0L)
-}
+    /** Lightning channel reserve: owned, but not sendable right now. */
+    val reserved: Long,
+)
