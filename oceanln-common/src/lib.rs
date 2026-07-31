@@ -17,6 +17,9 @@ pub mod lexe_wallet;
 /// transport crates so DNS-rebinding defense doesn't drift between them.
 pub mod net;
 pub mod ocean;
+/// Live BTC/USD spot price — Rust twin of the frontend's `price.ts`, with the
+/// same contract: `0` means "unavailable", never a fabricated rate.
+pub mod price;
 pub mod seed;
 /// Transport-agnostic orchestration shared by every frontend
 /// (oceanln-httpd, oceanln-cli, the Tauri desktop shell, oceanln-mcp).

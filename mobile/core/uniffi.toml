@@ -1,0 +1,7 @@
+# UniFFI bindings config. The Compose Multiplatform app imports the core from
+# this Kotlin package; the iOS host imports the matching Swift module.
+[bindings.kotlin]
+package_name = "xyz.ocean.mobile.core"
+
+[bindings.swift]
+module_name = "OceanlnMobileCore"

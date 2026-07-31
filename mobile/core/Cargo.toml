@@ -1,0 +1,54 @@
+[package]
+name = "oceanln-mobile-core"
+version = "0.3.1"
+description = "OCEAN Lightning — shared Rust core exposed to native mobile (iOS/Android) via UniFFI"
+authors = ["Vincenzo Palazzo"]
+license = "AGPL-3.0-or-later"
+repository = "https://github.com/vincenzopalazzo/oceanln-cli"
+edition = "2021"
+rust-version = "1.77.2"
+
+[lib]
+# `staticlib` — linked into the iOS app (device + simulator) as a static archive.
+# `cdylib`    — the Android `.so`, and the shared object `uniffi-bindgen`'s
+#               library mode inspects to emit Kotlin/Swift bindings.
+# `lib`       — so the in-crate `uniffi-bindgen` bin and unit tests can link it.
+name = "oceanln_mobile_core"
+crate-type = ["staticlib", "cdylib", "lib"]
+
+[dependencies]
+# The shared backend. Mobile is a fifth frontend over the exact same audited
+# service layer the CLI / httpd / Tauri desktop / MCP call into — the seed never
+# leaves the device, signing keys are wiped after use, all in `oceanln-common`.
+# `lexe-sdk` rides in via default features (in-process node: real balances,
+# offers, payments). If that native tree won't cross-compile to a mobile target,
+# switch to `default-features = false` (thin sidecar client) — see README.
+oceanln-common = { path = "../../oceanln-common" }
+
+# UniFFI 0.31 — matches the installed `uniffi-bindgen 0.31.1`. Proc-macro
+# scaffolding (`setup_scaffolding!`), no UDL. `tokio` feature backs the
+# `async_runtime = "tokio"` exports.
+uniffi = { version = "0.31", features = ["tokio", "cli"] }
+# `macros` backs the `tokio::join!` used to fan out the four ocean.xyz calls
+# a Pool refresh makes.
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+thiserror = "1"
+lightning-invoice = "0.34"
+# OCEAN serializes some numeric fields as JSON numbers and others as quoted
+# strings; `ocean::Payout` hands those back as `serde_json::Value` to coerce.
+serde_json = "1"
+
+[dev-dependencies]
+tempfile = "3"
+
+[[bin]]
+# In-crate bindings generator so the exact UniFFI version is used regardless of
+# any globally-installed `uniffi-bindgen`. Invoked by build-ios.sh / build-android.sh.
+name = "uniffi-bindgen"
+path = "bin/uniffi-bindgen.rs"
+
+# Detached from the root Cargo workspace (own Cargo.lock), same policy as
+# `src-tauri`: the in-process Lexe SDK pulls a large native dependency tree, so
+# the root `cargo --workspace` CI never builds this crate. Mobile gets its own
+# job when we wire device CI.
+[workspace]
