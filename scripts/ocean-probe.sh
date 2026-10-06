@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Probe the public OCEAN API for a payout address and print exactly the values
-# the dashboard + profile wire from it (see oceanln-web/src/lib/StatsGrid.svelte).
+# the dashboard + profile wire from it (see landfall-web/src/lib/StatsGrid.svelte).
 # Lets you "run the API and see what it's doing" for any address.
 #
 # Usage: scripts/ocean-probe.sh <bc1q...address>

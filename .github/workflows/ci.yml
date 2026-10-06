@@ -27,10 +27,10 @@ jobs:
         run: cargo clippy --all-targets --all-features -- -D warnings
 
       # Thin build: the CLI + shared core without the in-process Lexe SDK.
-      # Scoped to those two crates — `oceanln-httpd` is the in-process server
+      # Scoped to those two crates — `landfall-httpd` is the in-process server
       # and always requires `lexe-sdk`, so it has no no-default-features mode.
       - name: Clippy (thin build, no Lexe SDK)
-        run: cargo clippy --all-targets --no-default-features -p oceanln-common -p oceanln-cli -- -D warnings
+        run: cargo clippy --all-targets --no-default-features -p landfall-common -p landfall-cli -- -D warnings
 
       - name: Test
         run: cargo test --all-targets --all-features
@@ -38,7 +38,7 @@ jobs:
       # Run the thin-build test suite too, not just clippy — the sidecar-client
       # path (no in-process Lexe SDK) must keep passing its own tests.
       - name: Test (thin build, no Lexe SDK)
-        run: cargo test --no-default-features -p oceanln-common -p oceanln-cli
+        run: cargo test --no-default-features -p landfall-common -p landfall-cli
 
       - name: Build release
         run: cargo build --release --workspace

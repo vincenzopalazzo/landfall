@@ -1,10 +1,10 @@
 //! OCEAN Lightning desktop shell (Tauri v2).
 //!
-//! The webview runs the existing `oceanln-web` wizard, but instead of talking to
-//! a loopback `oceanln-httpd` server it reaches these `#[tauri::command]`s over
+//! The webview runs the existing `landfall-web` wizard, but instead of talking to
+//! a loopback `landfall-httpd` server it reaches these `#[tauri::command]`s over
 //! native IPC. There is no HTTP server, no port, and no bearer token in the
 //! desktop build — the smallest possible attack surface. Each command is a thin
-//! adapter over `oceanln_httpd::service`, so the signing/seed security logic is
+//! adapter over `landfall_httpd::service`, so the signing/seed security logic is
 //! the exact same audited code path the HTTP transport uses.
 
 use std::sync::Arc;
@@ -12,10 +12,10 @@ use std::sync::Arc;
 use serde::Serialize;
 use tauri::Manager;
 
-use oceanln_common::error::Error;
-use oceanln_common::seed::SeedSource;
-use oceanln_common::sign::DEFAULT_BIP32_PATH;
-use oceanln_httpd::{service, LexeWalletProvider, WalletProvider};
+use landfall_common::error::Error;
+use landfall_common::seed::SeedSource;
+use landfall_common::sign::DEFAULT_BIP32_PATH;
+use landfall_httpd::{service, LexeWalletProvider, WalletProvider};
 
 /// Error handed back to the webview. Mirrors the HTTP transport: a status code
 /// (so the frontend's `ApiError` logic — e.g. `409` → "wallet exists" — behaves
@@ -46,7 +46,7 @@ impl From<Error> for CommandError {
 async fn list_lightning_payouts(
     state: tauri::State<'_, DesktopState>,
     limit: Option<u16>,
-) -> Result<Vec<oceanln_common::lexe_wallet::OceanPayout>, CommandError> {
+) -> Result<Vec<landfall_common::lexe_wallet::OceanPayout>, CommandError> {
     // Load the mnemonic from the locally-stored seed file. Stays in memory
     // only for the duration of this call (MnemonicSecret zeroizes on drop).
     let secret = state.seed.load()?;
@@ -161,7 +161,7 @@ async fn payout(
 #[tauri::command]
 async fn node_status(
     state: tauri::State<'_, DesktopState>,
-) -> Result<oceanln_common::lexe_wallet::NodeStatus, CommandError> {
+) -> Result<landfall_common::lexe_wallet::NodeStatus, CommandError> {
     service::node_status(&state.seed, state.wallet.as_ref())
         .await
         .map_err(Into::into)
@@ -172,7 +172,7 @@ async fn node_status(
 async fn list_payments(
     state: tauri::State<'_, DesktopState>,
     limit: Option<u16>,
-) -> Result<Vec<oceanln_common::lexe_wallet::Activity>, CommandError> {
+) -> Result<Vec<landfall_common::lexe_wallet::Activity>, CommandError> {
     service::list_payments(&state.seed, state.wallet.as_ref(), limit.unwrap_or(200))
         .await
         .map_err(Into::into)
@@ -202,7 +202,7 @@ async fn pay(
     payable: String,
     amount_sats: Option<u64>,
     note: Option<String>,
-) -> Result<oceanln_common::lexe_wallet::PaySummary, CommandError> {
+) -> Result<landfall_common::lexe_wallet::PaySummary, CommandError> {
     service::pay(
         &state.seed,
         state.wallet.as_ref(),
@@ -238,6 +238,10 @@ fn open_external(url: String) -> Result<(), CommandError> {
     })
 }
 
+/// Bundle identifier the desktop app used before the rename to Landfall.
+/// Only read, to find a wallet stored under the old app-data dir.
+const LEGACY_IDENTIFIER: &str = "xyz.oceanln.desktop";
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // Linux: webkit2gtk's DMABUF renderer renders a blank white window on
@@ -265,14 +269,22 @@ pub fn run() {
             }
             // Seed lives in the OS app-data dir, e.g.
             // ~/Library/Application Support/<identifier>/seed. `store_seed`
-            // creates it 0600 on first generate/import.
+            // creates it 0600 on first generate/import. The app shipped as
+            // `xyz.oceanln.desktop` before the rename to Landfall; a wallet
+            // stored under that identifier's dir keeps being used until one
+            // exists under the new identifier.
             let dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&dir)?;
+            let legacy_dir = dir
+                .parent()
+                .map(|p| p.join(LEGACY_IDENTIFIER))
+                .unwrap_or_else(|| dir.clone());
+            let seed_path = landfall_common::sign::seed_path_preferring_existing(&dir, &legacy_dir);
             app.manage(DesktopState {
-                seed: SeedSource::File(dir.join("seed")),
+                seed: SeedSource::File(seed_path),
                 default_path: DEFAULT_BIP32_PATH.to_string(),
                 wallet: Arc::new(LexeWalletProvider),
-                sidecar_url: oceanln_common::client::DEFAULT_BASE_URL.to_string(),
+                sidecar_url: landfall_common::client::DEFAULT_BASE_URL.to_string(),
                 sidecar_credentials: None,
             });
             Ok(())

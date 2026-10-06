@@ -11,7 +11,7 @@ scenario here, so the next pass checks it by default.
    id (review item, issue, PR) under **Origin**.
 2. **Automate what can be driven headlessly.** Prefer, in order: a unit or
    integration test at the real call site (named under **Guard**), then a
-   scripted step in `scripts/qa/*.sh` or `oceanln-web/e2e/*.e2e.ts` (the
+   scripted step in `scripts/qa/*.sh` or `landfall-web/e2e/*.e2e.ts` (the
    scenario id appears in the PASS/FAIL line or the test title), then manual
    steps. Say which one applies under **How**.
 3. **Keep ids stable.** Never renumber; retire a scenario by striking it
@@ -21,19 +21,19 @@ scenario here, so the next pass checks it by default.
    others; say which surfaces a scenario covers and why the rest are not
    driven.
 5. **Money and seeds are manual.** Anything that provisions a real Lexe
-   wallet, pays, or touches `~/.config/oceanln/seed` is a manual scenario
+   wallet, pays, or touches `~/.config/landfall/seed` is a manual scenario
    run by a human with a throwaway wallet. The runners never do it.
 
 The fixture phrase (`music mystery … cream dune`, address
 `bc1qpstw48j7j9gjugw25jmjvd96jlwgdnedk5pr6r`) is a shared throwaway; never
-fund it. "The wizard" is `oceanln-web` served from a QA bundle against
-`oceanln-httpd --mock-wallet`.
+fund it. "The wizard" is `landfall-web` served from a QA bundle against
+`landfall-httpd --mock-wallet`.
 
 ## CLI
 
 ### QA-001 — `generate` prints a fresh phrase, once, cleanly
 - **Surfaces:** CLI (automated)
-- **Steps:** run `oceanln generate` twice; run with `--json`.
+- **Steps:** run `landfall generate` twice; run with `--json`.
 - **Expect:** 24 lowercase words on stdout, nothing else; the warning is on
   stderr; the two runs differ; `--json` is `{"mnemonic": …}` with 24 words.
 - **How:** `cli-smoke.sh` QA-001, QA-002 · Guard: `smoke.rs::generate_prints_24_words`, `generate_json_has_24_word_mnemonic`
@@ -83,10 +83,17 @@ fund it. "The wizard" is `oceanln-web` served from a QA bundle against
 
 ### QA-011 — stdin seed with one word per line
 - **Surfaces:** CLI (automated)
-- **Steps:** `printf 'word\nword\n…' | oceanln payout --offer … --message …`.
+- **Steps:** `printf 'word\nword\n…' | landfall payout --offer … --message …`.
 - **Expect:** accepted like a seed file is: the pinned address and a valid signature.
 - **How:** `cli-smoke.sh` QA-011 · Guard: `smoke.rs::payout_accepts_seed_piped_one_word_per_line`
 - **Origin:** review, core item 9 — piped stdin read one line. Fixed 2026-10-06 (`resolve_seed` reads the whole pipe).
+
+### QA-012 — a wallet stored before the rename is still found
+- **Surfaces:** CLI (automated); httpd and desktop share the same rule
+- **Steps:** put a seed only at `$XDG_CONFIG_HOME/oceanln/seed` (`0600`), then run `landfall payout --offer … --message …` with empty stdin.
+- **Expect:** the old file is used (pinned address, valid signature) and no `landfall/seed` is created beside it. When both exist, the new one wins.
+- **How:** `cli-smoke.sh` QA-012 · Guard: `sign.rs::managed_seed_path_keeps_a_pre_rename_wallet`
+- **Origin:** the rename from oceanln to Landfall (October 2026).
 
 ## HTTP server
 
@@ -108,7 +115,7 @@ fund it. "The wizard" is `oceanln-web` served from a QA bundle against
 
 ### QA-109 — `/payout` signs offline and the CLI agrees
 - **Surfaces:** HTTP + CLI (automated)
-- **Steps:** `POST /payout {message, offer}`; feed `address`, `message`, `signature` to `oceanln verify`.
+- **Steps:** `POST /payout {message, offer}`; feed `address`, `message`, `signature` to `landfall verify`.
 - **Expect:** 200; the address is the configured one; `verify` exits 0. An offer absent from the message is 400.
 - **How:** `httpd-smoke.sh` QA-109…111
 
@@ -145,7 +152,7 @@ fund it. "The wizard" is `oceanln-web` served from a QA bundle against
 - **Surfaces:** wizard (automated, Chromium); Tauri (manual, QA-401)
 - **Steps:** Welcome → *Create a new wallet* → reveal → tick the backup box → Continue → answer the three quiz positions → Continue → wait for "Your wallet is ready" → Continue → paste `Configure OCEAN payout to <offer> at block 840000` → *Sign message* → Continue → *I've submitted these to OCEAN*.
 - **Expect:** 24 words; `lno1…` offer and `bc1q…` address on the wallet step; the same two on the sign step; a signature longer than 80 characters; the hand-off screen shows all three; the final screen says payouts are on.
-- **How:** `e2e/create.e2e.ts`; `web-e2e.sh` QA-208 then runs `oceanln verify` on the displayed triple and QA-209 re-derives the address from the revealed phrase.
+- **How:** `e2e/create.e2e.ts`; `web-e2e.sh` QA-208 then runs `landfall verify` on the displayed triple and QA-209 re-derives the address from the revealed phrase.
 
 ### QA-202 — Continue is gated on reveal + backup
 - **Expect:** Continue disabled until the blur is tapped AND the checkbox ticked.
@@ -207,7 +214,7 @@ fund it. "The wizard" is `oceanln-web` served from a QA bundle against
 
 ### QA-301 — read-only, loopback, no `Origin`
 - **Surfaces:** MCP (manual with any MCP client)
-- **Steps:** run `oceanln-mcp --base <httpd> --httpd-token <t>`; list tools; call `get_status`, `list_payouts`; send a request with an `Origin` header.
+- **Steps:** run `landfall-mcp --base <httpd> --httpd-token <t>`; list tools; call `get_status`, `list_payouts`; send a request with an `Origin` header.
 - **Expect:** only read tools exist; results mirror httpd; the `Origin` request is refused.
 
 ## Desktop (Tauri)

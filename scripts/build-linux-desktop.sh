@@ -24,8 +24,8 @@ fi
 # gitignored and not arch-specific, so a stale dist/ left from an earlier run
 # would silently package an outdated UI. A fresh build is cheap relative to the
 # container's Rust compile.
-echo "==> building web frontend (oceanln-web/dist)"
-( cd oceanln-web && npm ci && npm run build )
+echo "==> building web frontend (landfall-web/dist)"
+( cd landfall-web && npm ci && npm run build )
 
 mkdir -p dist-linux
 

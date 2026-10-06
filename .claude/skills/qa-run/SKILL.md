@@ -1,18 +1,18 @@
 ---
 name: qa-run
 description: >-
-  Check one change (a branch, a PR, a diff) against the oceanln QA harness
+  Check one change (a branch, a PR, a diff) against the landfall QA harness
   and report: plan what the change touches, run the scripted scenarios that
   apply, walk the matching registry sections, and post a PASS/FAIL table.
   Does not fix. Use when asked to "QA this PR", "verify this change", or
   before approving anything that touches signing, seeds, httpd or the wizard.
 ---
 
-# oceanln QA run (one change, report only)
+# landfall QA run (one change, report only)
 
 ```bash
 scripts/qa/plan.sh --base origin/main          # RUN / NOT RUN / WALK for this diff
-cargo build --release -p oceanln-cli -p oceanln-httpd --features oceanln-httpd/qa-mock
+cargo build --release -p landfall-cli -p landfall-httpd --features landfall-httpd/qa-mock
 # then exactly the RUN lines the planner printed, e.g.
 scripts/qa/cli-smoke.sh
 scripts/qa/httpd-smoke.sh

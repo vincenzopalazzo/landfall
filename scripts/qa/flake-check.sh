@@ -5,12 +5,12 @@
 #
 #   scripts/qa/flake-check.sh [--runs N] [--package CRATE] [FILTER]
 #
-# Default: 10 rounds of `oceanln-httpd` (the suite that binds sockets and
+# Default: 10 rounds of `landfall-httpd` (the suite that binds sockets and
 # writes seed files), each run three ways: default threads, --test-threads 32
 # (widens interleavings) and --test-threads 1 (order-only bugs). Prints each
 # failing test once per failed run; exit status = failed runs (max 255).
 set -euo pipefail
-RUNS=10; PACKAGE=oceanln-httpd; FILTER=""
+RUNS=10; PACKAGE=landfall-httpd; FILTER=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --runs) RUNS="$2"; shift 2 ;;

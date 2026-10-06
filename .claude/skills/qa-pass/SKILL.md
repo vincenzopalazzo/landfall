@@ -1,15 +1,15 @@
 ---
 name: qa-pass
 description: >-
-  Run an end-to-end QA pass of oceanln (CLI, loopback HTTP server, web wizard
+  Run an end-to-end QA pass of landfall (CLI, loopback HTTP server, web wizard
   in a headless browser) with no Lexe node: find bugs in the BIP-322 payout
   flow, fix them with tests, and repeat on the fixed build until a round comes
   back clean. Every bug found grows docs/QA-SCENARIOS.md and, where it can be
-  driven, scripts/qa or oceanln-web/e2e. Use when asked to "QA the app", "find
+  driven, scripts/qa or landfall-web/e2e. Use when asked to "QA the app", "find
   bugs before a release", "test the wizard", or to re-verify a build.
 ---
 
-# oceanln QA pass
+# landfall QA pass
 
 A QA pass is a loop, not a checklist:
 
@@ -25,12 +25,12 @@ build, fixed preview port, one httpd per spec, Settings keystrokes).
 ## Ground rules
 
 - **Throwaway seeds only.** The runners create every seed under `.qa/`;
-  never point them at `~/.config/oceanln/seed`, never fund the fixture
+  never point them at `~/.config/landfall/seed`, never fund the fixture
   phrase, never run `scripts/lexe_e2e.sh` or `web-demo.sh` from a QA pass
   (they provision real mainnet wallets).
 - **No secrets in output or commits.** Phrases and tokens from a run stay in
   `.qa/` (gitignored). A PASS/FAIL line never contains a phrase.
-- **Every transport.** The same `oceanln-common` sits behind the CLI, HTTP,
+- **Every transport.** The same `landfall-common` sits behind the CLI, HTTP,
   the wizard and Tauri. A bug on one is checked on the others; fix
   all in the same PR or record the gap in the PR body.
 - **Signing and seed code needs a human review.** Report, do not merge.
@@ -40,8 +40,8 @@ build, fixed preview port, one httpd per spec, Settings keystrokes).
 ## 1. Build
 
 ```bash
-cargo build --release -p oceanln-cli -p oceanln-httpd --features oceanln-httpd/qa-mock
-(cd oceanln-web && npm ci)
+cargo build --release -p landfall-cli -p landfall-httpd --features landfall-httpd/qa-mock
+(cd landfall-web && npm ci)
 scripts/qa/plan.sh --all          # or against the branch's diff
 ```
 
@@ -50,7 +50,7 @@ scripts/qa/plan.sh --all          # or against the branch's diff
 ```bash
 scripts/qa/cli-smoke.sh
 scripts/qa/httpd-smoke.sh
-scripts/qa/web-e2e.sh             # needs Chromium: OCEANLN_QA_CHROMIUM or `npx playwright install chromium`
+scripts/qa/web-e2e.sh             # needs Chromium: LANDFALL_QA_CHROMIUM or `npx playwright install chromium`
 ```
 
 Each prints one `PASS`/`FAIL` line per registry id and exits with the number
@@ -73,7 +73,7 @@ Walk the wizard as a miner who has never heard of BIP-322:
 - Can you get stuck? Close the tab mid-flow, press Back everywhere, paste a
   wrong message, import over an existing wallet, change Settings mid-step.
 - Does the signing step tell you *what* you signed and *with which* address?
-- Copy each of the three values; feed them to `oceanln verify`.
+- Copy each of the three values; feed them to `landfall verify`.
 - Repeat through the CLI (`generate` → `init --dry-run` → `payout --offer`
   → `verify`) and through curl against httpd. Any difference between the
   transports is a finding.
@@ -88,7 +88,7 @@ For every finding:
 3. Add or extend the registry scenario (**Origin** = this pass).
 4. Run `cargo fmt`, `cargo clippy --all-targets --all-features -D warnings`,
    `cargo test --all-targets --all-features`, the thin build, and
-   `(cd oceanln-web && npm run check && npm test)`.
+   `(cd landfall-web && npm run check && npm test)`.
 5. Commit with the scenario id in the message.
 
 ## 6. Repeat

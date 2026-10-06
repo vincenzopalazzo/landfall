@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 # cli-smoke.sh — registry scenarios QA-001…QA-009 against the compiled
-# `oceanln` binary, fully offline (no Lexe, no sidecar, no network).
+# `landfall` binary, fully offline (no Lexe, no sidecar, no network).
 #
 #   scripts/qa/cli-smoke.sh            # all CLI scenarios
-#   OCEANLN=/path/to/oceanln scripts/qa/cli-smoke.sh
+#   LANDFALL=/path/to/landfall scripts/qa/cli-smoke.sh
 #
 # Exit status = number of failed scenarios. See docs/QA-SCENARIOS.md.
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
-BIN="$(qa_resolve_bin OCEANLN oceanln -p oceanln-cli)"
+BIN="$(qa_resolve_bin LANDFALL landfall -p landfall-cli)"
 W="$QA_HOME/cli"; rm -rf "$W"; mkdir -p "$W"
 DEAD_URL="http://127.0.0.1:1"
 echo "cli-smoke: $BIN"
@@ -30,7 +30,7 @@ if "$BIN" init --help >/dev/null 2>&1; then
   # MANAGED seed dir instead and assert nothing lands there.
   out="$(echo "$QA_TEST_MNEMONIC" | XDG_CONFIG_HOME="$W/xdg" HOME="$W/home" "$BIN" init --dry-run --json 2>/dev/null || true)"
   qa_check QA-003 "init --dry-run derives $QA_TEST_ADDRESS and persists no seed" bash -c '
-    [[ "$(echo "$1" | python3 -c "import sys,json;print(json.load(sys.stdin)[\"mining_address\"])")" == "$2" ]] && [[ ! -e "$3/oceanln/seed" ]]' _ "$out" "$QA_TEST_ADDRESS" "$W/xdg"
+    [[ "$(echo "$1" | python3 -c "import sys,json;print(json.load(sys.stdin)[\"mining_address\"])")" == "$2" ]] && [[ ! -e "$3/landfall/seed" ]]' _ "$out" "$QA_TEST_ADDRESS" "$W/xdg"
 else
   qa_skip "QA-003 init is not in this build (thin build)"
 fi
@@ -79,5 +79,12 @@ qa_check QA-010 "--offer with --description is a usage error (exit 2); missing -
 po3="$(printf '%s\n' $QA_TEST_MNEMONIC | "$BIN" payout --json --url "$DEAD_URL" --offer "$QA_MOCK_OFFER" --message "$MSG" 2>/dev/null || true)"
 qa_check QA-011 "payout accepts the seed piped one word per line (multi-line stdin)" bash -c '
   [[ "$(echo "$1" | python3 -c "import sys,json;print(json.load(sys.stdin)[\"address\"])")" == "$2" ]]' _ "$po3" "$QA_TEST_ADDRESS"
+
+# ── QA-012 a wallet stored before the rename to Landfall is still found ──
+mkdir -p "$W/xdg-legacy/oceanln"
+printf '%s\n' "$QA_TEST_MNEMONIC" >"$W/xdg-legacy/oceanln/seed"; chmod 600 "$W/xdg-legacy/oceanln/seed"
+po4="$(XDG_CONFIG_HOME="$W/xdg-legacy" "$BIN" payout --json --url "$DEAD_URL" --offer "$QA_MOCK_OFFER" --message "$MSG" </dev/null 2>/dev/null || true)"
+qa_check QA-012 "a seed only at the pre-rename oceanln/seed path is used, and no second seed is created" bash -c '
+  [[ "$(echo "$1" | python3 -c "import sys,json;print(json.load(sys.stdin)[\"address\"])")" == "$2" ]] && [[ ! -e "$3/landfall/seed" ]]' _ "$po4" "$QA_TEST_ADDRESS" "$W/xdg-legacy"
 
 qa_summary cli-smoke

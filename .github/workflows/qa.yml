@@ -32,12 +32,12 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: oceanln-web/package-lock.json
+          cache-dependency-path: landfall-web/package-lock.json
 
       # The server needs the `qa-mock` feature for `--mock-wallet`; the
       # release build in `CI` never carries it.
       - name: Build CLI + httpd (qa-mock)
-        run: cargo build --release -p oceanln-cli -p oceanln-httpd --features oceanln-httpd/qa-mock
+        run: cargo build --release -p landfall-cli -p landfall-httpd --features landfall-httpd/qa-mock
 
       - name: CLI scenarios (QA-001…)
         run: scripts/qa/cli-smoke.sh
@@ -46,7 +46,7 @@ jobs:
         run: scripts/qa/httpd-smoke.sh
 
       - name: Web wizard — install
-        working-directory: oceanln-web
+        working-directory: landfall-web
         run: |
           npm ci
           npx playwright install --with-deps chromium
@@ -60,6 +60,6 @@ jobs:
         with:
           name: playwright-traces
           path: |
-            oceanln-web/test-results
+            landfall-web/test-results
             .qa/web/*.log
           if-no-files-found: ignore

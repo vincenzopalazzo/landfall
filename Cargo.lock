@@ -1292,6 +1292,74 @@ dependencies = [
 ]
 
 [[package]]
+name = "landfall-cli"
+version = "0.3.0"
+dependencies = [
+ "assert_cmd",
+ "clap",
+ "landfall-common",
+ "predicates",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "landfall-common"
+version = "0.3.0"
+dependencies = [
+ "async-trait",
+ "axum 0.7.9",
+ "bip322",
+ "bip39",
+ "bitcoin",
+ "hex",
+ "lexe",
+ "lexe-api-core",
+ "lexe-common",
+ "reqwest",
+ "rpassword",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+ "tokio",
+ "zeroize",
+]
+
+[[package]]
+name = "landfall-httpd"
+version = "0.3.0"
+dependencies = [
+ "async-trait",
+ "axum 0.7.9",
+ "clap",
+ "landfall-common",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tower-http",
+ "zeroize",
+]
+
+[[package]]
+name = "landfall-mcp"
+version = "0.3.0"
+dependencies = [
+ "async-trait",
+ "axum 0.7.9",
+ "clap",
+ "landfall-common",
+ "reqwest",
+ "rmcp",
+ "schemars",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+ "tokio",
+]
+
+[[package]]
 name = "lazy_static"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1882,74 +1950,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "071dfc062690e90b734c0b2273ce72ad0ffa95f0c74596bc250dcfd960262841"
 dependencies = [
  "autocfg",
-]
-
-[[package]]
-name = "oceanln-cli"
-version = "0.3.0"
-dependencies = [
- "assert_cmd",
- "clap",
- "oceanln-common",
- "predicates",
- "serde",
- "serde_json",
- "tokio",
-]
-
-[[package]]
-name = "oceanln-common"
-version = "0.3.0"
-dependencies = [
- "async-trait",
- "axum 0.7.9",
- "bip322",
- "bip39",
- "bitcoin",
- "hex",
- "lexe",
- "lexe-api-core",
- "lexe-common",
- "reqwest",
- "rpassword",
- "serde",
- "serde_json",
- "thiserror 1.0.69",
- "tokio",
- "zeroize",
-]
-
-[[package]]
-name = "oceanln-httpd"
-version = "0.3.0"
-dependencies = [
- "async-trait",
- "axum 0.7.9",
- "clap",
- "oceanln-common",
- "reqwest",
- "serde",
- "serde_json",
- "tokio",
- "tower-http",
- "zeroize",
-]
-
-[[package]]
-name = "oceanln-mcp"
-version = "0.3.0"
-dependencies = [
- "async-trait",
- "axum 0.7.9",
- "clap",
- "oceanln-common",
- "reqwest",
- "rmcp",
- "schemars",
- "serde",
- "serde_json",
- "thiserror 1.0.69",
- "tokio",
 ]
 
 [[package]]

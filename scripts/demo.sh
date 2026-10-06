@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # End-to-end demo of the OCEAN Lightning core, fully offline (no Lexe node).
 #
-# Drives the real oceanln-httpd server over loopback to show the production code
+# Drives the real landfall-httpd server over loopback to show the production code
 # path the web wizard and the Tauri desktop shell both use: a fresh wallet, the
 # derived BIP84 mining address, a real BIP-322 signature, and the safety guards.
-# The desktop IPC commands wrap the same `oceanln_httpd::service` functions, so
+# The desktop IPC commands wrap the same `landfall_httpd::service` functions, so
 # this exercises that backend logic too.
 #
 # What needs a real Lexe node (NOT covered here): /offer and /init (provisioning
@@ -14,12 +14,12 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-HTTPD=target/release/oceanln-httpd
-[ -x "$HTTPD" ] || { echo "==> building $HTTPD"; cargo build --release -p oceanln-httpd; }
+HTTPD=target/release/landfall-httpd
+[ -x "$HTTPD" ] || { echo "==> building $HTTPD"; cargo build --release -p landfall-httpd; }
 
-DEMO="$(mktemp -d)/oceanln-demo"; mkdir -p "$DEMO"
+DEMO="$(mktemp -d)/landfall-demo"; mkdir -p "$DEMO"
 TOKEN="demo-token-$$"
-PORT="${OCEANLN_DEMO_PORT:-7801}"
+PORT="${LANDFALL_DEMO_PORT:-7801}"
 CT="Content-Type: application/json"
 BASE="http://127.0.0.1:$PORT"
 

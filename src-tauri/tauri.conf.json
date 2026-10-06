@@ -1,18 +1,18 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "OCEAN Lightning",
+  "productName": "Landfall",
   "version": "0.3.1",
-  "identifier": "xyz.oceanln.desktop",
+  "identifier": "io.github.vincenzopalazzo.landfall",
   "build": {
-    "frontendDist": "../oceanln-web/dist",
+    "frontendDist": "../landfall-web/dist",
     "devUrl": "http://localhost:5173",
-    "beforeDevCommand": "npm --prefix ../oceanln-web run dev",
-    "beforeBuildCommand": "npm --prefix ../oceanln-web run build"
+    "beforeDevCommand": "npm --prefix ../landfall-web run dev",
+    "beforeBuildCommand": "npm --prefix ../landfall-web run build"
   },
   "app": {
     "windows": [
       {
-        "title": "OCEAN Lightning",
+        "title": "Landfall",
         "width": 1100,
         "height": 820,
         "minWidth": 880,
