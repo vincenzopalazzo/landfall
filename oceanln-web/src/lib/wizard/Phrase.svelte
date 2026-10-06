@@ -2,7 +2,9 @@
   import Icon from "../ui/Icon.svelte";
   import Callout from "../ui/Callout.svelte";
   import Button from "../ui/Button.svelte";
-  import { app, guided, isImport, generateWallet, useExistingWallet } from "../store.svelte";
+  import {
+    app, guided, isImport, generateWallet, useExistingWallet, recoverStoredPhrase, replaceWallet,
+  } from "../store.svelte";
 
   // Create mode: generate the phrase once when this step is first shown.
   // Must also stop when `walletExists` is set — a 409 (seed already on the
@@ -54,7 +56,19 @@
         </label>
       {/each}
     </div>
-    {#if app.error}
+    {#if app.importConflict}
+      <Callout kind="warn" icon="warn">
+        {#snippet children()}
+          <b>A different wallet is already stored on this server.</b> Replacing it removes that
+          wallet's recovery phrase from this server for good. Only continue if you hold that
+          wallet's phrase, or no longer need it.
+        {/snippet}
+      </Callout>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px">
+        <Button icon="warn" disabled={app.busy} onclick={replaceWallet}>{#snippet children()}Replace it with this phrase{/snippet}</Button>
+        <Button variant="ghost" onclick={() => (app.importConflict = false)}>{#snippet children()}Keep the existing wallet{/snippet}</Button>
+      </div>
+    {:else if app.error}
       <Callout kind="danger" icon="warn">{#snippet children()}{app.error}{/snippet}</Callout>
     {/if}
   </div>
@@ -71,12 +85,19 @@
     {#if app.walletExists}
       <Callout kind="info" icon="wallet">
         {#snippet children()}
-          <b>A wallet is already configured on this server.</b> If it's yours, continue to set up
-          your payout offer and signature — your recovery phrase isn't shown again. To use a
-          different wallet, restart the server with another <code>--seed-file</code>.
+          <b>A wallet is already set up on this server, but its setup wasn't finished.</b> If
+          it's yours, reveal its recovery phrase now and write it down — the rest of the setup
+          continues from there. To use a different wallet instead, go back and choose
+          <em>I already have a phrase</em>.
         {/snippet}
       </Callout>
-      <Button icon="arrowR" onclick={useExistingWallet}>{#snippet children()}Use existing wallet{/snippet}</Button>
+      {#if app.error}
+        <Callout kind="danger" icon="warn">{#snippet children()}Couldn't reveal the stored phrase: {app.error}{/snippet}</Callout>
+      {/if}
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <Button icon="eye" disabled={app.busy} onclick={recoverStoredPhrase}>{#snippet children()}Reveal and back up{/snippet}</Button>
+        <Button variant="ghost" icon="arrowR" onclick={useExistingWallet}>{#snippet children()}I already backed it up — continue{/snippet}</Button>
+      </div>
     {:else if app.error}
       <Callout kind="danger" icon="warn">
         {#snippet children()}

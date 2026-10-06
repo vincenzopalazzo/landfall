@@ -45,7 +45,8 @@ export const app = $state({
   stepIndex: 0,
   mode: "create" as Mode,
   reuse: false, // using a wallet already configured on the server (no phrase to reveal)
-  walletExists: false, // /generate reported an existing seed (recover, don't dead-end)
+  walletExists: false, // a seed is already stored on the server (recover, don't dead-end)
+  importConflict: false, // /import hit a DIFFERENT stored seed; awaiting the user's replace/keep choice
 
   // wizard inputs
   importWords: Array(24).fill("") as string[],
@@ -97,7 +98,9 @@ export function canContinue(): boolean {
         ? app.importWords.every((w) => w.trim().length > 1)
         : app.revealed && app.backedUp;
     case "confirm":
-      return CONFIRM_PICKS.every((idx, qi) => app.answers[qi] === app.phrase[idx]);
+      // Typed answers are only CHECKED on Continue (see `continueStep`), so the
+      // button's state never tells a guesser whether a word is right (QA-203).
+      return CONFIRM_PICKS.every((_, qi) => (app.answers[qi] ?? "").trim().length > 0);
     case "wallet":
       return !!app.offer && !!app.miningAddress;
     case "sign":
@@ -136,7 +139,22 @@ export async function continueStep() {
     const ok = await importWallet();
     if (!ok) return;
   }
+  if (stepKey() === "confirm") {
+    if (!answersCorrect()) {
+      app.error =
+        "One or more words don't match your recovery phrase. Check your written backup and try again.";
+      app.answers = {};
+      return;
+    }
+    app.error = "";
+  }
   goNext();
+}
+
+/// All three typed quiz words equal the phrase at `CONFIRM_PICKS` (case- and
+/// whitespace-insensitive). Checked only when the user presses Continue.
+export function answersCorrect(): boolean {
+  return CONFIRM_PICKS.every((idx, qi) => (app.answers[qi] ?? "").trim().toLowerCase() === app.phrase[idx]);
 }
 
 export function visibleSteps(): number {
@@ -199,6 +217,10 @@ function isSubmitted(addr: string): boolean {
 // already settled and reset the user back to the previous server's
 // state. Same pattern as `StatsGrid.load`.
 let bootstrapReqId = 0;
+// Base URL of the last `/status` that answered. A re-bootstrap that FAILS
+// against the same base (a token typo mid-edit, a server restart) must not
+// wipe the wizard — only an actual move to another server does (QA-212).
+let lastGoodBase: string | null = null;
 
 export async function bootstrap() {
   const myId = ++bootstrapReqId;
@@ -218,12 +240,13 @@ export async function bootstrap() {
   } catch {
     /* not configured / unreachable / no token → stay on the wizard */
     if (myId !== bootstrapReqId) return;
-    if (isRetarget) resetWalletIdentity(true);
+    if (isRetarget && app.base !== lastGoodBase) resetWalletIdentity(true);
     return;
   }
   // Superseded by a newer bootstrap (Settings changed mid-flight).
   // Drop this stale response — the newer call owns the state.
   if (myId !== bootstrapReqId) return;
+  lastGoodBase = app.base;
 
   if (!s.configured || !s.mining_address) {
     // Fresh install / unreachable / unauthed. If we previously bootstrapped
@@ -233,6 +256,11 @@ export async function bootstrap() {
     if (isRetarget) resetWalletIdentity(true);
     return;
   }
+  // First mount, and this session already holds the phrase (the user clicked
+  // Create and /generate answered before this /status did): the server's
+  // "seed, no offer" is OUR seed mid-setup, not an interrupted earlier run.
+  // Resetting here would wipe an un-backed-up phrase.
+  if (!isRetarget && app.phrase.length > 0 && !s.offer) return;
   // Re-bootstrap path: when the user changes base/token in Settings, the
   // existing profile/offer may belong to a different server. Always clear
   // the cached identity before applying the new /status — both
@@ -252,9 +280,14 @@ export async function bootstrap() {
     seedProfile();
     app.surface = "profile";
   } else {
-    // Require the recovery phrase before provisioning an un-finished wallet.
+    // Setup was interrupted after the seed was stored but before the offer
+    // was created — typically a closed tab before the backup step. The phrase
+    // is still on the server, so offer to REVEAL it and resume the backup
+    // (Phrase.svelte renders the recovery card when `walletExists` is set)
+    // rather than demanding 24 words the user may never have seen (QA-210).
     app.reuse = false;
-    app.mode = "import";
+    app.mode = "create";
+    app.walletExists = true;
     app.surface = "wizard";
     app.stepIndex = STEPS.findIndex((st) => st.key === "phrase");
   }
@@ -307,8 +340,10 @@ function resetWalletIdentity(rewindWizard: boolean = false) {
   app.backedUp = false;
   app.answers = {};
   app.walletExists = false;
+  app.importConflict = false;
   app.signature = "";
   app.message = "";
+  app.oceanMessage = "";
 }
 
 export async function generateWallet() {
@@ -357,21 +392,70 @@ export async function loadPhrase(): Promise<string | null> {
   }
 }
 
-export async function importWallet(): Promise<boolean> {
+// Resume an interrupted setup: fetch the seed the server already holds
+// (`/seed/reveal`) so the user can back it up and confirm it, then continue
+// through the normal create flow. Returns false (with `app.error` set) when
+// the server refuses — e.g. `--no-auth`, where reveal always needs a token.
+export async function recoverStoredPhrase(): Promise<boolean> {
   app.busy = true;
   app.error = "";
   try {
+    app.phrase = []; // force a fresh read; `loadPhrase` short-circuits on a cached phrase
+    const err = await loadPhrase();
+    if (err) {
+      app.error = err;
+      return false;
+    }
+    app.walletExists = false;
+    app.reuse = false;
+    app.mode = "create";
+    app.revealed = false;
+    app.backedUp = false;
+    app.answers = {};
+    return true;
+  } finally {
+    app.busy = false;
+  }
+}
+
+export async function importWallet(force = false): Promise<boolean> {
+  app.busy = true;
+  app.error = "";
+  app.importConflict = false;
+  try {
     const phrase = app.importWords.map((w) => w.trim().toLowerCase()).join(" ");
-    const r = await client().importSeed(phrase);
+    const r = await client().importSeed(phrase, force);
     app.miningAddress = r.mining_address;
     app.phrase = phrase.split(/\s+/);
     return true;
   } catch (e) {
+    // A DIFFERENT seed is already stored. Never overwrite silently: surface
+    // the choice and let `replaceWallet()` retry with force (QA-211).
+    if (e instanceof ApiError && e.status === 409 && !force) {
+      app.importConflict = true;
+      return false;
+    }
     app.error = msg(e);
     return false;
   } finally {
     app.busy = false;
   }
+}
+
+// The user confirmed the replacement in the conflict card.
+export async function replaceWallet(): Promise<boolean> {
+  const ok = await importWallet(true);
+  if (ok) goNext();
+  return ok;
+}
+
+// Start the signing step over (wrong message pasted, new OCEAN message, …).
+// Clears the signature and the message it covered; address and offer stay.
+export function resetSignature() {
+  app.signature = "";
+  app.message = "";
+  app.oceanMessage = "";
+  app.error = "";
 }
 
 // Provision the wallet + create the offer (both hit the Lexe-backed node).
@@ -466,6 +550,7 @@ export function restart() {
   app.mode = "create";
   app.reuse = false;
   app.walletExists = false;
+  app.importConflict = false;
   app.importWords = Array(24).fill("");
   app.revealed = false;
   app.backedUp = false;

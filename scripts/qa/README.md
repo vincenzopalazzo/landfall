@@ -24,7 +24,7 @@ scripts/qa/flake-check.sh --runs 5                   # interleaving flakes in th
 | `lib.sh` | Shared helpers: binary resolution (`$OCEANLN`, `$OCEANLN_HTTPD`, then `target/`, then build), `PASS`/`FAIL` lines with registry ids, ephemeral ports, JSON field extraction, the throwaway fixture phrase. |
 | `cli-smoke.sh` | Registry scenarios QA-001…010 against the compiled `oceanln`: generate, dry-run derivation, offline `payout --offer`, `verify` accept/reject matrix, offer-in-message gate, `--path`, seed-file permissions, usage errors. |
 | `httpd-smoke.sh` | QA-101…124 against the compiled `oceanln-httpd` over curl: auth, one-time `/generate`, 409 on overwrite, `/seed/reveal` no-store, offline `/payout` cross-checked by the CLI, Origin/Host/CORS guards, forced `/import`, the full `--no-auth` gating matrix, the loopback bind guard. Wallet routes (`/init`, `/offer`, `/node`) need the `qa-mock` build and are SKIPped otherwise. |
-| `web-e2e.sh` | QA-201…209: builds a QA-only bundle (`dist-qa`, httpd base + token baked in), serves it with `vite preview`, starts a fresh `oceanln-httpd --mock-wallet` per spec and runs the Playwright specs in `oceanln-web/e2e/`. The create spec writes the address, message and signature the wizard showed; the script then runs `oceanln verify` on them (QA-208) and re-derives the address from the revealed phrase (QA-209). |
+| `web-e2e.sh` | QA-201…213: builds a QA-only bundle (`dist-qa`, httpd base + token baked in), serves it with `vite preview`, starts a fresh `oceanln-httpd --mock-wallet` per spec and runs the Playwright specs in `oceanln-web/e2e/`. The create spec writes the address, message and signature the wizard showed; the script then runs `oceanln verify` on them (QA-208) and re-derives the address from the revealed phrase (QA-209). |
 | `flake-check.sh` | Reruns a crate's tests N times at default, 32 and 1 test threads; exit status = failed runs. |
 
 Scratch state (seed files, logs, Playwright traces) lives in `.qa/` at the
@@ -54,7 +54,9 @@ repo root (gitignored); override with `QA_HOME`.
 - **One httpd per spec.** The create and import specs each need an empty
   seed file; the script restarts httpd between them. Do not run two specs
   against one server.
-- **Settings keystrokes.** The wizard re-bootstraps on every keystroke in the
-  Settings token field (registry QA-210, open). The QA bundle bakes the
-  token in, so specs never type it; if you add a spec that does, expect the
-  phrase to be reset mid-typing.
+- **Settings commit on blur.** Credentials typed in the Settings panel apply
+  when the field loses focus or on Enter (QA-212), so a spec that types a
+  token must blur the field before expecting a re-bootstrap.
+- **`recover` pre-seeds.** `web-e2e.sh recover` writes the fixture phrase to
+  the seed file (no `.offer`) before starting httpd; do not reuse that server
+  for another spec.

@@ -1,35 +1,14 @@
 <script lang="ts">
   import Icon from "../ui/Icon.svelte";
+  import Callout from "../ui/Callout.svelte";
   import { app, CONFIRM_PICKS } from "../store.svelte";
-  import { WORD_POOL } from "../data";
 
-  type Q = { idx: number; correct: string; opts: string[] };
-
-  // Built once at mount; positions match CONFIRM_PICKS so gating in the store agrees.
-  const quiz: Q[] = (() => {
-    const decoys = WORD_POOL.filter((w) => !app.phrase.includes(w));
-    return CONFIRM_PICKS.map((idx) => {
-      const correct = app.phrase[idx];
-      const opts = [correct];
-      while (opts.length < 4) {
-        const d = decoys[Math.floor(Math.random() * decoys.length)];
-        if (!opts.includes(d)) opts.push(d);
-      }
-      for (let i = opts.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [opts[i], opts[j]] = [opts[j], opts[i]];
-      }
-      return { idx, correct, opts };
-    });
-  })();
-
-  function pick(qi: number, word: string) {
-    app.answers = { ...app.answers, [qi]: word };
-  }
-  function cls(qi: number, q: Q, w: string): string {
-    const chosen = app.answers[qi];
-    if (chosen === w) return w === q.correct ? "wz-opt correct" : "wz-opt wrong";
-    return "wz-opt";
+  // Free-text entry, checked only when the user presses Continue (see
+  // `continueStep`). A multiple-choice quiz with instant right/wrong colouring
+  // could be clicked through in three tries per word without ever looking at
+  // the backup; typed words with a single verdict cannot (QA-203).
+  function set(qi: number, v: string) {
+    app.answers = { ...app.answers, [qi]: v };
   }
 </script>
 
@@ -37,23 +16,28 @@
   <p class="wz-eyebrow"><Icon name="check" size={13} /> Quick check</p>
   <h1 class="wz-h">Confirm your backup</h1>
   <p class="wz-sub">
-    Let's make sure your backup is correct. Using the words you just wrote down, tap the right
-    word for each position below.
+    Using only what you wrote down, type the word at each position below. All three are checked
+    together when you press Continue.
   </p>
 
-  {#each quiz as q, qi}
+  {#each CONFIRM_PICKS as idx, qi}
     <div class="wz-confirm-q">
-      <p class="q">Word <b>#{q.idx + 1}</b></p>
-      <div class="wz-opts">
-        {#each q.opts as w}
-          <button class={cls(qi, q, w)} type="button" onclick={() => pick(qi, w)}>{w}</button>
-        {/each}
-      </div>
-      {#if app.answers[qi] && app.answers[qi] !== q.correct}
-        <p style="font-size:12px;color:#ef4444;margin:8px 0 0">
-          That's not the right word — check your written backup and try again.
-        </p>
-      {/if}
+      <label class="q" for={`confirm-word-${idx + 1}`}>Word <b>#{idx + 1}</b></label>
+      <input
+        id={`confirm-word-${idx + 1}`}
+        class="wz-input"
+        style="max-width:280px"
+        value={app.answers[qi] ?? ""}
+        oninput={(e) => set(qi, (e.target as HTMLInputElement).value)}
+        autocapitalize="off"
+        autocorrect="off"
+        autocomplete="off"
+        spellcheck="false"
+      />
     </div>
   {/each}
+
+  {#if app.error}
+    <Callout kind="danger" icon="warn">{#snippet children()}{app.error}{/snippet}</Callout>
+  {/if}
 </div>

@@ -47,3 +47,38 @@ test("QA-206 import an existing recovery phrase and derive its payout address", 
   const field = page.locator(".wz-copy").filter({ hasText: "Your payout address" }).first();
   expect((await field.locator(".val").textContent())?.trim()).toBe(KNOWN_ADDRESS);
 });
+
+const OTHER_MNEMONIC =
+  "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon " +
+  "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon art";
+
+test("QA-211 importing a different phrase over the stored wallet asks before replacing", async ({ page }) => {
+  // QA-206 left this server configured (seed + offer) → a relaunch lands on the profile.
+  await page.goto("/");
+  await expect(page.getByRole("button", { name: "Profile" })).toBeVisible({ timeout: 20_000 });
+  await page.getByRole("button", { name: /Re-run setup/ }).click();
+  await page.getByRole("button", { name: /I already have a phrase/ }).click();
+  const inputs = page.locator(".wz-import input");
+  const words = OTHER_MNEMONIC.split(" ");
+  for (let i = 0; i < 24; i++) await inputs.nth(i).fill(words[i]);
+  const cont = page.getByRole("button", { name: "Continue" });
+  await cont.click();
+
+  // A choice, not an error, and nothing replaced yet.
+  const card = page.getByText(/different wallet is already stored/);
+  await expect(card).toBeVisible({ timeout: 20_000 });
+  await page.getByRole("button", { name: /Keep the existing wallet/ }).click();
+  await expect(card).toHaveCount(0);
+  await expect(inputs).toHaveCount(24);
+  await cont.click();
+  await expect(card).toBeVisible();
+
+  await page.getByRole("button", { name: /Replace it with this phrase/ }).click();
+  await expect(page.getByRole("heading", { name: "Your wallet is ready" })).toBeVisible({
+    timeout: 30_000,
+  });
+  const field = page.locator(".wz-copy").filter({ hasText: "Your payout address" }).first();
+  const addr = (await field.locator(".val").textContent())?.trim() ?? "";
+  expect(addr).toMatch(/^bc1q/);
+  expect(addr).not.toBe(KNOWN_ADDRESS);
+});

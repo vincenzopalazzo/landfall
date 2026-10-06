@@ -174,18 +174,72 @@ describe("bootstrap (skip the wizard when a wallet exists)", () => {
     expect(app.submitted).toBe(false); // chip stays off until they sign
   });
 
-  it("routes to Import (not provisioning) when configured but no offer yet", async () => {
-    // Setup was interrupted (seed exists, /offer never completed). We can't prove
-    // the phrase was backed up, so require re-entry via Import before provisioning
-    // — don't skip the backup and drop the user on an empty profile.
+  it("QA-210: offers to reveal + back up the stored phrase when configured but no offer yet", async () => {
+    // Setup was interrupted (seed exists, /offer never completed) — typically a
+    // closed tab before the backup. The phrase is on the server, so the wizard
+    // must offer to reveal it (Phrase.svelte recovery card), not demand 24 words
+    // the user may never have seen, and must not skip the backup.
     routeFetch({ "/status": () => json({ configured: true, mining_address: ADDR, offer: null }) });
     await S.bootstrap();
     expect(app.surface).toBe("wizard");
     expect(S.stepKey()).toBe("phrase");
-    expect(S.isImport()).toBe(true); // must re-supply the recovery phrase
+    expect(S.isImport()).toBe(false);
+    expect(app.walletExists).toBe(true); // recovery card, not the import grid
     expect(app.reuse).toBe(false); // backup/confirm not skipped
     expect(app.miningAddress).toBe(ADDR);
-    expect(app.offer).toBe(""); // no offer restored
+    expect(app.offer).toBe("");
+
+    // "Reveal and back up" reads the stored phrase and resumes the create flow.
+    routeFetch({
+      "/status": () => json({ configured: true, mining_address: ADDR, offer: null }),
+      "/reveal": () => json({ mnemonic: PHRASE.join(" ") }),
+    });
+    expect(await S.recoverStoredPhrase()).toBe(true);
+    expect(app.phrase).toEqual(PHRASE);
+    expect(app.walletExists).toBe(false);
+    expect(app.revealed).toBe(false); // the user still has to tap-to-reveal and tick the box
+    expect(S.canContinue()).toBe(false);
+  });
+
+  it("QA-210: a refused reveal (e.g. --no-auth) is an error on the card, not a dead end", async () => {
+    routeFetch({
+      "/status": () => json({ configured: true, mining_address: ADDR, offer: null }),
+      "/reveal": () => new Response("requires auth", { status: 403 }),
+    });
+    await S.bootstrap();
+    expect(await S.recoverStoredPhrase()).toBe(false);
+    expect(app.walletExists).toBe(true); // card stays, with the error and the "continue anyway" path
+    expect(app.error).not.toBe("");
+  });
+
+  it("QA-212: a failed re-bootstrap against the SAME base keeps an un-backed-up phrase", async () => {
+    routeFetch({ "/status": () => json({ configured: false }) });
+    await S.bootstrap(); // first mount
+    S.chooseMode("create");
+    await S.generateWallet();
+    expect(app.phrase).toEqual(PHRASE);
+    // Token edited to a wrong value → 401 on the same server: not a move.
+    routeFetch({ "/status": () => new Response("nope", { status: 401 }) });
+    await S.bootstrap();
+    expect(app.phrase).toEqual(PHRASE);
+    expect(S.stepKey()).toBe("phrase");
+    // An actual move to another base does reset.
+    app.base = "http://elsewhere";
+    await S.bootstrap();
+    expect(app.phrase).toEqual([]);
+    expect(S.stepKey()).toBe("welcome");
+  });
+
+  it("first-mount /status landing after /generate does not wipe the fresh phrase", async () => {
+    // Race: user clicks Create and /generate answers before the mount-time
+    // /status does; the server now reports "seed, no offer" — which is OUR seed.
+    S.chooseMode("create");
+    await S.generateWallet();
+    routeFetch({ "/status": () => json({ configured: true, mining_address: ADDR, offer: null }) });
+    await S.bootstrap();
+    expect(app.phrase).toEqual(PHRASE);
+    expect(app.walletExists).toBe(false);
+    expect(S.stepKey()).toBe("phrase");
   });
 
   it("stays on the wizard for a fresh install (not configured)", async () => {
@@ -219,5 +273,93 @@ describe("navigation math", () => {
     S.restart();
     S.chooseMode("import");
     expect(S.visibleSteps()).toBe(5);
+  });
+});
+
+describe("QA-211: importing over a different stored wallet", () => {
+  it("surfaces a replace/keep choice on 409 and replaces only with force", async () => {
+    let forced: boolean | null = null;
+    globalThis.fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      const path = String(url).slice(String(url).lastIndexOf("/"));
+      if (path === "/import") {
+        forced = JSON.parse(init!.body as string).force === true;
+        return forced
+          ? json({ mining_address: ADDR })
+          : new Response("seed file exists with a different seed", { status: 409 });
+      }
+      if (path === "/health") return new Response("{}", { status: 200 });
+      return new Response("not found", { status: 404 });
+    }) as typeof fetch;
+    S.chooseMode("import");
+    app.importWords = [...PHRASE];
+    await S.continueStep();
+    expect(app.importConflict).toBe(true);
+    expect(app.error).toBe(""); // a choice, not an error
+    expect(S.stepKey()).toBe("phrase"); // did not advance
+    expect(forced).toBe(false);
+
+    app.importConflict = false; // "Keep the existing wallet"
+    await S.continueStep();
+    expect(app.importConflict).toBe(true); // asked again, still nothing replaced
+
+    expect(await S.replaceWallet()).toBe(true);
+    expect(forced).toBe(true);
+    expect(app.importConflict).toBe(false);
+    expect(app.miningAddress).toBe(ADDR);
+    expect(S.stepKey()).toBe("wallet"); // import skips confirm
+  });
+});
+
+describe("QA-203: typed backup check, judged only on Continue", () => {
+  async function toConfirm() {
+    S.chooseMode("create");
+    await S.generateWallet();
+    app.revealed = true;
+    app.backedUp = true;
+    await S.continueStep();
+    expect(S.stepKey()).toBe("confirm");
+  }
+  it("Continue is enabled once all three words are typed, whatever they are", async () => {
+    await toConfirm();
+    expect(S.canContinue()).toBe(false);
+    app.answers = { 0: "wrong", 1: "words", 2: "typed" };
+    expect(S.canContinue()).toBe(true); // no per-word verdict leaks before Continue
+  });
+  it("a wrong word is rejected on Continue, the answers are cleared, the step stays", async () => {
+    await toConfirm();
+    app.answers = { 0: PHRASE[S.CONFIRM_PICKS[0]], 1: "wrong", 2: PHRASE[S.CONFIRM_PICKS[2]] };
+    await S.continueStep();
+    expect(S.stepKey()).toBe("confirm");
+    expect(app.error).toMatch(/don't match/);
+    expect(app.answers).toEqual({});
+  });
+  it("the right words (any case / spacing) advance to the wallet step", async () => {
+    await toConfirm();
+    app.answers = {
+      0: ` ${PHRASE[S.CONFIRM_PICKS[0]].toUpperCase()} `,
+      1: PHRASE[S.CONFIRM_PICKS[1]],
+      2: PHRASE[S.CONFIRM_PICKS[2]],
+    };
+    await S.continueStep();
+    expect(S.stepKey()).toBe("wallet");
+    expect(app.error).toBe("");
+  });
+});
+
+describe("QA-213: the sign step can be redone", () => {
+  it("resetSignature clears the signature and both message copies, keeps address + offer", async () => {
+    app.offer = OFFER;
+    app.miningAddress = ADDR;
+    app.oceanMessage = `Configure OCEAN payout to ${OFFER} at block 1`;
+    expect(await S.signForOcean()).toBe(true);
+    expect(app.signature).toBe(SIG);
+    expect(app.message).toBe(app.oceanMessage); // what was signed is kept for display
+    S.resetSignature();
+    expect(app.signature).toBe("");
+    expect(app.message).toBe("");
+    expect(app.oceanMessage).toBe("");
+    expect(app.offer).toBe(OFFER);
+    expect(app.miningAddress).toBe(ADDR);
+    expect(S.canSign()).toBe(false);
   });
 });

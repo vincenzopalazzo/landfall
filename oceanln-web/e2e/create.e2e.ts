@@ -34,26 +34,26 @@ test("QA-201/202/203/204/205 create a wallet, back it up, sign for OCEAN, hand o
   await expect(cont).toBeEnabled();
   await cont.click();
 
-  // ── Confirm backup (QA-203: a wrong pick is flagged and blocks) ──
+  // ── Confirm backup (QA-203: typed words, judged only on Continue) ──
   const questions = page.locator(".wz-confirm-q");
   await expect(questions).toHaveCount(3);
+  const positions: number[] = [];
   for (let qi = 0; qi < 3; qi++) {
-    const q = questions.nth(qi);
-    const label = (await q.locator(".q").textContent()) ?? "";
-    const idx = parseInt(/#(\d+)/.exec(label)?.[1] ?? "0", 10) - 1;
-    const correct = phrase[idx];
-    const opts = q.locator(".wz-opt");
-    const texts = (await opts.allTextContents()).map((t) => t.trim());
-    expect(texts).toContain(correct);
-    if (qi === 0) {
-      const wrong = texts.findIndex((t) => t !== correct);
-      await opts.nth(wrong).click();
-      await expect(q.getByText(/not the right word/)).toBeVisible();
-      await expect(cont).toBeDisabled();
-    }
-    await opts.nth(texts.indexOf(correct)).click();
+    const label = (await questions.nth(qi).locator("label").textContent()) ?? "";
+    positions.push(parseInt(/#(\d+)/.exec(label)?.[1] ?? "0", 10) - 1);
   }
-  await expect(cont).toBeEnabled();
+  // No options to click through: three text inputs, Continue off until all filled.
+  await expect(page.locator(".wz-opt")).toHaveCount(0);
+  await expect(cont).toBeDisabled();
+  await questions.nth(0).locator("input").fill("wrongword");
+  await questions.nth(1).locator("input").fill(phrase[positions[1]]);
+  await questions.nth(2).locator("input").fill(phrase[positions[2]]);
+  await expect(cont).toBeEnabled(); // filled, not yet judged
+  await cont.click();
+  await expect(page.getByText(/don't match your recovery phrase/)).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Confirm your backup" })).toBeVisible();
+  for (let qi = 0; qi < 3; qi++) await expect(questions.nth(qi).locator("input")).toHaveValue("");
+  for (let qi = 0; qi < 3; qi++) await questions.nth(qi).locator("input").fill(phrase[positions[qi]]);
   await cont.click();
 
   // ── Create wallet (mock node answers instantly) ──
@@ -83,6 +83,18 @@ test("QA-201/202/203/204/205 create a wallet, back it up, sign for OCEAN, hand o
   const signature = await copyValue(page, "Your signature");
   expect(signature.length).toBeGreaterThan(80);
   await expect(textarea).toBeDisabled();
+  // QA-213: what was signed, with which address, is shown verbatim …
+  await expect(page.getByTestId("signed-message")).toHaveText(message);
+  await expect(page.getByTestId("signed-address")).toHaveText(address);
+  // … and the step can be redone without "Re-run setup".
+  await page.getByRole("button", { name: /Sign a different message/ }).click();
+  await expect(textarea).toBeEnabled();
+  await expect(textarea).toHaveValue("");
+  await expect(page.locator(".wz-copy").filter({ hasText: "Your signature" })).toHaveCount(0);
+  await expect(cont).toBeDisabled();
+  await textarea.fill(message);
+  await signBtn.click();
+  expect(await copyValue(page, "Your signature")).toBe(signature); // deterministic (RFC 6979)
   await cont.click();
 
   // ── Hand-off ──
