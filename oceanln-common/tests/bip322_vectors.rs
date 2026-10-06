@@ -1,14 +1,15 @@
 //! BIP-322 hash + signing-roundtrip vectors.
 //!
-//! These vectors come straight from the project's previous Zig
-//! implementation (deleted in the Rust rewrite) to guarantee that the
-//! Rust `bip322` crate produces the same domain-separated hash the Zig
-//! hand-rolled implementation did. A regression here means OCEAN
-//! signatures would silently change.
+//! The tagged-hash vectors are the ones published in BIP-322 itself
+//! ("Test vectors" section); they guarantee the `bip322` crate produces
+//! the spec's domain-separated `BIP0322-signed-message` hash. A regression
+//! here means OCEAN signatures would silently change. The round-trip
+//! tests guard the crate's signing primitive and, since 0.0.12, that its
+//! verifier binds the witness key to the address.
 
-use bip322::{sign_simple_encoded, tagged_hash, verify_simple_encoded, BIP322_TAG};
+use bip322::{sign_simple_encoded, tagged_hash, verify_simple_encoded, Verification, BIP322_TAG};
 
-/// Test vector lifted from the previous Zig implementation.
+/// BIP-322 test vector: tagged hash of the empty message.
 #[test]
 fn hash_of_empty_string() {
     let h = tagged_hash(BIP322_TAG, "");
@@ -18,7 +19,7 @@ fn hash_of_empty_string() {
     );
 }
 
-/// Test vector lifted from the previous Zig implementation.
+/// BIP-322 test vector: tagged hash of "Hello World".
 #[test]
 fn hash_of_hello_world() {
     let h = tagged_hash(BIP322_TAG, "Hello World");
@@ -38,8 +39,25 @@ fn sign_verify_roundtrip() {
     let address = "bc1q9vza2e8x573nczrlzms0wvx3gsqjx7vavgkx0l";
     let message = "Hello World";
 
-    let sig = sign_simple_encoded(address, message, wif).expect("sign");
-    verify_simple_encoded(address, message, &sig).expect("verify");
+    let sig = sign_simple_encoded(address, message, &[wif], None).expect("sign");
+    assert!(matches!(
+        verify_simple_encoded(address, message, &sig).expect("verify"),
+        Verification::Valid { .. }
+    ));
+}
+
+/// The verifier must bind the witness pubkey to the address: a signature by
+/// `wif` is NOT a signature for an address `wif` does not control, even
+/// though the witness itself is internally consistent.
+#[test]
+fn signature_for_wrong_address_fails_verify() {
+    let wif = "L3VFeEujGtevx9w18HD1fhRbCH67Az2dpCymeRE1SoPK6XQtaN2k";
+    let own = "bc1q9vza2e8x573nczrlzms0wvx3gsqjx7vavgkx0l";
+    // BIP-84 vector address — controlled by a different key.
+    let other = "bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu";
+
+    let sig = sign_simple_encoded(own, "Hello World", &[wif], None).expect("sign");
+    assert!(verify_simple_encoded(other, "Hello World", &sig).is_err());
 }
 
 /// Sanity: a tampered message must NOT verify with the same signature.
@@ -48,6 +66,6 @@ fn tampered_message_fails_verify() {
     let wif = "L3VFeEujGtevx9w18HD1fhRbCH67Az2dpCymeRE1SoPK6XQtaN2k";
     let address = "bc1q9vza2e8x573nczrlzms0wvx3gsqjx7vavgkx0l";
 
-    let sig = sign_simple_encoded(address, "Hello World", wif).expect("sign");
+    let sig = sign_simple_encoded(address, "Hello World", &[wif], None).expect("sign");
     assert!(verify_simple_encoded(address, "Hello Mars", &sig).is_err());
 }

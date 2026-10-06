@@ -5,7 +5,7 @@
 //! exactly what the OCEAN web interface expects.
 
 use crate::error::{Error, Result};
-use bip322::sign_simple_encoded;
+use bip322::{sign_simple_encoded, verify_simple_encoded, Verification};
 use bip39::Mnemonic;
 use bitcoin::bip32::{ChildNumber, DerivationPath, Xpriv};
 use bitcoin::secp256k1::Secp256k1;
@@ -408,13 +408,48 @@ fn require_p2wpkh_mainnet(address: &str) -> Result<()> {
 /// Returns a base64-encoded witness — the exact format the OCEAN web
 /// interface expects. Takes the derived key rather than the mnemonic so the
 /// caller can derive once and reuse it for the address too.
+///
+/// The key must control `address`: a BIP-322 signature only proves
+/// ownership of the address it is verified against, so signing for an
+/// address the key does not control would yield a witness that no correct
+/// verifier accepts. Rather than let that surface later as "signature
+/// invalid" on the OCEAN side, refuse here.
 pub fn sign_bip322(key: &PrivateKey, address: &str, message: &str) -> Result<String> {
     require_p2wpkh_mainnet(address)?;
+    let controlled = address_from_key(key)?;
+    if controlled != address {
+        return Err(Error::SigningFailed(format!(
+            "key controls {controlled}, not {address}; refusing to sign for an address \
+             the key cannot prove ownership of"
+        )));
+    }
     // `WIF` is a base58check serialization of the secret key. Wrap in
     // `Zeroizing` so the heap bytes are wiped once signing returns.
     let wif: Zeroizing<String> = Zeroizing::new(key.to_wif());
-    sign_simple_encoded(address, message, wif.as_str())
+    sign_simple_encoded(address, message, &[wif.as_str()], None)
         .map_err(|e| Error::SigningFailed(format!("{e:?}")))
+}
+
+/// Verify a BIP-322 simple-mode signature for a P2WPKH mainnet address.
+///
+/// This is the check OCEAN runs on submission: the base64 witness must be a
+/// valid signature over `message` by the key that controls `address`. It is
+/// exposed so callers (the CLI `verify` command, the QA harness, a UI "check
+/// before you paste" step) can confirm a signature offline, without the key.
+///
+/// Returns `Ok(())` on a valid signature and an [`Error::SigningFailed`]
+/// describing why otherwise (wrong key, tampered message, malformed
+/// witness). A signature the verifier cannot interpret is reported as
+/// invalid, never as valid.
+pub fn verify_bip322(address: &str, message: &str, signature: &str) -> Result<()> {
+    require_p2wpkh_mainnet(address)?;
+    match verify_simple_encoded(address, message, signature) {
+        Ok(Verification::Valid { .. }) => Ok(()),
+        Ok(Verification::Inconclusive) => Err(Error::SigningFailed(
+            "signature could not be interpreted for this address".to_string(),
+        )),
+        Err(e) => Err(Error::SigningFailed(format!("invalid signature: {e}"))),
+    }
 }
 
 // ── tests ───────────────────────────────────────────────────────
@@ -515,6 +550,83 @@ mod tests {
         let key = derive_private_key(&m, &path).unwrap();
         let sig = sign_bip322(&key, &addr, "hello").unwrap();
         assert!(!sig.is_empty());
+        verify_bip322(&addr, "hello", &sig).unwrap();
+    }
+
+    /// BIP-84 test vector (the `abandon`×11 `about` mnemonic): the first
+    /// external address at `m/84'/0'/0'/0/0` is pinned in the BIP itself.
+    /// Guards the whole derivation chain (PBKDF2 → xpriv → child → P2WPKH),
+    /// not just "starts with bc1q".
+    #[test]
+    fn bip84_vector_first_address() {
+        let m = Mnemonic::parse(
+            "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+        )
+        .unwrap();
+        let path = parse_bip32_path(DEFAULT_BIP32_PATH).unwrap();
+        assert_eq!(
+            derive_address(&m, &path).unwrap(),
+            "bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu"
+        );
+    }
+
+    /// Bitcoin Core's BIP-322 vector (`src/test/util_tests.cpp`): key
+    /// `L3VF…` controls `bc1q9vza2e8x573nczrlzms0wvx3gsqjx7vavgkx0l`. Both the
+    /// BIP's reference signature and Core's must verify, and our signer must
+    /// produce a signature that verifies for the same (address, message).
+    const CORE_WIF: &str = "L3VFeEujGtevx9w18HD1fhRbCH67Az2dpCymeRE1SoPK6XQtaN2k";
+    const CORE_ADDR: &str = "bc1q9vza2e8x573nczrlzms0wvx3gsqjx7vavgkx0l";
+    const BIP322_REF_SIG_HELLO_WORLD: &str = "AkcwRAIgZRfIY3p7/DoVTty6YZbWS71bc5Vct9p9Fia83eRmw2QCICK/ENGfwLtptFluMGs2KsqoNSk89pO7F29zJLUx9a/sASECx/EgAxlkQpQ9hYjgGu6EBCPMVPwVIVJqO4XCsMvViHI=";
+
+    #[test]
+    fn verifies_bip322_reference_signature() {
+        verify_bip322(CORE_ADDR, "Hello World", BIP322_REF_SIG_HELLO_WORLD).unwrap();
+        // Tampered message, same signature → must fail.
+        assert!(verify_bip322(CORE_ADDR, "Hello Mars", BIP322_REF_SIG_HELLO_WORLD).is_err());
+    }
+
+    #[test]
+    fn signs_core_vector_key_and_round_trips() {
+        let key = PrivateKey::from_wif(CORE_WIF).unwrap();
+        assert_eq!(address_from_key(&key).unwrap(), CORE_ADDR);
+        let sig = sign_bip322(&key, CORE_ADDR, "Hello World").unwrap();
+        verify_bip322(CORE_ADDR, "Hello World", &sig).unwrap();
+        assert!(verify_bip322(CORE_ADDR, "Hello Mars", &sig).is_err());
+    }
+
+    /// The key/address binding: signing for an address the key does not
+    /// control must be refused up front, and a signature made by another
+    /// key must never verify for this address. (With `bip322` 0.0.10 the
+    /// verifier accepted exactly that; this test pins the fix.)
+    #[test]
+    fn refuses_to_sign_for_address_key_does_not_control() {
+        let m = Mnemonic::parse(TEST_MNEMONIC).unwrap();
+        let path = parse_bip32_path(DEFAULT_BIP32_PATH).unwrap();
+        let key = derive_private_key(&m, &path).unwrap();
+        let own = derive_address(&m, &path).unwrap();
+        assert_ne!(own, CORE_ADDR);
+
+        let err = sign_bip322(&key, CORE_ADDR, "hello").unwrap_err();
+        assert!(matches!(err, Error::SigningFailed(_)), "got {err}");
+
+        // A signature by our key over our address is not a signature for
+        // CORE_ADDR, whatever the message.
+        let sig = sign_bip322(&key, &own, "hello").unwrap();
+        assert!(verify_bip322(CORE_ADDR, "hello", &sig).is_err());
+        verify_bip322(&own, "hello", &sig).unwrap();
+    }
+
+    #[test]
+    fn verify_rejects_garbage_and_non_p2wpkh() {
+        assert!(verify_bip322(CORE_ADDR, "x", "not base64!").is_err());
+        assert!(verify_bip322(CORE_ADDR, "x", "").is_err());
+        // Legacy address → address guard, not a crash.
+        assert!(verify_bip322(
+            "1BitcoinEaterAddressDontSendf59kuE",
+            "x",
+            BIP322_REF_SIG_HELLO_WORLD
+        )
+        .is_err());
     }
 
     #[test]
