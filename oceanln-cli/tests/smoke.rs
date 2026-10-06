@@ -253,12 +253,12 @@ fn version_flag_succeeds() {
 }
 
 #[test]
-fn help_mentions_both_subcommands() {
-    bin()
-        .arg("--help")
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("generate").and(predicate::str::contains("payout")));
+fn help_lists_every_subcommand() {
+    bin().arg("--help").assert().success().stdout(
+        predicate::str::contains("generate")
+            .and(predicate::str::contains("payout"))
+            .and(predicate::str::contains("verify")),
+    );
 }
 
 #[test]
@@ -369,6 +369,101 @@ fn payout_with_existing_offer_signs_offline() {
         .get("signature")
         .and_then(|s| s.as_str())
         .is_some_and(|s| !s.is_empty()));
+}
+
+/// `verify` is the offline counterpart of `payout`: the signature `payout`
+/// prints must verify for the address it prints, over the exact message —
+/// and must NOT verify once any of the three is changed. This is the
+/// end-to-end guard for the BIP-322 key/address binding.
+#[test]
+fn verify_round_trips_payout_signature_and_rejects_tampering() {
+    let message = format!("Configure OCEAN payout to {MOCK_OFFER} at block 840000");
+    let out = bin()
+        .args([
+            "payout",
+            "--url",
+            REFUSED_URL,
+            "--json",
+            "--offer",
+            MOCK_OFFER,
+            "--message",
+            &message,
+        ])
+        .write_stdin(TEST_MNEMONIC)
+        .assert()
+        .success();
+    let v: serde_json::Value =
+        serde_json::from_slice(&out.get_output().stdout).expect("payout --json");
+    let address = v["address"].as_str().unwrap().to_string();
+    let signature = v["signature"].as_str().unwrap().to_string();
+    assert_eq!(address, "bc1qpstw48j7j9gjugw25jmjvd96jlwgdnedk5pr6r");
+
+    // Valid: exit 0, JSON says so, and nothing is read from stdin.
+    let ok = bin()
+        .args([
+            "verify",
+            "--json",
+            "--address",
+            &address,
+            "--message",
+            &message,
+            "--signature",
+            &signature,
+        ])
+        .assert()
+        .success();
+    let v: serde_json::Value = serde_json::from_slice(&ok.get_output().stdout).unwrap();
+    assert_eq!(v["valid"], true);
+    assert!(v.get("reason").is_none());
+
+    // Tampered message → exit 1 with a reason.
+    let tampered = format!("{message} at block 840001");
+    let bad = bin()
+        .args([
+            "verify",
+            "--json",
+            "--address",
+            &address,
+            "--message",
+            &tampered,
+            "--signature",
+            &signature,
+        ])
+        .assert()
+        .code(1);
+    let v: serde_json::Value = serde_json::from_slice(&bad.get_output().stdout).unwrap();
+    assert_eq!(v["valid"], false);
+    assert!(v["reason"].as_str().is_some_and(|r| !r.is_empty()));
+
+    // Same signature presented for an address our key does not control →
+    // exit 1. (BIP-84 vector address, a different key.)
+    bin()
+        .args([
+            "verify",
+            "--address",
+            "bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu",
+            "--message",
+            &message,
+            "--signature",
+            &signature,
+        ])
+        .assert()
+        .code(1)
+        .stdout(predicate::str::contains("INVALID"));
+
+    // Garbage signature → exit 1, no panic.
+    bin()
+        .args([
+            "verify",
+            "--address",
+            &address,
+            "--message",
+            &message,
+            "--signature",
+            "not-a-signature",
+        ])
+        .assert()
+        .code(1);
 }
 
 #[test]

@@ -3,7 +3,7 @@
 mod cli;
 
 use clap::Parser;
-use cli::{Cli, Command, PayoutArgs};
+use cli::{Cli, Command, PayoutArgs, VerifyArgs};
 #[cfg(feature = "lexe-sdk")]
 use cli::{InitArgs, OfferArgs, PayoutsArgs};
 use oceanln_common::client::{CreateOfferReq, SidecarClient};
@@ -24,6 +24,7 @@ async fn run(cli: Cli) -> Result<()> {
     match cli.command {
         Command::Generate => cmd_generate(cli.json),
         Command::Payout(args) => cmd_payout(args, cli.json).await,
+        Command::Verify(args) => cmd_verify(args, cli.json),
         #[cfg(feature = "lexe-sdk")]
         Command::Init(args) => cmd_init(args, cli.json).await,
         #[cfg(feature = "lexe-sdk")]
@@ -369,6 +370,49 @@ async fn cmd_payout(args: PayoutArgs, json: bool) -> Result<()> {
         println!("signature into the OCEAN web interface to authorize the payout.");
         Ok(())
     }
+}
+
+// ── verify ──────────────────────────────────────────────────────
+
+#[derive(Serialize)]
+struct VerifyOutput<'a> {
+    valid: bool,
+    address: &'a str,
+    message: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reason: Option<String>,
+}
+
+/// Offline BIP-322 check — what OCEAN does with the three values you paste.
+/// No seed is read and nothing is contacted, so this is safe to run anywhere
+/// (a QA box, a CI job, a second machine) to confirm a signature before
+/// submitting it. Exit status 1 on an invalid signature so scripts can gate
+/// on it; `--json` adds a `reason` field on failure.
+fn cmd_verify(args: VerifyArgs, json: bool) -> Result<()> {
+    let outcome = sign::verify_bip322(&args.address, &args.message, &args.signature);
+    let (valid, reason) = match &outcome {
+        Ok(()) => (true, None),
+        Err(e) => (false, Some(e.to_string())),
+    };
+    if json {
+        print_json(&VerifyOutput {
+            valid,
+            address: &args.address,
+            message: &args.message,
+            reason,
+        })?;
+    } else if valid {
+        println!(
+            "valid: BIP-322 signature by the key controlling {}",
+            args.address
+        );
+    } else {
+        println!(
+            "INVALID: {}",
+            reason.as_deref().unwrap_or("signature does not verify")
+        );
+    }
+    outcome
 }
 
 // ── helpers ─────────────────────────────────────────────────────
