@@ -15,7 +15,7 @@ on:
 permissions:
   contents: read
 
-# Don't run two deploys of the same ref at once.
+# Don't run two builds of the same ref at once.
 concurrency:
   group: docs-${{ github.ref }}
   cancel-in-progress: true
@@ -37,19 +37,4 @@ jobs:
 
       - run: npm ci
       - run: npm run check
-      # Cloudflare Pages serves at the project root, so no BASE_PATH.
       - run: npm run build
-
-      # Deploy only on pushes to main; PRs build for validation only.
-      - name: Deploy to Cloudflare Pages
-        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          workingDirectory: landfall-docs
-          # Create the project on first run (no-op if it already exists),
-          # then publish the prerendered output.
-          preCommands: |
-            wrangler pages project create oceanln-docs --production-branch=main || true
-          command: pages deploy build --project-name=oceanln-docs --branch=main

@@ -26,25 +26,12 @@ npm run build    # prerender to build/
 npm run preview  # serve the built site
 ```
 
-## Deployment (Cloudflare Pages)
+## CI and hosting
 
-`.github/workflows/docs.yml` builds this site and deploys it to Cloudflare Pages
-on every push to `main` that touches `landfall-docs/**` (pull requests build
-only, for validation). Cloudflare Pages serves at the project root, so no
-`BASE_PATH` is needed.
-
-Two repository secrets are required (Settings → Secrets and variables →
-Actions):
-
-| Secret | Where to get it |
-|---|---|
-| `CLOUDFLARE_API_TOKEN` | Cloudflare dashboard → My Profile → API Tokens → *Create Token* → **Cloudflare Pages: Edit** template |
-| `CLOUDFLARE_ACCOUNT_ID` | Cloudflare dashboard → Workers & Pages → **Account ID** |
-
-The workflow creates the `landfall-docs` Pages project on its first run (no-op if
-it already exists), then publishes `landfall-docs/build`. The site is served at
-`https://oceanln-docs.pages.dev` (plus any custom domain you attach in the
-Cloudflare dashboard).
+`.github/workflows/docs.yml` type-checks and builds this site on every push or
+pull request that touches `landfall-docs/**`. It does not deploy anywhere: the
+site is not published while Landfall is a showcase. `build/` is fully static,
+so any static host (Cloudflare Pages, GitHub Pages, Netlify) can serve it.
 
 ### Hosting under a subpath
 
