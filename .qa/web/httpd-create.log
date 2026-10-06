@@ -1,6 +1,0 @@
-note: seed file /home/user/oceanln-cli/.qa/web/seed-create does not exist yet — POST /generate or /import to create a wallet.
-oceanln-httpd listening on http://127.0.0.1:55453
-bearer token: using --token (not echoed)
-allowed origins: http://localhost:4173
-MOCK WALLET (--mock-wallet): Lexe is NOT contacted; offers/balances are stubs. QA only.
-oceanln-httpd: generated a new recovery phrase (revealed once via /generate)

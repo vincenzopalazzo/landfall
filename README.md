@@ -6,21 +6,26 @@ payout end-to-end (derive the mining address, create a payable BOLT12 offer on a
 
 ## Workspace layout
 
-A Cargo workspace with three crates over one shared core:
+A Cargo workspace with four crates over one shared core:
 
 | crate | what it is |
 |---|---|
-| `oceanln-common` | shared core: BIP-322 signing, address derivation, seed sources, Lexe wallet/sidecar client |
+| `oceanln-common` | shared core: BIP-322 signing + verification, address derivation, seed sources, Lexe wallet/sidecar client |
 | `oceanln-cli` | the `oceanln` command-line tool (for humans / scripts / AI) |
 | `oceanln-httpd` | a local loopback HTTP server exposing the same flow to a web app or desktop frontend |
+| `oceanln-mcp` | a read-only MCP (Model Context Protocol) proxy over `oceanln-httpd`, so an AI client can read wallet and pool state without ever holding the seed |
 
-`oceanln-cli` and `oceanln-httpd` are independent frontends over
-`oceanln-common`; neither depends on the other. The CLI keeps its offline,
-in-process path; the server is what a UI talks to.
+`oceanln-cli`, `oceanln-httpd` and `oceanln-mcp` are independent frontends
+over `oceanln-common`; none depends on another (the MCP server reaches httpd
+over HTTP). The CLI keeps its offline, in-process path; the server is what a
+UI talks to.
 
 Two more frontends sit alongside the workspace: `oceanln-web/` (the Svelte
 wizard) and `src-tauri/` (a Tauri desktop shell — its own workspace/Cargo.lock,
-excluded from the root so the core CI stays fast). Both share one orchestration
+excluded from the root so the core CI stays fast). `oceanln-docs/` is the
+SvelteKit documentation site. An experimental native iOS/Android prototype
+over the same core lives on the `mobile-experimental` branch, out of `main`
+until it is production-hardened. Both share one orchestration
 core: `oceanln-httpd::service` holds the actual flow (resolve offer → load seed
 → derive → BIP-322 sign → provision), and the HTTP handlers and the desktop IPC
 commands are thin adapters over it.
@@ -31,8 +36,9 @@ commands are thin adapters over it.
 cargo build --release --workspace
 ```
 
-Binaries: `target/release/oceanln` (CLI) and `target/release/oceanln-httpd`
-(server).
+Binaries: `target/release/oceanln` (CLI), `target/release/oceanln-httpd`
+(server) and `target/release/oceanln-mcp` (MCP proxy). Rust 1.90 or newer is
+required (the Lexe SDK's MSRV).
 
 ## Use
 
@@ -101,6 +107,33 @@ So the real OCEAN sequence is: create/register the offer (your node, the Lexe
 app, or a `payout` run without `--offer`), paste it into OCEAN to get the
 message, then sign that message here with `--offer`. `--offer` is mutually
 exclusive with `--description`/`--min-amount`.
+
+`payout` refuses to sign for an address the derived key does not control, so
+a wrong `--path` or seed surfaces as an error here rather than as "invalid
+signature" on the OCEAN side.
+
+### Verify a signature offline (`verify`)
+
+```sh
+oceanln verify --address bc1q... --message "<exact OCEAN message>" --signature "<base64>"
+```
+
+The same check OCEAN runs on submission, with no seed and no network: exit
+status 0 if the base64 witness is a valid BIP-322 signature over the exact
+message by the key controlling the address, 1 otherwise (`--json` adds a
+`reason`). Run it on the three values `payout` printed before pasting them,
+or to check a signature produced by any other BIP-322 wallet.
+
+### List received payouts (`payouts`)
+
+```sh
+oceanln payouts --limit 50 --json
+```
+
+Reads the wallet's inbound BOLT12 payments straight from the Lexe node and
+keeps the ones whose payer note matches OCEAN's per-block payout format,
+newest first. Same data the dashboard's payouts table and `GET /payouts`
+show.
 
 ### In-process Lexe wallet (no sidecar) — default
 
@@ -184,10 +217,11 @@ oceanln-httpd --seed-file ./seed.txt --allow-origin http://localhost:5173
 # bearer token: <64 hex chars>      # printed once unless you pass --token
 ```
 
-The **seed never crosses the HTTP boundary**: the server reads the 24 words from
-`--seed-file` per request, signs in-process, and never echoes them back. Seed
-*generation* stays a human-witnessed CLI operation (`oceanln generate` /
-`oceanln init --generate`) and is deliberately not exposed over HTTP.
+The **seed stays server-side**: the server reads the 24 words from
+`--seed-file` per request and signs in-process. The only routes that ever
+return the phrase are the three onboarding/backup endpoints described under
+the table below (`/generate`, `/import`, `/seed/reveal`); signing and every
+wallet operation keep it on the server.
 
 Because a browser is a supported client, the loopback port is guarded:
 
@@ -213,15 +247,33 @@ Endpoints (all JSON; all but `/health` need the bearer token):
 | method + path | body | returns |
 |---|---|---|
 | `GET /health` | — | `{"status":"ok"}` |
+| `GET /status` | — | `{configured, mining_address?, offer?}` |
 | `POST /generate` | — | `{mnemonic, mining_address}` |
 | `POST /import` | `{mnemonic, force?}` | `{mining_address}` |
 | `POST /seed/reveal` | — | `{mnemonic}` |
 | `POST /payout` | `{message, offer?, description?, min_amount?, path?}` | `{address, offer, message, signature}` |
 | `POST /offer` | `{description?, min_amount?}` | `{offer}` |
 | `POST /init` | `{path?}` | `{mining_address, provisioned}` |
+| `GET /payouts?limit=` | — | `[OceanPayout…]` (received OCEAN payouts, newest first) |
+| `GET /node` | — | node status: pubkey, channels, Lightning/on-chain balances |
+| `GET /activity?limit=` | — | `[Activity…]` (every payment, OCEAN ones flagged) |
+| `POST /invoice` | `{amount_sats?, description?}` | a BOLT11 invoice (Receive flow) |
+| `POST /pay` | `{payable, amount_sats?, note?}` | payment summary (Send flow) |
+| `GET /ocean/statsnap/:address` | — | OCEAN public API proxy: stats snapshot |
+| `GET /ocean/earnpay/:address` | — | OCEAN public API proxy: earnings + on-chain payouts |
+| `GET /ocean/user_hashrate/:address` | — | OCEAN public API proxy: hashrate |
+| `GET /ocean/pool_stat` | — | OCEAN public API proxy: pool-wide stats |
+
+**`--no-auth` mode** (loopback single-host deploys) skips the bearer check
+for the read-only routes only: `/status`, `/payouts`, `/node`, `/activity`
+and `/ocean/*`. Every route that touches the seed, the signing key or wallet
+state (`/generate`, `/import`, `/payout`, `/offer`, `/init`, `/invoice`,
+`/pay`, `/seed/reveal`) always requires a token and answers `403` without
+one, so no unauthenticated local process can replace the wallet, mint a
+BIP-322 authorization, or spend.
 
 `/generate`, `/import`, and `/seed/reveal` exist for the onboarding wizard and
-are the deliberate exceptions to "the seed never crosses the wire": `/generate`
+are the deliberate exceptions to "the seed stays server-side": `/generate`
 creates a fresh 24-word phrase, persists it to the seed file, and **reveals it
 exactly once** in the response so the user can back it up; `/import` accepts an
 existing phrase; `/seed/reveal` re-reveals the stored phrase for an explicit,
@@ -254,8 +306,8 @@ has a profile (1→n payout addresses linked to offers, reveal phrase) and a
 **live payout dashboard** that reads the public OCEAN API
 (`https://api.ocean.xyz/v1`, browser-direct via CORS) keyed by the user's payout
 address(es) — real hashrate, unpaid balance, and the on-chain payouts table (see
-`src/lib/ocean.ts`). The **MCP** panel describes a **local** stdio server
-(`oceanln mcp serve`, not yet built) — nothing hosted or exposed. It's a static
+`src/lib/ocean.ts`). The **MCP** panel shows how to run the local, read-only
+`oceanln-mcp` proxy (see below) — nothing hosted or exposed. It's a static
 SPA, bundled unchanged by the Tauri desktop shell (see below); the transport is
 chosen at runtime (`src/lib/api.ts` HTTP vs `src/lib/tauri.ts` IPC).
 
@@ -279,6 +331,24 @@ must include the Vite origin (`http://localhost:5173`); the bearer token is
 injected via `VITE_OCEANLN_TOKEN` (or pasted into the in-app settings panel).
 The phrase-generation and signing steps work offline; the wallet/offer steps
 need `oceanln-httpd` to reach a Lexe node. `npm run build` emits static assets.
+
+## MCP proxy (`oceanln-mcp`)
+
+`oceanln-mcp` is a **read-only** Model Context Protocol server for AI clients.
+It is a separate process that proxies a handful of `GET` routes of a running
+`oceanln-httpd` (status, payouts, node, activity, the OCEAN public-API
+routes) over Streamable HTTP, and nothing else: it has no code path that can
+sign, spend, reveal or import a seed.
+
+```sh
+oceanln-mcp --base http://127.0.0.1:7762 --httpd-token <httpd bearer> --bind 127.0.0.1:7763
+# MCP endpoint: http://127.0.0.1:7763/mcp
+```
+
+It binds loopback only and rejects any browser `Origin`. The MCP listener
+itself carries no token, so any local process can read what it exposes; run
+it only on a machine you trust, and keep the httpd token out of shell history
+(the dashboard's "run" snippet shows a placeholder for it).
 
 ## Desktop app (`src-tauri`)
 

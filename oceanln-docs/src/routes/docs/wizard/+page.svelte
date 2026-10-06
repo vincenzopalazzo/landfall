@@ -24,10 +24,10 @@ VITE_OCEANLN_BASE=http://127.0.0.1:7762 VITE_OCEANLN_TOKEN=<tok> npm run dev`;
 
 <h2>What it includes</h2>
 <ul>
-  <li>The <strong>onboarding wizard</strong> — recovery phrase, backup, wallet creation (description → BOLT12 offer), signing, and copy-out of the address, offer, and signature.</li>
+  <li>The <strong>onboarding wizard</strong> — recovery phrase, backup, wallet creation (the node mints a BOLT12 offer), BIP-322 signing, and copy-out of the address, offer, and signature.</li>
   <li>A <strong>profile</strong> — one-to-many payout addresses linked to offers, with re-reveal of the phrase.</li>
   <li>A <strong>live payout dashboard</strong> that reads the public OCEAN API (<code>https://api.ocean.xyz/v1</code>, browser-direct via CORS) keyed by your payout address(es): real hashrate, unpaid balance, and the on-chain payouts table.</li>
-  <li>An <strong>MCP panel</strong> describing a <em>local</em> stdio server (<code>oceanln mcp serve</code>) — nothing hosted or exposed.</li>
+  <li>An <strong>MCP panel</strong> showing how to run the local, read-only <code>oceanln-mcp</code> proxy over <code>oceanln-httpd</code> — nothing hosted or exposed.</li>
 </ul>
 <p>
   It's a static SPA, bundled unchanged by the Tauri desktop shell. The transport is chosen at runtime —
