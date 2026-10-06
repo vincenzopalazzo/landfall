@@ -1,8 +1,90 @@
 # oceanln
 
-OCEAN Lightning payout tooling: generate a BIP39 seed, and configure an OCEAN
-payout end-to-end (derive the mining address, create a payable BOLT12 offer on a
-[Lexe](https://lexe.app) node, and BIP-322 sign the OCEAN message).
+Get your OCEAN mining rewards over Lightning, into a wallet you own, from a
+single recovery phrase.
+
+## The story
+
+OCEAN can pay mining rewards over Lightning instead of on-chain. To switch it
+on, a miner hands OCEAN three things:
+
+1. the **payout address** they mine to (a `bc1q…` Bitcoin address);
+2. a **BOLT12 offer**, a reusable Lightning "address" (`lno1…`) where the
+   rewards should land;
+3. a **BIP-322 signature**: proof that whoever controls the payout address
+   really asked for rewards to go to that offer.
+
+Each piece is reasonable on its own. Together they ask a lot of a miner: run a
+Lightning node, hold a Bitcoin key, use a message-signing standard most
+wallets do not support, and copy long strings between three places. Get one
+detail wrong, such as a key that does not match the address or a message that
+names a different offer, and the signature is rejected after all that work.
+
+oceanln collapses all of it into the one thing a miner has to keep safe: a
+24-word recovery phrase.
+
+- The **payout address** is derived from the phrase (BIP-84,
+  `m/84'/0'/0'/0/0`), so the key that signs is provably the key that owns the
+  address.
+- The same phrase is the root seed of a [Lexe](https://lexe.app) Lightning
+  node, which creates a **payable** BOLT12 offer. The node runs in a secure
+  enclave and the miner keeps the keys.
+- The miner pastes the verification message OCEAN generates. oceanln signs it
+  **verbatim** and shows exactly what was signed, and by which address.
+- Anyone can check the result without the phrase: OCEAN does, and so does
+  `oceanln verify`.
+
+One backup in, three values out. That is the whole UX idea, and the reason this
+repository is published: a worked example of hiding a signing standard behind a
+flow a miner can finish in a few minutes.
+
+```mermaid
+flowchart LR
+  P["24-word recovery phrase"] --> A["payout address<br/>bc1q… (BIP-84)"]
+  P --> N["Lexe Lightning node"] --> O["BOLT12 offer<br/>lno1…"]
+  A --> R["register on ocean.xyz"]
+  O --> R
+  R --> M["OCEAN's verification message"]
+  M --> S["BIP-322 signature<br/>by the address's key"]
+  S --> V["OCEAN verifies it<br/>and pays over Lightning"]
+```
+
+### What the signature proves, and what it does not
+
+- It proves that the holder of the payout address's key approved **this exact
+  message**, and the message names **this offer**. Change one character of
+  either and verification fails.
+- It does not move funds, reveal the key, or authorize anything else. It cannot
+  be reused for another offer, because the offer is inside the signed text.
+- That is why oceanln refuses to sign for an address the key does not control,
+  refuses an offer that is missing from the message, and shows the signed text
+  before you hand it over.
+
+### The UX choices this repository demonstrates
+
+- **One seed, not two.** The Lightning wallet and the payout address come from
+  the same phrase, so they can never drift apart.
+- **Back up before anything depends on it,** and resume an interrupted setup by
+  revealing the stored phrase instead of starting over (QA-210).
+- **Nothing destructive happens silently.** Replacing a stored wallet is an
+  explicit choice (QA-211).
+- **Say what was signed.** The signing step shows the exact text and address,
+  and lets you sign again (QA-213).
+- **A backup check you cannot guess.** Three typed words, judged together
+  (QA-203).
+
+Each of these is a scenario in [`docs/QA-SCENARIOS.md`](docs/QA-SCENARIOS.md),
+driven end to end in CI by [`scripts/qa`](scripts/qa/README.md).
+
+## Quick start
+
+| you want | use | start with |
+|---|---|---|
+| a guided setup in the browser | the web wizard over `oceanln-httpd` | `scripts/dev.sh`, then open `http://localhost:5173` |
+| a desktop app | the Tauri shell | `cargo tauri dev` (see [Desktop app](#desktop-app-src-tauri)) |
+| scripts or an AI agent | the `oceanln` CLI | `oceanln init --generate`, `oceanln offer`, `oceanln payout --offer … --message …`, `oceanln verify …` |
+
+The rest of this README is the reference for each piece.
 
 ## Workspace layout
 
@@ -25,10 +107,10 @@ wizard) and `src-tauri/` (a Tauri desktop shell — its own workspace/Cargo.lock
 excluded from the root so the core CI stays fast). `oceanln-docs/` is the
 SvelteKit documentation site. An experimental native iOS/Android prototype
 over the same core lives on the `mobile-experimental` branch, out of `main`
-until it is production-hardened. Both share one orchestration
-core: `oceanln-httpd::service` holds the actual flow (resolve offer → load seed
-→ derive → BIP-322 sign → provision), and the HTTP handlers and the desktop IPC
-commands are thin adapters over it.
+until it is production-hardened. The wizard and the desktop shell share one
+orchestration core: `oceanln_common::service` holds the actual flow (resolve
+offer → load seed → derive → BIP-322 sign → provision), and the HTTP handlers
+and the desktop IPC commands are thin adapters over it.
 
 ## Build
 
