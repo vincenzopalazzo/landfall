@@ -26,6 +26,40 @@ From a single recovery phrase, Landfall gives you an on-chain payout address and
 
 What Landfall does, in three steps: it derives your payout address from the phrase, so the key that signs is provably the key that owns the address. The same phrase is the root seed of your Lexe node, which creates a payable BOLT12 offer. Then you paste the verification message OCEAN gives you, Landfall signs it with BIP-322 and shows you exactly what you signed and with which address. One backup in, three values out. Every screen of that flow is in the README, if you want to see it before you run it: https://github.com/vincenzopalazzo/landfall#how-the-onboarding-works
 
+Here is the whole flow, as the app shows it.
+
+Pick "Create a new wallet" (or import a phrase you already have):
+
+![Welcome](https://raw.githubusercontent.com/vincenzopalazzo/landfall/main/docs/screenshots/01-welcome.png)
+
+Your 24 words are generated on your machine and stay blurred until you tap to reveal them:
+
+![Recovery phrase, hidden](https://raw.githubusercontent.com/vincenzopalazzo/landfall/main/docs/screenshots/02-phrase-hidden.png)
+
+![Recovery phrase, revealed](https://raw.githubusercontent.com/vincenzopalazzo/landfall/main/docs/screenshots/03-phrase-revealed.png)
+
+Prove you wrote them down: three words at random positions, checked together, so the screen never tells you which one is wrong:
+
+![Confirm your backup](https://raw.githubusercontent.com/vincenzopalazzo/landfall/main/docs/screenshots/04-confirm.png)
+
+The same phrase starts your Lexe node and derives your payout address. Offer and address, side by side, from one backup:
+
+![Your wallet is ready](https://raw.githubusercontent.com/vincenzopalazzo/landfall/main/docs/screenshots/05-wallet-ready.png)
+
+Give OCEAN the address and the offer, paste the verification message it hands back, and sign:
+
+![Sign OCEAN's verification message](https://raw.githubusercontent.com/vincenzopalazzo/landfall/main/docs/screenshots/06-sign-empty.png)
+
+Landfall shows the exact text you signed and the address that signed it, next to the BIP-322 signature:
+
+![Signed](https://raw.githubusercontent.com/vincenzopalazzo/landfall/main/docs/screenshots/07-signed.png)
+
+Three values to paste into your payout settings on ocean.xyz. Nothing is sent from the app:
+
+![Submit your details to OCEAN](https://raw.githubusercontent.com/vincenzopalazzo/landfall/main/docs/screenshots/08-handoff.png)
+
+![Ready for Lightning payouts](https://raw.githubusercontent.com/vincenzopalazzo/landfall/main/docs/screenshots/09-done.png)
+
 Be clear about one thing: Landfall is a showcase, not a production wallet. Use it to receive your OCEAN payouts and spend them. Do not park a large balance in it, and do not restore the recovery phrase of a wallet you care about into it. A showcase gets no audit, no release schedule and no support. If you would like it to become a real product, say so: open an issue, send a tip, tell OCEAN. With enough interest, OCEAN may consider picking it up and maintaining it properly.
 
 In short:
