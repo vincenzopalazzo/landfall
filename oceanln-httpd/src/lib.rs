@@ -508,6 +508,81 @@ async fn guard(State(state): State<Arc<AppState>>, req: Request, next: Next) -> 
     next.run(req).await
 }
 
+// ── QA mock wallet (feature `qa-mock`) ──────────────────────────
+
+/// In-memory [`WalletProvider`] for headless QA (`oceanln-httpd
+/// --mock-wallet`, feature `qa-mock`). Everything that would need a Lexe
+/// node answers instantly with deterministic stand-ins; everything that
+/// would move money refuses. Seed handling, derivation and BIP-322 signing
+/// are untouched — they never go through the provider — so a QA run still
+/// exercises the real key path end to end (`scripts/qa/web-e2e.sh` verifies
+/// the wizard's signature with `oceanln verify`).
+#[cfg(feature = "qa-mock")]
+pub mod qa_mock {
+    use super::WalletProvider;
+    use oceanln_common::error::{Error, Result};
+    use oceanln_common::lexe_wallet::{Activity, NodeStatus, OceanPayout, PaySummary};
+
+    /// The offer the mock node "creates". Shaped like a real `lno1…` so the
+    /// wizard's offer-in-message gate and the CLI's prefix check both pass.
+    pub const MOCK_OFFER: &str = "lno1qgsqvgnwgcg35z6ee2h3yczraddm72xrfua9uve2rlrm9deu7xyfzrcgqp0s";
+
+    pub struct MockWalletProvider;
+
+    #[async_trait::async_trait]
+    impl WalletProvider for MockWalletProvider {
+        async fn provision(&self, _mnemonic: &str) -> Result<()> {
+            Ok(())
+        }
+        async fn create_offer(
+            &self,
+            _mnemonic: &str,
+            _description: Option<&str>,
+            _min_amount: Option<&str>,
+        ) -> Result<String> {
+            Ok(MOCK_OFFER.to_string())
+        }
+        async fn list_offer_payouts(&self, _m: &str, _limit: u16) -> Result<Vec<OceanPayout>> {
+            Ok(vec![])
+        }
+        async fn node_status(&self, _m: &str) -> Result<NodeStatus> {
+            Ok(NodeStatus {
+                node_pk: "02qa0000000000000000000000000000000000000000000000000000000000mock"
+                    .to_string(),
+                num_channels: 0,
+                num_usable_channels: 0,
+                lightning_total_sats: 0,
+                lightning_sendable_sats: 0,
+                onchain_total_sats: 0,
+                onchain_trusted_sats: 0,
+                total_balance_sats: 0,
+            })
+        }
+        async fn list_payments(&self, _m: &str, _limit: u16) -> Result<Vec<Activity>> {
+            Ok(vec![])
+        }
+        async fn create_invoice(
+            &self,
+            _m: &str,
+            _amount_sats: Option<u64>,
+            _description: Option<&str>,
+        ) -> Result<String> {
+            Ok("lnbc1qamockinvoice".to_string())
+        }
+        async fn pay(
+            &self,
+            _m: &str,
+            _payable: &str,
+            _amount_sats: Option<u64>,
+            _note: Option<&str>,
+        ) -> Result<PaySummary> {
+            Err(Error::Wallet(
+                "mock wallet (--mock-wallet) never moves funds".to_string(),
+            ))
+        }
+    }
+}
+
 // ── wiring ──────────────────────────────────────────────────────
 
 fn cors_layer(allowed_origins: &[String]) -> CorsLayer {

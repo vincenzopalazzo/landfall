@@ -1,0 +1,65 @@
+name: QA
+
+# The agent QA harness (scripts/qa, docs/QA-SCENARIOS.md): the compiled CLI
+# and loopback server driven over real processes and real HTTP, and the web
+# wizard driven in a headless Chromium — the whole BIP-322 payout flow with no
+# Lexe node. Complements `CI` (unit/integration suites) with the registry
+# scenarios a human would otherwise click through.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  qa:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: oceanln-web/package-lock.json
+
+      # The server needs the `qa-mock` feature for `--mock-wallet`; the
+      # release build in `CI` never carries it.
+      - name: Build CLI + httpd (qa-mock)
+        run: cargo build --release -p oceanln-cli -p oceanln-httpd --features oceanln-httpd/qa-mock
+
+      - name: CLI scenarios (QA-001…)
+        run: scripts/qa/cli-smoke.sh
+
+      - name: HTTP server scenarios (QA-101…)
+        run: scripts/qa/httpd-smoke.sh
+
+      - name: Web wizard — install
+        working-directory: oceanln-web
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+
+      - name: Web wizard scenarios (QA-201…)
+        run: scripts/qa/web-e2e.sh
+
+      - name: Upload Playwright traces on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-traces
+          path: |
+            oceanln-web/test-results
+            .qa/web/*.log
+          if-no-files-found: ignore
