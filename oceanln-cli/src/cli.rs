@@ -46,6 +46,11 @@ pub enum Command {
     /// obtain a payable BOLT12 offer, and BIP-322 sign the OCEAN message.
     Payout(PayoutArgs),
 
+    /// Verify a BIP-322 signature offline — the same check OCEAN runs when
+    /// you submit. Needs no seed and no network: just the address, the
+    /// exact message, and the base64 signature. Exit 0 if valid, 1 if not.
+    Verify(VerifyArgs),
+
     /// Onboard in one shot (in-process, no sidecar): generate or take a seed,
     /// provision the onchain Lexe wallet, and print the mining address to
     /// register with OCEAN. Run once before `offer`.
@@ -169,4 +174,19 @@ pub struct PayoutArgs {
     /// (`~/.config/oceanln/seed`). Falls back to a prompt if no seed is found.
     #[arg(long)]
     pub seed_file: Option<PathBuf>,
+}
+
+#[derive(Args, Debug)]
+pub struct VerifyArgs {
+    /// The `bc1q…` mining address the signature claims to prove ownership of.
+    #[arg(long)]
+    pub address: String,
+
+    /// The exact message that was signed (byte-for-byte).
+    #[arg(long)]
+    pub message: String,
+
+    /// The base64 BIP-322 signature to check.
+    #[arg(long)]
+    pub signature: String,
 }
