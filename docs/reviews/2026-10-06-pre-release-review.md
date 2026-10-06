@@ -12,6 +12,17 @@ tests), `npm run build`, `npm audit` (0 vulns). Everything is green.
 Severity key: **Blocker** = fix before the public tag. **High** = fix in the
 first release cycle. **Medium/Low** = quality and polish.
 
+> **Status (same day, later commits on this branch):** all seven blockers
+> below are fixed (B1 `bip322` 0.0.12 + key/address binding + `verify`;
+> B2 `--no-auth` gating; B3 probe default; B4 skill file; B5 README, docs
+> site and MSRV; B6 pagination; B7 mobile banner). A QA harness now pins
+> them: `docs/QA-SCENARIOS.md` is the scenario registry, `scripts/qa/`
+> drives the CLI, the HTTP server and the web wizard (headless Chromium,
+> then `oceanln verify` on the signature the wizard showed), and
+> `.github/workflows/qa.yml` runs it in CI. The UX items in section 2 and
+> the medium/low items are still open and are tracked as "open" scenarios
+> in the registry (QA-011, QA-210…213).
+
 ---
 
 ## 1. Release blockers

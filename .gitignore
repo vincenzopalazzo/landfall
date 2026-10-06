@@ -11,3 +11,5 @@ zig-out/
 # macOS desktop bundles (.app/.dmg) from `cargo tauri build` — build
 # artifacts collected locally for convenience, never committed.
 /dist-macos/
+# QA harness scratch (seed files, logs, Playwright artifacts) — scripts/qa/*.
+/.qa/
