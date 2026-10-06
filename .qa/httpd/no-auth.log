@@ -1,0 +1,4 @@
+oceanln-httpd listening on http://127.0.0.1:56553
+AUTH DISABLED (--no-auth): bearer check is OFF. Loopback bind + Origin/Host guards are the only defenses. Do NOT expose this listener to the network.
+allowed origins: http://localhost:4173
+MOCK WALLET (--mock-wallet): Lexe is NOT contacted; offers/balances are stubs. QA only.

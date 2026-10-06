@@ -1,10 +1,10 @@
 [workspace]
 resolver = "2"
 members = ["oceanln-common", "oceanln-cli", "oceanln-httpd", "oceanln-mcp"]
-# The Tauri desktop app and the mobile UniFFI core are each their own workspace
+# The Tauri desktop app is its own workspace
 # (own Cargo.lock + heavy native dep tree). Excluded here so `cargo --workspace`
 # CI jobs stay fast and unaffected.
-exclude = ["src-tauri", "mobile/core"]
+exclude = ["src-tauri"]
 
 # Shared package metadata — every crate inherits these via `field.workspace = true`.
 [workspace.package]
