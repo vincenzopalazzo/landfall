@@ -12,11 +12,22 @@
 
   const endpoints = [
     { m: 'GET /health', body: '—', ret: '{"status":"ok"}' },
+    { m: 'GET /status', body: '—', ret: '{configured, mining_address?, offer?}' },
     { m: 'POST /generate', body: '—', ret: '{mnemonic, mining_address}' },
     { m: 'POST /import', body: '{mnemonic, force?}', ret: '{mining_address}' },
+    { m: 'POST /seed/reveal', body: '—', ret: '{mnemonic}' },
     { m: 'POST /payout', body: '{message, offer?, description?, min_amount?, path?}', ret: '{address, offer, message, signature}' },
     { m: 'POST /offer', body: '{description?, min_amount?}', ret: '{offer}' },
-    { m: 'POST /init', body: '{path?}', ret: '{mining_address, provisioned}' }
+    { m: 'POST /init', body: '{path?}', ret: '{mining_address, provisioned}' },
+    { m: 'GET /payouts?limit=', body: '—', ret: '[OceanPayout…] newest first' },
+    { m: 'GET /node', body: '—', ret: 'node status + balances' },
+    { m: 'GET /activity?limit=', body: '—', ret: '[Activity…] every payment' },
+    { m: 'POST /invoice', body: '{amount_sats?, description?}', ret: 'BOLT11 invoice' },
+    { m: 'POST /pay', body: '{payable, amount_sats?, note?}', ret: 'payment summary' },
+    { m: 'GET /ocean/statsnap/:address', body: '—', ret: 'OCEAN public API proxy' },
+    { m: 'GET /ocean/earnpay/:address', body: '—', ret: 'OCEAN public API proxy' },
+    { m: 'GET /ocean/user_hashrate/:address', body: '—', ret: 'OCEAN public API proxy' },
+    { m: 'GET /ocean/pool_stat', body: '—', ret: 'OCEAN public API proxy' }
   ];
 </script>
 
@@ -36,9 +47,10 @@
 <h2>Run the server</h2>
 <pre><code>{run}</code></pre>
 <p>
-  The <strong>seed never crosses the HTTP boundary</strong>: the server reads the 24 words from
-  <code>--seed-file</code> per request, signs in-process, and never echoes them back. Seed
-  <em>generation</em> stays a human-witnessed CLI operation and is deliberately not exposed over HTTP.
+  The <strong>seed stays server-side</strong>: the server reads the 24 words from
+  <code>--seed-file</code> per request and signs in-process. Only the onboarding and backup routes
+  (<code>/generate</code>, <code>/import</code>, <code>/seed/reveal</code>) ever return the phrase;
+  signing and every wallet operation keep it on the server.
 </p>
 
 <h2>Security model</h2>
@@ -53,7 +65,12 @@
 <pre><code>{sidecar}</code></pre>
 
 <h2>Endpoints</h2>
-<p>All JSON; all but <code>/health</code> need the bearer token.</p>
+<p>
+  All JSON; all but <code>/health</code> need the bearer token. In <code>--no-auth</code> mode only the
+  read-only routes (<code>/status</code>, <code>/payouts</code>, <code>/node</code>, <code>/activity</code>,
+  <code>/ocean/*</code>) answer without one; every seed-, key- or state-touching route still returns
+  <code>403</code> until the server is restarted with a token.
+</p>
 <table>
   <thead>
     <tr><th>Method + path</th><th>Body</th><th>Returns</th></tr>

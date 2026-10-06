@@ -3,9 +3,9 @@
 # the dashboard + profile wire from it (see oceanln-web/src/lib/StatsGrid.svelte).
 # Lets you "run the API and see what it's doing" for any address.
 #
-# Usage: scripts/ocean-probe.sh [bc1q...address]
+# Usage: scripts/ocean-probe.sh <bc1q...address>
 set -euo pipefail
-ADDR="${1:-bc1qarcmp3a5adjru4v8rh2f6mfqu6qkxepusxnqlg}"
+ADDR="${1:?usage: scripts/ocean-probe.sh <bc1q...payout address>}"
 BASE="https://api.ocean.xyz/v1"
 
 echo "OCEAN API probe — $ADDR"

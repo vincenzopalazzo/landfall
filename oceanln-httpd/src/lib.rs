@@ -454,14 +454,16 @@ fn host_is_loopback(host: &str) -> bool {
         .unwrap_or(false)
 }
 
-/// Extra gate for the highest-stakes endpoints (`/pay`, `/seed/reveal`):
-/// refuse when the server is in `--no-auth` mode (empty token). The shared
-/// [`guard`] deliberately skips the bearer check in that mode (loopback +
-/// Origin/Host are the only defenses), which is acceptable for read-only
-/// routes on a single-host deploy — but a money-mover or a seed-revealer
-/// must ALWAYS require a token, or any local process that sends no `Origin`
-/// could POST `/pay` and spend funds, or POST `/seed/reveal` and exfiltrate
-/// the wallet outright.
+/// Extra gate for every endpoint that touches the seed, the signing key,
+/// or wallet state (`/generate`, `/import`, `/payout`, `/offer`, `/init`,
+/// `/invoice`, `/pay`, `/seed/reveal`): refuse when the server is in
+/// `--no-auth` mode (empty token). The shared [`guard`] deliberately skips
+/// the bearer check in that mode (loopback + Origin/Host are the only
+/// defenses), which is acceptable for read-only routes on a single-host
+/// deploy — but any local process that sends no `Origin` could otherwise
+/// POST `/import {"force":true}` and replace the wallet, POST `/payout` and
+/// obtain BIP-322 authorizations from the mining key, POST `/pay` and spend
+/// funds, or POST `/seed/reveal` and exfiltrate the wallet outright.
 async fn require_token(State(state): State<Arc<AppState>>, req: Request, next: Next) -> Response {
     if state.cfg.token.is_empty() {
         return deny(
@@ -530,33 +532,30 @@ fn cors_layer(allowed_origins: &[String]) -> CorsLayer {
 pub fn build_app(state: Arc<AppState>) -> Router {
     let cors = cors_layer(&state.cfg.allowed_origins);
 
+    // Every route that touches the seed or the signing key, or that changes
+    // wallet state, carries `require_token` on top of the shared `guard`:
+    // it always needs a bearer token, even in `--no-auth` mode. `--no-auth`
+    // therefore means "read-only without a token" (`/status`, `/payouts`,
+    // `/node`, `/activity`, `/ocean/*`) — never "any local process may
+    // replace the seed (`/import` force), mint BIP-322 authorizations with
+    // the mining key (`/payout`), or spend (`/pay`)". See `require_token`.
+    let token_gate = || middleware::from_fn_with_state(state.clone(), require_token);
+
     let protected = Router::new()
         .route("/status", get(status))
-        .route("/generate", post(generate))
-        .route("/import", post(import))
-        .route("/payout", post(payout))
-        .route("/offer", post(offer))
-        .route("/init", post(init))
+        .route("/generate", post(generate).layer(token_gate()))
+        .route("/import", post(import).layer(token_gate()))
+        .route("/payout", post(payout).layer(token_gate()))
+        .route("/offer", post(offer).layer(token_gate()))
+        .route("/init", post(init).layer(token_gate()))
         .route("/payouts", get(payouts))
         // Node wallet: live balances/status, full activity, receive, send.
         .route("/node", get(node))
         .route("/activity", get(activity))
-        .route("/invoice", post(invoice))
-        // `/pay` moves funds, so it gets an EXTRA gate on top of the shared
-        // `guard`: it always requires a bearer token, even in `--no-auth`
-        // mode. Read-only routes tolerate no-auth for v1 single-host
-        // deploys, but a money-mover must never be callable by an
-        // unauthenticated local process. See `require_token`.
-        .route(
-            "/pay",
-            post(pay).layer(middleware::from_fn_with_state(state.clone(), require_token)),
-        )
-        // `/seed/reveal` hands back the recovery phrase — the wallet itself —
-        // so it carries the same always-require-a-token gate as `/pay`.
-        .route(
-            "/seed/reveal",
-            post(reveal).layer(middleware::from_fn_with_state(state.clone(), require_token)),
-        )
+        .route("/invoice", post(invoice).layer(token_gate()))
+        .route("/pay", post(pay).layer(token_gate()))
+        // `/seed/reveal` hands back the recovery phrase — the wallet itself.
+        .route("/seed/reveal", post(reveal).layer(token_gate()))
         // OCEAN public-API proxy routes. Read-only, no seed touched.
         // MCP's `get_ocean_*` tools proxy these via HTTP — the AI never
         // talks to `api.ocean.xyz` directly through MCP.

@@ -180,11 +180,11 @@ pub async fn list_offer_payouts(mnemonic: &str, limit: u16) -> Result<Vec<OceanP
     let limit_total = usize::from(limit);
     let mut scanned: usize = 0;
 
+    // `get_updated_payments` walks history OLDEST → NEWEST, so we cannot
+    // stop as soon as `limit` rows are collected: that would hand back the
+    // user's *earliest* payouts and then label them "newest first". Walk to
+    // the tail (bounded by `MAX_PAYMENTS_SCANNED`), then sort and truncate.
     loop {
-        // Cap on FILTERED rows — what the caller actually asked for.
-        if out.len() >= limit_total {
-            break;
-        }
         // Safety valve against a runaway loop on a huge wallet history
         // where almost nothing matches the OCEAN filter.
         if scanned >= MAX_PAYMENTS_SCANNED {
@@ -212,23 +212,23 @@ pub async fn list_offer_payouts(mnemonic: &str, limit: u16) -> Result<Vec<OceanP
             id: last.id,
         });
         scanned += batch_len;
-        for p in batch.into_iter() {
-            if let Some(row) = ocean_payout_from(p) {
-                out.push(row);
-                if out.len() >= limit_total {
-                    break;
-                }
-            }
-        }
+        out.extend(batch.into_iter().filter_map(ocean_payout_from));
         // If we got fewer than a full batch, we're at the tail of history.
         if batch_len < usize::from(PER_BATCH) {
             break;
         }
     }
 
-    // Newest first; ties broken by Lexe's stable PaymentId ordering.
-    out.sort_by_key(|p| std::cmp::Reverse(p.finalized_at_ms));
-    Ok(out)
+    Ok(newest_first(out, limit_total, |p| p.finalized_at_ms))
+}
+
+/// Sort `rows` newest-first by `key` (stable, so ties keep Lexe's own
+/// `(updated_at, id)` order) and keep the first `limit`. Shared by the
+/// payout and activity listings so both truncate from the same end.
+fn newest_first<T>(mut rows: Vec<T>, limit: usize, key: impl Fn(&T) -> i64) -> Vec<T> {
+    rows.sort_by_key(|r| std::cmp::Reverse(key(r)));
+    rows.truncate(limit);
+    rows
 }
 
 /// Single-payment filter + transform. Returns `Some(OceanPayout)` only if
@@ -378,8 +378,10 @@ pub async fn list_payments(mnemonic: &str, limit: u16) -> Result<Vec<Activity>> 
     let limit_total = usize::from(limit);
     let mut scanned: usize = 0;
 
+    // Same oldest→newest walk as `list_offer_payouts`: collect to the tail,
+    // then sort and truncate, so `limit` keeps the NEWEST rows.
     loop {
-        if out.len() >= limit_total || scanned >= MAX_PAYMENTS_SCANNED {
+        if scanned >= MAX_PAYMENTS_SCANNED {
             break;
         }
         let req = GetUpdatedPayments {
@@ -402,19 +404,13 @@ pub async fn list_payments(mnemonic: &str, limit: u16) -> Result<Vec<Activity>> 
             id: last.id,
         });
         scanned += batch_len;
-        for p in batch.into_iter() {
-            out.push(activity_from(p));
-            if out.len() >= limit_total {
-                break;
-            }
-        }
+        out.extend(batch.into_iter().map(activity_from));
         if batch_len < usize::from(PER_BATCH) {
             break;
         }
     }
 
-    out.sort_by_key(|a| std::cmp::Reverse(a.finalized_at_ms));
-    Ok(out)
+    Ok(newest_first(out, limit_total, |a| a.finalized_at_ms))
 }
 
 /// Map a raw Lexe payment to an [`Activity`] row (no filtering — every

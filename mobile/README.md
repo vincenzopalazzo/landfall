@@ -1,5 +1,16 @@
 # OCEAN Lightning — Mobile (iOS + Android)
 
+> **EXPERIMENTAL — not production-hardened. Do not use with real funds.**
+>
+> This tree is a working prototype, kept in the repo so the shared-core
+> architecture can be read end to end. Known gaps before it could carry a
+> real wallet: the seed is a plain `0600` file in app storage (no Keychain /
+> Keystore), the recovery-phrase screen is not screenshot-protected, the
+> Send flow has never been exercised against a funded wallet, and CI runs
+> the Kotlin unit tests only — it does not build the native libraries or the
+> Xcode project. The CLI, `oceanln-httpd`, the web wizard and the Tauri
+> desktop shell are the supported surfaces.
+
 Native mobile app built the [bitkey way](https://engineering.block.xyz/blog/how-bitkey-uses-cross-platform-development):
 **one shared core, native-rendered UI on every platform.** Here the shared core
 is the existing **Rust** `oceanln-common` crate — the same audited flow behind

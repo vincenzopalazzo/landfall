@@ -1,138 +1,156 @@
 ---
 name: oceanln
-description: "OCEAN Lightning payout CLI -- generate a BIP39 seed and configure an OCEAN payout end-to-end (derive mining address, create a payable BOLT12 offer on a Lexe node, BIP-322 sign)"
+description: "OCEAN Lightning payout CLI -- generate a BIP39 seed, provision an in-process Lexe wallet, create a payable BOLT12 offer, BIP-322 sign the OCEAN message, and verify signatures offline"
 allowed-tools: "Bash, Read"
-argument-hint: "<command> e.g. 'generate seed', 'configure payout'"
+argument-hint: "<command> e.g. 'generate seed', 'configure payout', 'verify signature'"
 ---
 
 # oceanln -- OCEAN Lightning Payout CLI
 
-You are an assistant that helps users configure OCEAN mining pool Lightning payouts with the `oceanln` CLI. The CLI has exactly two commands: `generate` and `payout`.
+You are an assistant that helps users configure OCEAN mining-pool Lightning
+payouts with the `oceanln` CLI. Run everything from the repository root
+(`git rev-parse --show-toplevel`); never assume a machine-specific path.
 
 ## Setup
 
-The project lives at `/Users/vincenzopalazzo/github/work/btc/oceanln-cli`. It is a Rust workspace built with `cargo`.
-
-The release binary is at `/Users/vincenzopalazzo/github/work/btc/oceanln-cli/target/release/oceanln`.
-
-If the binary does not exist, build it first:
+The repo is a Cargo workspace (`oceanln-common`, `oceanln-cli`,
+`oceanln-httpd`, `oceanln-mcp`). Build the CLI and point a variable at it:
 
 ```bash
-cd /Users/vincenzopalazzo/github/work/btc/oceanln-cli && cargo build --release
+cd "$(git rev-parse --show-toplevel)"
+cargo build --release -p oceanln-cli
+OCEANLN="$PWD/target/release/oceanln"
 ```
 
-Set the binary path for convenience:
+To install it instead: `cargo install --path oceanln-cli` (the root is a
+virtual workspace, so `cargo install --path .` does not work).
 
-```bash
-OCEANLN="/Users/vincenzopalazzo/github/work/btc/oceanln-cli/target/release/oceanln"
-```
+The **default build** embeds the Lexe SDK and runs the wallet in-process, so
+all six commands exist. A thin build (`cargo build --no-default-features -p
+oceanln-cli`) drops the SDK and keeps only `generate`, `payout` (sidecar
+client) and `verify`.
 
-**Global flags:**
-- `--url <sidecar_url>` -- Lexe sidecar URL (default: `http://127.0.0.1:5393`)
-- `--credentials <token>` -- Bearer token for sidecar authentication
-- `--json` -- Output as machine-readable JSON
+**Global flag:** `--json` (machine-readable output, on every command).
 
 ## Commands
+
+| command | needs the seed | needs network | what it does |
+|---|---|---|---|
+| `generate` | no | no | print a fresh 24-word mnemonic once (stdout; warnings on stderr) |
+| `init` | yes (or `--generate`) | yes (unless `--dry-run`) | persist the seed, derive the mining address, provision the Lexe wallet |
+| `offer` | yes | yes | create a payable BOLT12 offer on the node and print it |
+| `payout` | yes | only without `--offer` | derive the mining address and BIP-322 sign the OCEAN message |
+| `payouts` | yes | yes | list OCEAN payouts received by the wallet's offer |
+| `verify` | no | no | check a BIP-322 signature offline, exactly as OCEAN does |
+
+### Seed resolution
+
+`init`, `offer`, `payout` and `payouts` find the seed in this order:
+`--seed-file <path>`, then piped stdin, then the managed file
+(`$XDG_CONFIG_HOME/oceanln/seed`, else `~/.config/oceanln/seed`, written
+`0600` by `init`), then a hidden interactive prompt (TTY only). `init
+--force` overwrites a file holding a different seed; `init --no-store`
+skips persistence.
 
 ### 1. Generate a seed
 
 ```bash
-$OCEANLN generate
-$OCEANLN generate --json   # {"mnemonic": "..."} on stdout
+$OCEANLN generate            # words on stdout, warning on stderr
+$OCEANLN generate --json     # {"mnemonic": "..."}
 ```
 
-Generates a fresh 24-word BIP39 mnemonic (256-bit entropy, OS CSPRNG). The same
-seed is used in two places: `oceanln payout` (mining-address derivation + OCEAN
-signing) and the Lexe sidecar's root seed (`LEXE_ROOT_SEED_PATH`). The mnemonic
-prints to stdout; the warning + usage hint print to stderr so piping/`--json`
-stays clean. Shown once, never written to disk — the user must record it.
-
-### 2. Configure an OCEAN payout (`payout`)
+### 2. Onboard (`init`)
 
 ```bash
-$OCEANLN payout \
-  --message "Configure OCEAN payout to lno1... at block 840000" \
-  --description "my pool payout" \
-  --min-amount 1000
+$OCEANLN init --generate              # new seed + persist + provision + mining address
+$OCEANLN init --generate --dry-run    # seed + mining address only, no network
+$OCEANLN init                         # onboard an existing seed (stdin / seed file / prompt)
 ```
 
-The all-in-one flow. Prompts for the mnemonic on stdin (echo disabled), then:
+`--json` yields `{"mnemonic"?, "mining_address", "provisioned", "seed_file"?}`.
+`--path` overrides the derivation path (default `m/84'/0'/0'/0/0`).
 
-1. derives the BIP84 mining address (`m/84'/0'/0'/0/0`) from the seed — this is
-   the address the user registers with OCEAN, provably controlled by the same
-   key that signs;
-2. creates a **payable** BOLT12 offer on the node via `POST /v2/node/create_offer`
-   with the given `--description`/`--min-amount`;
-3. BIP-322 signs the `--message` **verbatim** with the derived key;
-4. prints the mining address, the offer, and the base64 signature (`--json` for
-   a structured object).
-
-Flags:
-- `--message` (required): exact OCEAN message text, signed byte-for-byte. Do not edit it.
-- `--offer` (optional): sign for an EXISTING BOLT12 offer instead of creating one. When set, no sidecar is contacted — `payout` is fully offline (derive address + sign). This is the offer-first OCEAN flow. Mutually exclusive with `--description`/`--min-amount`.
-- `--description` (optional): description baked into the BOLT12 offer the node creates.
-- `--min-amount` (optional): minimum offer amount in satoshis; omit for variable amount.
-- `--path` (optional): BIP32 derivation path, defaults to `m/84'/0'/0'/0/0`.
-
-Two modes: **create** (`--description`/`--min-amount`, needs the sidecar) mints a new offer then signs; **sign-only** (`--offer lno1...`, no sidecar) signs for an offer you already created/registered. Use sign-only for a real OCEAN submission, since OCEAN's message embeds an offer you must register first.
-
-The offer is created **before** signing, so a sidecar failure aborts the flow
-before the mnemonic is used. The sidecar must be a version that serves
-`create_offer`.
-
-### 3. In-process Lexe wallet (`init` / `offer`) — default build
-
-`cargo install --path .` builds the full CLI: oceanln embeds the `lexe` SDK and
-runs the wallet in-process (no sidecar). Two extra commands beyond generate/payout:
+### 3. Create the offer (`offer`)
 
 ```bash
-$OCEANLN init --generate              # one shot: generate seed + provision wallet + print mining address
-$OCEANLN init --generate --dry-run    # derive seed + mining address WITHOUT provisioning (no network)
-$OCEANLN init                         # onboard an existing seed read from stdin
-$OCEANLN offer --description "OCEAN payout" [--min-amount N]   # create a BOLT12 offer, print it
+$OCEANLN offer --description "OCEAN payout" [--min-amount <sats>] [--json]
 ```
 
-- `init --generate` does the whole onboarding at once: generates a fresh 24-word seed (printed once), derives the **mining address** to register with OCEAN, and provisions the onchain wallet. `--json` -> `{"mnemonic": "...", "mining_address": "bc1q...", "provisioned": true}`. `--dry-run` skips provisioning (offline; good for testing). `--path` overrides the address path.
-- `init` is headless (no app/Google Drive) — registers with Lexe's backend and provisions, like `lexe init`. Run it once before `offer`. Idempotent. The thin build (`cargo build --no-default-features`) drops `init`/`offer` and the SDK.
-- `offer` mints a payable offer on the provisioned node and prints the `lno1...`. `offer` fails with "user not signed up yet" if `init` hasn't run.
-- Both prompt the 24-word mnemonic on stdin. The sidecar-free OCEAN flow: `generate` -> `init` -> `offer` -> register on OCEAN -> `payout --offer <lno1> --message "..."`.
+Fails with "user not signed up yet" if `init` has not provisioned the wallet.
 
-The default build (no feature) keeps the thin sidecar client; only `generate` + `payout` exist there.
+### 4. Sign the OCEAN message (`payout`)
 
-## The OCEAN web flow
+OCEAN's flow is offer-first: register the offer on ocean.xyz, copy the
+message it generates, then sign that message **verbatim**:
 
-1. User goes to ocean.xyz → mining address → "Configuration".
-2. OCEAN generates a message like `"Configure OCEAN payout to lno1... at block 840000"`.
-3. User copies that message and runs `oceanln payout --message "<that text>" --description "..."`.
-4. User registers the printed **mining address** and **offer** with OCEAN, and
-   pastes the base64 signature into the OCEAN web interface.
+```bash
+$OCEANLN payout --offer lno1... --message "<exact OCEAN message>" [--json]
+```
 
-## Typical Agent Workflow
+With `--offer` nothing is contacted: `payout` derives the address and signs.
+It refuses an `--offer` that is not embedded in `--message`. Without
+`--offer` it first asks a Lexe **sidecar** (`--url`, default
+`http://127.0.0.1:5393`; `--credentials <token>`) to create an offer with
+`--description` / `--min-amount`, then signs. `--offer` is mutually exclusive
+with `--description` / `--min-amount`.
 
-1. Build the binary with `cargo build --release` if it does not exist.
-2. If the user has no seed yet, run `$OCEANLN generate` and have them record it,
-   and point them at `LEXE_ROOT_SEED_PATH=<file> lexe-sidecar` to run the node
-   on the same seed.
-3. Ask the user for the exact message from the OCEAN web interface and the offer
-   description they want.
-4. Run `$OCEANLN payout --message "..." --description "..."` (add `--min-amount`
-   if they want a minimum).
-5. The CLI prompts for the mnemonic on stdin — tell the user to type/paste it.
-6. Present the address, offer, and signature for the user to register with OCEAN.
+Output: the mining address, the offer, the message, and the base64 BIP-322
+signature. The user registers the address and offer with OCEAN and pastes the
+signature into the OCEAN web interface.
 
-## Error Handling
+### 5. Verify a signature (`verify`)
+
+```bash
+$OCEANLN verify --address bc1q... --message "<exact message>" --signature "<base64>"
+```
+
+Exit 0 when valid, 1 otherwise (`--json` adds `"reason"`). No seed, no
+network. Use it to confirm a signature before the user pastes it into OCEAN,
+or to check one produced elsewhere.
+
+### 6. List received payouts (`payouts`)
+
+```bash
+$OCEANLN payouts [--limit N] [--json]
+```
+
+Reads inbound BOLT12 payments whose payer note matches OCEAN's per-block
+format, newest first.
+
+## Typical agent workflow
+
+1. Build the binary if `target/release/oceanln` is missing.
+2. No wallet yet: `init --generate`, have the user record the 24 words, and
+   give them the mining address to register with OCEAN.
+3. `offer --description "..."` and have the user register the offer on
+   ocean.xyz; they copy the message OCEAN shows.
+4. `payout --offer <lno1...> --message "<that message>"`.
+5. `verify` the printed signature against the printed address and message,
+   then present all three values for the OCEAN web interface.
+
+Never print, log or store the mnemonic beyond what the command itself
+outputs; never edit the OCEAN message.
+
+## Error handling
 
 - **"invalid mnemonic: expected 24 words, got N"**: only 24-word BIP39 mnemonics are accepted.
-- **"invalid BIP32 path"**: use `m/84'/0'/0'/0/0` style (`'` or `h` for hardened markers).
-- **"API (101): No client credentials configured"**: launch the sidecar with `LEXE_CLIENT_CREDENTIALS=<creds>` / `LEXE_ROOT_SEED_PATH=<path>` or `--client-credentials-path <path>`.
-- **"API (7): Client requested a non-existent endpoint"**: the sidecar version does not serve `create_offer`; upgrade it.
-- **"could not reach sidecar at <url> — is `lexe-sidecar` running?"**: start the sidecar binary in another terminal first.
+- **"invalid BIP32 path"**: use `m/84'/0'/0'/0/0` style (`'` or `h` for hardened).
+- **"--offer is not present in --message"**: wrong offer or stale message; re-copy from OCEAN.
+- **"key controls bc1q..., not bc1q..."**: the seed does not own the address being signed for.
+- **"seed file ... already exists with a different seed"**: pass `init --force` to replace it, or use `--seed-file`.
+- **"could not reach sidecar at <url>"**: sidecar-mode `payout` only; start `lexe-sidecar` or use `--offer`.
+- **"user not signed up yet"**: run `init` first.
 
-## Architecture Notes
+## Architecture notes
 
-- Single Rust binary, two commands (`generate`, `payout`); no hardware-wallet support.
-- `payout` is a stateless client of a **Lexe sidecar** (separately managed by the user; bind address typically `127.0.0.1:5393`).
-- BIP-322 signing uses the `bip322` crate (rust-bitcoin) in "simple" mode.
-- BIP39 → BIP84 derivation: mnemonic → PBKDF2 seed → `Xpriv` → child key at `m/84'/0'/0'/0/0`; the mining address is the P2WPKH of that key.
-- The BOLT12 offer is created by the node (payable, with blinded paths) — never built locally, which would be unpayable.
-- The mnemonic is wrapped in a zero-on-drop type; prompted via `rpassword` with terminal echo disabled.
+- One Rust core (`oceanln-common`) behind four transports: this CLI,
+  `oceanln-httpd` (loopback HTTP for the web wizard), the Tauri desktop
+  shell (native IPC), and `oceanln-mcp` (read-only MCP proxy over httpd).
+- BIP39 → BIP84: mnemonic → PBKDF2 seed → `Xpriv` → child at
+  `m/84'/0'/0'/0/0`; the mining address is that key's P2WPKH.
+- BIP-322 "simple" signing via the `bip322` crate; `sign_bip322` refuses an
+  address the key does not control, and `verify_bip322` is the same check
+  OCEAN performs.
+- The BOLT12 offer is always created by the node (payable, with blinded
+  paths), never built locally.
+- The mnemonic lives in a zero-on-drop wrapper; the seed file is `0600`.

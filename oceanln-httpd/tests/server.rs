@@ -656,6 +656,76 @@ async fn no_auth_mode_refuses_pay_without_bearer() {
     );
 }
 
+/// Every seed-, key- or state-touching route carries `require_token`, so in
+/// `--no-auth` mode each one must 403 for an unbearered local caller. This
+/// pins the fix for the pre-release review blocker B2: before it, only
+/// `/pay` and `/seed/reveal` were gated, and a local process could
+/// `POST /import {"force":true}` to swap the seed or `POST /payout` to
+/// mint BIP-322 authorizations with the mining key.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn no_auth_mode_refuses_every_seed_and_key_touching_route() {
+    let base = spawn_no_auth("no-auth-gated").await;
+    let gated: &[(&str, serde_json::Value)] = &[
+        ("/generate", serde_json::json!({})),
+        (
+            "/import",
+            serde_json::json!({ "mnemonic": OTHER_MNEMONIC, "force": true }),
+        ),
+        (
+            "/payout",
+            serde_json::json!({ "message": format!("Configure OCEAN payout to {MOCK_OFFER}"), "offer": MOCK_OFFER }),
+        ),
+        ("/offer", serde_json::json!({ "description": "x" })),
+        ("/init", serde_json::json!({})),
+        ("/invoice", serde_json::json!({ "amount_sats": 1 })),
+        ("/pay", serde_json::json!({ "payable": "lnbc1xyz" })),
+        ("/seed/reveal", serde_json::json!({})),
+    ];
+    for (path, body) in gated {
+        let resp = client()
+            .post(format!("{base}{path}"))
+            .json(body)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(
+            resp.status(),
+            403,
+            "no-auth httpd must refuse POST {path} without a bearer token"
+        );
+    }
+    // The seed on disk is untouched: /status still reports the original
+    // wallet, proving the forced /import above never ran.
+    let v: serde_json::Value = client()
+        .get(format!("{base}/status"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(
+        v["mining_address"].as_str().unwrap(),
+        "bc1qpstw48j7j9gjugw25jmjvd96jlwgdnedk5pr6r",
+        "forced /import must not have replaced the seed under --no-auth"
+    );
+}
+
+/// `--no-auth` still means what the README promises for READ-ONLY routes:
+/// they answer without a bearer token.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn no_auth_mode_serves_read_only_routes_without_bearer() {
+    let base = spawn_no_auth("no-auth-readonly").await;
+    for path in ["/status", "/payouts", "/node", "/activity"] {
+        let resp = client().get(format!("{base}{path}")).send().await.unwrap();
+        assert_eq!(
+            resp.status(),
+            200,
+            "no-auth httpd must serve the read-only GET {path} without a token"
+        );
+    }
+}
+
 // ── /seed/reveal — explicit, authenticated phrase re-reveal ──────
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
