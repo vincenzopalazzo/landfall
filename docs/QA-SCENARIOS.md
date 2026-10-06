@@ -82,10 +82,11 @@ fund it. "The wizard" is `oceanln-web` served from a QA bundle against
 - **How:** `cli-smoke.sh` QA-010 · Guard: `smoke.rs::payout_offer_conflicts_with_description`, `payout_without_message_is_usage_error`
 
 ### QA-011 — stdin seed with one word per line
-- **Surfaces:** CLI (manual — known gap)
-- **Steps:** `printf 'word\nword\n…' | oceanln payout …`.
-- **Expect:** accepted like a seed file is; today it fails with "expected 24 words" because piped stdin reads one line (`sign.rs::resolve_seed`).
-- **Origin:** review, core item 9. Open.
+- **Surfaces:** CLI (automated)
+- **Steps:** `printf 'word\nword\n…' | oceanln payout --offer … --message …`.
+- **Expect:** accepted like a seed file is: the pinned address and a valid signature.
+- **How:** `cli-smoke.sh` QA-011 · Guard: `smoke.rs::payout_accepts_seed_piped_one_word_per_line`
+- **Origin:** review, core item 9 — piped stdin read one line. Fixed 2026-10-06 (`resolve_seed` reads the whole pipe).
 
 ## HTTP server
 
