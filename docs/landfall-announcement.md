@@ -20,7 +20,13 @@ In Viareggio I met the Lexe team again and told them my idea: a wallet with a se
 
 Today I am releasing the side project I started out of frustration, after watching BOLT12 payouts on OCEAN cause problems that no longer need to exist. It is called Landfall, a showcase Lightning wallet powered by @lexeapp.
 
+Why Landfall? Landfall is the moment a voyage reaches land. For a miner, it is the moment the rewards cross from the ocean into a wallet they own. The name also stays neutral on purpose: it borrows no pool's marks, so any pool or wallet can take the ideas and reuse them.
+
 From a single recovery phrase, Landfall gives you an on-chain payout address and a BOLT12 offer that work with OCEAN. Point any miner at the address and start earning sats you can spend, let an agent keep an eye on them, or support me with a tip at vincenzopalazzo@sonarprivacy.xyz :P
+
+What Landfall does, in three steps: it derives your payout address from the phrase, so the key that signs is provably the key that owns the address. The same phrase is the root seed of your Lexe node, which creates a payable BOLT12 offer. Then you paste the verification message OCEAN gives you, Landfall signs it with BIP-322 and shows you exactly what you signed and with which address. One backup in, three values out.
+
+Be clear about one thing: Landfall is a showcase, not a production wallet. Use it to receive your OCEAN payouts and spend them. Do not park a large balance in it, and do not restore the recovery phrase of a wallet you care about into it. A showcase gets no audit, no release schedule and no support. If you would like it to become a real product, say so: open an issue, send a tip, tell OCEAN. With enough interest, OCEAN may consider picking it up and maintaining it properly.
 
 In short:
 
@@ -28,6 +34,6 @@ In short:
 - Landfall signs OCEAN's message for you with BIP-322, and shows you exactly what you signed.
 - Lexe runs the node and handles the liquidity. You keep the keys.
 - A web wizard, a desktop app and a CLI, all open source under AGPL.
-- It is a showcase. Take the UX ideas and build them into your own wallet.
+- It is a showcase. Take the UX ideas and build them into your own wallet, or tell us you want it to become real.
 
 Code: https://github.com/vincenzopalazzo/landfall
