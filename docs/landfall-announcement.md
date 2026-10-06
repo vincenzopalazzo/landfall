@@ -12,7 +12,7 @@ At the time I looked at the Breez SDK with its Liquid implementation. Its offers
 
 By then the UX problem was clear. We needed an SDK that abstracts away liquidity management and still gives you the secret you need to sign the BIP-322 message that finishes the OCEAN setup.
 
-In May 2025, as tech lead of the Lightning team at OCEAN, I introduced the OCEAN team to Lexe (https://www.lexe.app). Their solution is technically solid and built on a stable foundation, LDK, and these days are proving that intuition right. Early on I started pointing miners who were struggling with liquidity to Lexe's closed beta.
+In May 2025, as tech lead of the Lightning team at OCEAN, I introduced the OCEAN team to Lexe (https://www.lexe.app). Their solution is technically solid and built on a stable foundation, LDK, and these days they are proving that intuition right. Early on I started pointing miners who were struggling with liquidity to Lexe's closed beta.
 
 But Lexe alone did not solve the signing step: a miner still had to BIP-322 sign a message for their specific offer. I started building a CLI that took an on-chain wallet and signed an offer-compatible message. I got close, but there were too many wallet combinations to support.
 
