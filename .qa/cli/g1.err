@@ -1,6 +1,0 @@
-WARNING: write these 24 words down somewhere safe. They ARE your wallet —
-this is the only time they are shown, and they are never written to disk.
-
-
-Next: `oceanln init --generate` does seed + wallet + mining address in one step,
-or feed this seed to `oceanln offer` / `oceanln payout`.
