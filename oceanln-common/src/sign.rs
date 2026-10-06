@@ -10,7 +10,7 @@ use bip39::Mnemonic;
 use bitcoin::bip32::{ChildNumber, DerivationPath, Xpriv};
 use bitcoin::secp256k1::Secp256k1;
 use bitcoin::{Address, AddressType, CompressedPublicKey, Network, PrivateKey};
-use std::io::IsTerminal;
+use std::io::{IsTerminal, Read};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use zeroize::{Zeroize, Zeroizing};
@@ -63,8 +63,10 @@ pub fn resolve_seed(seed_file: Option<&Path>) -> Result<MnemonicSecret> {
 
     // 2. Piped stdin (non-TTY): test harness, shell pipes.
     if !std::io::stdin().is_terminal() {
+        // Read the WHOLE pipe, not one line: `cat seedfile | oceanln …` with
+        // one word per line is as valid as a single-line phrase (QA-011).
         let mut buf = Zeroizing::new(String::new());
-        std::io::stdin().read_line(&mut buf)?;
+        std::io::stdin().read_to_string(&mut buf)?;
         let secret = MnemonicSecret::new(normalize_whitespace(&buf));
         if !secret.as_str().is_empty() {
             return Ok(secret);

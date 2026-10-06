@@ -466,6 +466,29 @@ fn verify_round_trips_payout_signature_and_rejects_tampering() {
         .code(1);
 }
 
+/// QA-011: a seed piped with one word per line (`cat seedfile | oceanln …`)
+/// must be read whole, exactly like a seed file is — not just its first line.
+#[test]
+fn payout_accepts_seed_piped_one_word_per_line() {
+    let message = format!("Configure OCEAN payout to {MOCK_OFFER} at block 840000");
+    let out = bin()
+        .args([
+            "payout",
+            "--url",
+            REFUSED_URL,
+            "--json",
+            "--offer",
+            MOCK_OFFER,
+            "--message",
+            &message,
+        ])
+        .write_stdin(format!("{}\n", TEST_MNEMONIC.replace(' ', "\n")))
+        .assert()
+        .success();
+    let v: serde_json::Value = serde_json::from_slice(&out.get_output().stdout).unwrap();
+    assert_eq!(v["address"], "bc1qpstw48j7j9gjugw25jmjvd96jlwgdnedk5pr6r");
+}
+
 #[test]
 fn payout_signs_ocean_json_message() {
     // OCEAN's config message is a JSON blob embedding the BOLT12 offer. It must

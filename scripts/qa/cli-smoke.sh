@@ -75,4 +75,9 @@ qa_check QA-009 "a 0644 seed file is refused with a chmod 600 hint" bash -c '
 qa_check QA-010 "--offer with --description is a usage error (exit 2); missing --message too" bash -c '
   set +e; "$1" payout --offer lno1x --description d --message m >/dev/null 2>&1; a=$?; "$1" payout >/dev/null 2>&1; b=$?; [[ $a -eq 2 && $b -eq 2 ]]' _ "$BIN"
 
+# ── QA-011 a seed piped one word per line is accepted like a seed file ──
+po3="$(printf '%s\n' $QA_TEST_MNEMONIC | "$BIN" payout --json --url "$DEAD_URL" --offer "$QA_MOCK_OFFER" --message "$MSG" 2>/dev/null || true)"
+qa_check QA-011 "payout accepts the seed piped one word per line (multi-line stdin)" bash -c '
+  [[ "$(echo "$1" | python3 -c "import sys,json;print(json.load(sys.stdin)[\"address\"])")" == "$2" ]]' _ "$po3" "$QA_TEST_ADDRESS"
+
 qa_summary cli-smoke
