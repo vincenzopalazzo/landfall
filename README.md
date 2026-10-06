@@ -3,6 +3,23 @@
 Get your OCEAN mining rewards over Lightning, into a wallet you own, from a
 single recovery phrase.
 
+> **Landfall is a showcase, not a production wallet.** It exists to show
+> wallet developers that the OCEAN Lightning setup can be simple. Use it to
+> receive your OCEAN payouts and spend them. Do **not** park a large balance in
+> it, and do **not** restore the recovery phrase of a wallet you care about
+> into it: a showcase gets no security audit, no release schedule and no
+> support. If you would like it to become a real product, say so (open an
+> issue, tip, tell OCEAN). With enough interest OCEAN may consider picking it
+> up and maintaining it properly.
+
+## Why "Landfall"
+
+Landfall is the moment a voyage reaches land. For a miner, that is the moment
+rewards cross from the ocean into a wallet they own. The name fits the project
+and stays neutral: it borrows no pool's marks, so any pool or wallet can lift
+the ideas here, and it reads well as a command (`landfall init`,
+`landfall payout`, `landfall verify`).
+
 ## The story
 
 OCEAN can pay mining rewards over Lightning instead of on-chain. To switch it
