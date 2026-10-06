@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Live team-demo runner: oceanln-httpd + oceanln-mcp + oceanln-web, FULL flow.
+# Live team-demo runner: landfall-httpd + landfall-mcp + landfall-web, FULL flow.
 #
-# Starts the release oceanln-httpd (in-process Lexe SDK — default features, so
-# NO separate lexe-sidecar is needed), the read-only oceanln-mcp proxy in front
-# of it, and the oceanln-web Vite frontend, then opens the browser. You then
+# Starts the release landfall-httpd (in-process Lexe SDK — default features, so
+# NO separate lexe-sidecar is needed), the read-only landfall-mcp proxy in front
+# of it, and the landfall-web Vite frontend, then opens the browser. You then
 # drive the whole arc from the UI:
 #
 #   generate seed -> derive mining address -> PROVISION a Lexe node (live) ->
@@ -28,7 +28,7 @@
 #   DEMO_TOKEN      bearer token              (default a fixed local demo token)
 #   DEMO_SEED_FILE  seed file path            (default ./.demo/seed)
 #   DEMO_NO_OPEN=1  don't auto-open the browser
-#   DEMO_NO_MCP=1   skip the oceanln-mcp proxy
+#   DEMO_NO_MCP=1   skip the landfall-mcp proxy
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -37,10 +37,10 @@ MCP_BIND="${DEMO_MCP_BIND:-127.0.0.1:7763}"
 WEB_PORT="${DEMO_WEB_PORT:-5173}"
 # Fixed token is fine for LOCAL loopback dev; the web app needs to know it up
 # front to inject into requests. Override with DEMO_TOKEN if you like.
-TOKEN="${DEMO_TOKEN:-demo-oceanln-local-token}"
+TOKEN="${DEMO_TOKEN:-demo-landfall-local-token}"
 SEED_FILE="${DEMO_SEED_FILE:-./.demo/seed}"
-HTTPD=target/release/oceanln-httpd
-MCP=target/release/oceanln-mcp
+HTTPD=target/release/landfall-httpd
+MCP=target/release/landfall-mcp
 
 mkdir -p "$(dirname "$SEED_FILE")"
 
@@ -70,14 +70,14 @@ EOF
   echo "==> FRESH mode: you'll create a brand-new Lexe MAINNET wallet live in the UI."
 fi
 
-echo "==> building oceanln-httpd (release, in-process Lexe SDK)"
-cargo build --release -p oceanln-httpd
+echo "==> building landfall-httpd (release, in-process Lexe SDK)"
+cargo build --release -p landfall-httpd
 if [ "${DEMO_NO_MCP:-0}" != "1" ]; then
-  echo "==> building oceanln-mcp (release, read-only proxy)"
-  cargo build --release -p oceanln-mcp
+  echo "==> building landfall-mcp (release, read-only proxy)"
+  cargo build --release -p landfall-mcp
 fi
 
-echo "==> starting oceanln-httpd on http://$BIND"
+echo "==> starting landfall-httpd on http://$BIND"
 echo "    seed file:    $SEED_FILE"
 echo "    bearer token: $TOKEN"
 "$HTTPD" \
@@ -110,7 +110,7 @@ echo "==> health: $(curl -fsS "http://$BIND/health" || echo 'NOT READY')"
 # connects here and drives the node read-only; it forwards each tool call to
 # httpd over HTTP with the bearer token, never touching the seed.
 if [ "${DEMO_NO_MCP:-0}" != "1" ]; then
-  echo "==> starting oceanln-mcp on http://$MCP_BIND/mcp — proxying to http://$BIND"
+  echo "==> starting landfall-mcp on http://$MCP_BIND/mcp — proxying to http://$BIND"
   "$MCP" \
     --bind "$MCP_BIND" \
     --base "http://$BIND" \
@@ -119,8 +119,8 @@ if [ "${DEMO_NO_MCP:-0}" != "1" ]; then
 fi
 
 # --- web frontend -----------------------------------------------------------
-if [ ! -f oceanln-web/package.json ]; then
-  echo "oceanln-web/ not found — cannot start the UI." >&2
+if [ ! -f landfall-web/package.json ]; then
+  echo "landfall-web/ not found — cannot start the UI." >&2
   exit 1
 fi
 
@@ -148,7 +148,7 @@ echo
 if [ "${DEMO_NO_MCP:-0}" != "1" ]; then
   echo "MCP (read-only AI assistant) — already running, a nice closer if there's time:"
   echo "  Add to Goose / Claude Code:  http://$MCP_BIND/mcp  (no header needed)"
-  echo "  e.g.  claude mcp add --transport http oceanln http://$MCP_BIND/mcp"
+  echo "  e.g.  claude mcp add --transport http landfall http://$MCP_BIND/mcp"
   echo "  The dashboard's MCP panel shows the same command."
 else
   echo "Tip: the dashboard's MCP panel shows the command to let an AI assistant"
@@ -162,10 +162,10 @@ if [ "${DEMO_NO_OPEN:-0}" != "1" ] && command -v open >/dev/null 2>&1; then
   ( sleep 2; open "$URL" ) &
 fi
 
-echo "==> starting oceanln-web (Vite) on $URL — token injected"
-( cd oceanln-web
+echo "==> starting landfall-web (Vite) on $URL — token injected"
+( cd landfall-web
   [ -d node_modules ] || npm install
-  VITE_OCEANLN_BASE="http://$BIND" VITE_OCEANLN_TOKEN="$TOKEN" \
+  VITE_LANDFALL_BASE="http://$BIND" VITE_LANDFALL_TOKEN="$TOKEN" \
     npm run dev -- --port "$WEB_PORT" --strictPort ) &
 WEB=$!
 

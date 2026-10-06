@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["oceanln-common", "oceanln-cli", "oceanln-httpd", "oceanln-mcp"]
+members = ["landfall-common", "landfall-cli", "landfall-httpd", "landfall-mcp"]
 # The Tauri desktop app is its own workspace
 # (own Cargo.lock + heavy native dep tree). Excluded here so `cargo --workspace`
 # CI jobs stay fast and unaffected.
@@ -31,17 +31,17 @@ thiserror = "1"
 lexe = { version = "0.1", features = ["unstable"] }
 # Needed to list incoming OCEAN payouts directly from the user's Lexe node
 # (via the `AppNodeRunApi::get_updated_payments` trait). Stays private to the
-# `oceanln_common::lexe_wallet` module — callers see the simple `OceanPayout`
+# `landfall_common::lexe_wallet` module — callers see the simple `OceanPayout`
 # wrapper, not these raw API types.
 lexe-api-core = "0.1"
 lexe-common = "0.1"
-# HTTP server (oceanln-httpd).
+# HTTP server (landfall-httpd).
 axum = "0.7"
 tower = "0.5"
 tower-http = { version = "0.6", features = ["cors"] }
 http-body-util = "0.1"
 async-trait = "0.1"
-# MCP server (oceanln-mcp). `transport-streamable-http-server` ships
+# MCP server (landfall-mcp). `transport-streamable-http-server` ships
 # `rmcp::transport::streamable_http_server::StreamableHttpService`, which
 # impls `tower::Service` and mounts into axum via `Router::route_service`.
 rmcp = { version = "1.7", features = ["server", "macros", "schemars", "transport-streamable-http-server"] }

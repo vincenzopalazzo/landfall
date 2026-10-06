@@ -17,16 +17,16 @@ on:
   push:
     tags:
       - "v*"
-  # Keep parity with desktop-linux. The bundle compiles oceanln-common/
-  # oceanln-httpd and embeds oceanln-web/dist, and the root Rust CI never runs
+  # Keep parity with desktop-linux. The bundle compiles landfall-common/
+  # landfall-httpd and embeds landfall-web/dist, and the root Rust CI never runs
   # `cargo tauri build`, so changes to those shared inputs can break the macOS
   # package even when src-tauri is untouched — validate them too.
   pull_request:
     paths:
       - "src-tauri/**"
-      - "oceanln-common/**"
-      - "oceanln-httpd/**"
-      - "oceanln-web/**"
+      - "landfall-common/**"
+      - "landfall-httpd/**"
+      - "landfall-web/**"
       - ".github/workflows/desktop-macos.yml"
 
 # The release-attach step on tag builds uploads assets via the GitHub token,
@@ -58,10 +58,10 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: oceanln-web/package-lock.json
+          cache-dependency-path: landfall-web/package-lock.json
 
       - name: Build the web frontend (the bundle's frontendDist)
-        working-directory: oceanln-web
+        working-directory: landfall-web
         run: |
           npm ci
           npm run build
@@ -89,14 +89,14 @@ jobs:
 
       - name: Verify the binary is universal (x86_64 + arm64)
         run: |
-          BIN="src-tauri/target/universal-apple-darwin/release/oceanln-desktop"
+          BIN="src-tauri/target/universal-apple-darwin/release/landfall-desktop"
           lipo -info "$BIN"
           lipo -info "$BIN" | grep -q "x86_64" && lipo -info "$BIN" | grep -q "arm64" \
             || { echo "::error::bundle is not universal"; exit 1; }
 
       - uses: actions/upload-artifact@v4
         with:
-          name: oceanln-desktop-macos
+          name: landfall-desktop-macos
           path: dist-macos/*
           if-no-files-found: error
 

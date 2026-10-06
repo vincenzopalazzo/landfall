@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
 # httpd-smoke.sh — registry scenarios QA-101…QA-121 against the compiled
-# `oceanln-httpd` binary over real HTTP (curl), offline. Needs the binary
+# `landfall-httpd` binary over real HTTP (curl), offline. Needs the binary
 # built with `--features qa-mock` for the wallet-touching scenarios
 # (QA-111); without it those are SKIPped, everything else still runs.
 #
 #   scripts/qa/httpd-smoke.sh
-#   OCEANLN_HTTPD=target/release/oceanln-httpd OCEANLN=target/release/oceanln scripts/qa/httpd-smoke.sh
+#   LANDFALL_HTTPD=target/release/landfall-httpd LANDFALL=target/release/landfall scripts/qa/httpd-smoke.sh
 #
 # Two servers are started on ephemeral loopback ports: one in token mode,
 # one in --no-auth mode. Both are killed on exit. Exit status = failures.
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
-HTTPD="$(qa_resolve_bin OCEANLN_HTTPD oceanln-httpd -p oceanln-httpd --features oceanln-httpd/qa-mock)"
-BIN="$(qa_resolve_bin OCEANLN oceanln -p oceanln-cli)"
+HTTPD="$(qa_resolve_bin LANDFALL_HTTPD landfall-httpd -p landfall-httpd --features landfall-httpd/qa-mock)"
+BIN="$(qa_resolve_bin LANDFALL landfall -p landfall-cli)"
 W="$QA_HOME/httpd"; rm -rf "$W"; mkdir -p "$W"
 TOKEN="qa-httpd-token-$RANDOM"
 ORIGIN="http://localhost:4173"
@@ -84,7 +84,7 @@ if ((${#MOCK[@]})); then
   qa_check QA-114 "/node, /payouts, /activity answer 200 with the token" bash -c '
     [[ "$1" == 200 ]] && curl -fsS "$2/payouts" -H "Authorization: Bearer $3" >/dev/null && curl -fsS "$2/activity" -H "Authorization: Bearer $3" >/dev/null' _ "$CODE" "$BASE" "$TOKEN"
 else
-  qa_skip "QA-112 QA-113 QA-114 need oceanln-httpd built with --features qa-mock"
+  qa_skip "QA-112 QA-113 QA-114 need landfall-httpd built with --features qa-mock"
 fi
 
 req GET "$BASE/status" "" "${auth[@]}" -H "Origin: https://evil.example" ; qa_check QA-115 "a request with a non-allowlisted Origin is 403 even with the token" test "$CODE" = 403

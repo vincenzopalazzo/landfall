@@ -1,4 +1,4 @@
-# oceanln
+# Landfall
 
 Get your OCEAN mining rewards over Lightning, into a wallet you own, from a
 single recovery phrase.
@@ -20,7 +20,7 @@ wallets do not support, and copy long strings between three places. Get one
 detail wrong, such as a key that does not match the address or a message that
 names a different offer, and the signature is rejected after all that work.
 
-oceanln collapses all of it into the one thing a miner has to keep safe: a
+Landfall collapses all of it into the one thing a miner has to keep safe: a
 24-word recovery phrase.
 
 - The **payout address** is derived from the phrase (BIP-84,
@@ -29,10 +29,10 @@ oceanln collapses all of it into the one thing a miner has to keep safe: a
 - The same phrase is the root seed of a [Lexe](https://lexe.app) Lightning
   node, which creates a **payable** BOLT12 offer. The node runs in a secure
   enclave and the miner keeps the keys.
-- The miner pastes the verification message OCEAN generates. oceanln signs it
+- The miner pastes the verification message OCEAN generates. Landfall signs it
   **verbatim** and shows exactly what was signed, and by which address.
 - Anyone can check the result without the phrase: OCEAN does, and so does
-  `oceanln verify`.
+  `landfall verify`.
 
 One backup in, three values out. That is the whole UX idea, and the reason this
 repository is published: a worked example of hiding a signing standard behind a
@@ -56,7 +56,7 @@ flowchart LR
   either and verification fails.
 - It does not move funds, reveal the key, or authorize anything else. It cannot
   be reused for another offer, because the offer is inside the signed text.
-- That is why oceanln refuses to sign for an address the key does not control,
+- That is why Landfall refuses to sign for an address the key does not control,
   refuses an offer that is missing from the message, and shows the signed text
   before you hand it over.
 
@@ -80,11 +80,33 @@ driven end to end in CI by [`scripts/qa`](scripts/qa/README.md).
 
 | you want | use | start with |
 |---|---|---|
-| a guided setup in the browser | the web wizard over `oceanln-httpd` | `scripts/dev.sh`, then open `http://localhost:5173` |
+| a guided setup in the browser | the web wizard over `landfall-httpd` | `scripts/dev.sh`, then open `http://localhost:5173` |
 | a desktop app | the Tauri shell | `cargo tauri dev` (see [Desktop app](#desktop-app-src-tauri)) |
-| scripts or an AI agent | the `oceanln` CLI | `oceanln init --generate`, `oceanln offer`, `oceanln payout --offer … --message …`, `oceanln verify …` |
+| scripts or an AI agent | the `landfall` CLI | `landfall init --generate`, `landfall offer`, `landfall payout --offer … --message …`, `landfall verify …` |
 
 The rest of this README is the reference for each piece.
+
+## Upgrading from oceanln
+
+The project was called **oceanln** until October 2026. The rename keeps every
+existing wallet working:
+
+- **Binaries and crates** are now `landfall`, `landfall-httpd` and
+  `landfall-mcp`, built from `landfall-common`, `landfall-cli`,
+  `landfall-httpd` and `landfall-mcp`. Reinstall with
+  `cargo install --path landfall-cli` and update any scripts that call
+  `oceanln`.
+- **Your seed is not moved.** If `~/.config/oceanln/seed` (or
+  `$XDG_CONFIG_HOME/oceanln/seed`) exists and no `landfall/seed` does,
+  Landfall keeps using the old file for reads and writes. Move it to
+  `~/.config/landfall/seed` yourself when you like.
+- **The desktop app** has a new identifier,
+  `io.github.vincenzopalazzo.landfall`. On first launch it keeps using a wallet
+  stored under the old `xyz.oceanln.desktop` app-data directory.
+- **Browser state** in the wizard, meaning payment notes and the "submitted to
+  OCEAN" marker, is still read from its old keys.
+- **Environment variables** used by the dev scripts and the web build are now
+  `LANDFALL_*` and `VITE_LANDFALL_*`.
 
 ## Workspace layout
 
@@ -92,23 +114,23 @@ A Cargo workspace with four crates over one shared core:
 
 | crate | what it is |
 |---|---|
-| `oceanln-common` | shared core: BIP-322 signing + verification, address derivation, seed sources, Lexe wallet/sidecar client |
-| `oceanln-cli` | the `oceanln` command-line tool (for humans / scripts / AI) |
-| `oceanln-httpd` | a local loopback HTTP server exposing the same flow to a web app or desktop frontend |
-| `oceanln-mcp` | a read-only MCP (Model Context Protocol) proxy over `oceanln-httpd`, so an AI client can read wallet and pool state without ever holding the seed |
+| `landfall-common` | shared core: BIP-322 signing + verification, address derivation, seed sources, Lexe wallet/sidecar client |
+| `landfall-cli` | the `landfall` command-line tool (for humans / scripts / AI) |
+| `landfall-httpd` | a local loopback HTTP server exposing the same flow to a web app or desktop frontend |
+| `landfall-mcp` | a read-only MCP (Model Context Protocol) proxy over `landfall-httpd`, so an AI client can read wallet and pool state without ever holding the seed |
 
-`oceanln-cli`, `oceanln-httpd` and `oceanln-mcp` are independent frontends
-over `oceanln-common`; none depends on another (the MCP server reaches httpd
+`landfall-cli`, `landfall-httpd` and `landfall-mcp` are independent frontends
+over `landfall-common`; none depends on another (the MCP server reaches httpd
 over HTTP). The CLI keeps its offline, in-process path; the server is what a
 UI talks to.
 
-Two more frontends sit alongside the workspace: `oceanln-web/` (the Svelte
+Two more frontends sit alongside the workspace: `landfall-web/` (the Svelte
 wizard) and `src-tauri/` (a Tauri desktop shell — its own workspace/Cargo.lock,
-excluded from the root so the core CI stays fast). `oceanln-docs/` is the
+excluded from the root so the core CI stays fast). `landfall-docs/` is the
 SvelteKit documentation site. An experimental native iOS/Android prototype
 over the same core lives on the `mobile-experimental` branch, out of `main`
 until it is production-hardened. The wizard and the desktop shell share one
-orchestration core: `oceanln_common::service` holds the actual flow (resolve
+orchestration core: `landfall_common::service` holds the actual flow (resolve
 offer → load seed → derive → BIP-322 sign → provision), and the HTTP handlers
 and the desktop IPC commands are thin adapters over it.
 
@@ -118,8 +140,8 @@ and the desktop IPC commands are thin adapters over it.
 cargo build --release --workspace
 ```
 
-Binaries: `target/release/oceanln` (CLI), `target/release/oceanln-httpd`
-(server) and `target/release/oceanln-mcp` (MCP proxy). Rust 1.90 or newer is
+Binaries: `target/release/landfall` (CLI), `target/release/landfall-httpd`
+(server) and `target/release/landfall-mcp` (MCP proxy). Rust 1.90 or newer is
 required (the Lexe SDK's MSRV).
 
 ## Use
@@ -127,25 +149,25 @@ required (the Lexe SDK's MSRV).
 ### Generate a seed
 
 ```sh
-oceanln generate
+landfall generate
 ```
 
 Generates a fresh 24-word BIP39 mnemonic (256 bits of entropy from the OS
 CSPRNG) and prints it **once**. This single seed does double duty:
 
-- feed it to `oceanln payout` to derive your mining address and sign, and
+- feed it to `landfall payout` to derive your mining address and sign, and
 - feed it to the Lexe sidecar as its root seed
   (`LEXE_ROOT_SEED_PATH=<file with these words> lexe-sidecar`), so the same
   wallet runs your Lightning node.
 
 The mnemonic goes to **stdout**; the warning and usage hint go to stderr, so
-`oceanln generate --json` / piping yields a clean `{"mnemonic": "..."}` (or the
+`landfall generate --json` / piping yields a clean `{"mnemonic": "..."}` (or the
 bare words). It is never written to disk — write it down yourself.
 
 ### Configure an OCEAN payout (end-to-end)
 
 ```sh
-oceanln payout \
+landfall payout \
   --message "Configure OCEAN payout to lno1... at block 840000" \
   --description "my pool payout" \
   --min-amount 1000
@@ -182,7 +204,7 @@ embedding that offer, then you sign. Pass `--offer <lno1...>` and `payout`
 the address and BIP-322 signs the message (fully offline):
 
 ```sh
-oceanln payout --offer lno1... --message "<exact OCEAN message>"
+landfall payout --offer lno1... --message "<exact OCEAN message>"
 ```
 
 So the real OCEAN sequence is: create/register the offer (your node, the Lexe
@@ -197,7 +219,7 @@ signature" on the OCEAN side.
 ### Verify a signature offline (`verify`)
 
 ```sh
-oceanln verify --address bc1q... --message "<exact OCEAN message>" --signature "<base64>"
+landfall verify --address bc1q... --message "<exact OCEAN message>" --signature "<base64>"
 ```
 
 The same check OCEAN runs on submission, with no seed and no network: exit
@@ -209,7 +231,7 @@ or to check a signature produced by any other BIP-322 wallet.
 ### List received payouts (`payouts`)
 
 ```sh
-oceanln payouts --limit 50 --json
+landfall payouts --limit 50 --json
 ```
 
 Reads the wallet's inbound BOLT12 payments straight from the Lexe node and
@@ -219,19 +241,19 @@ show.
 
 ### In-process Lexe wallet (no sidecar) — default
 
-By default oceanln embeds the published [`lexe`](https://crates.io/crates/lexe)
+By default Landfall embeds the published [`lexe`](https://crates.io/crates/lexe)
 SDK and runs the wallet in-process — no separate `lexe-sidecar` needed. Install
-the CLI from the `oceanln-cli` workspace crate (the repo root is a virtual
+the CLI from the `landfall-cli` workspace crate (the repo root is a virtual
 workspace, so `--path .` won't work); this gives you the full CLI, with `init`
 and `offer`:
 
 ```sh
-cargo install --path oceanln-cli            # CLI binary `oceanln`
+cargo install --path landfall-cli            # CLI binary `landfall`
 # optional: the local HTTP server for a web/desktop frontend
-cargo install --path oceanln-httpd          # binary `oceanln-httpd`
+cargo install --path landfall-httpd          # binary `landfall-httpd`
 
-oceanln init --generate   # one shot: generate seed + provision wallet + print mining address
-oceanln offer --description "OCEAN payout"   # create a payable BOLT12 offer, print it
+landfall init --generate   # one shot: generate seed + provision wallet + print mining address
+landfall offer --description "OCEAN payout"   # create a payable BOLT12 offer, print it
 ```
 
 `init --generate` does the whole onboarding at once — generates a fresh 24-word
@@ -241,7 +263,7 @@ seed read from stdin. Add `--dry-run` to derive the seed + mining address
 **without** provisioning (no network) — handy for testing. `--path` overrides
 the address derivation path.
 
-`init` also **persists the seed** to `~/.config/oceanln/seed` (0600) so the
+`init` also **persists the seed** to `~/.config/landfall/seed` (0600) so the
 subsequent `offer` / `payout` runs don't re-prompt — see
 [Seed resolution](#seed-resolution). The seed is saved *before* the network
 call, so a provisioning failure never loses a freshly generated seed.
@@ -250,16 +272,16 @@ Full OCEAN flow, sidecar-free — `init` persists the seed, so the later steps
 read it automatically (no piping):
 
 ```sh
-# Create the wallet (seed persisted to ~/.config/oceanln/seed) + print address.
-oceanln init --generate --json > wallet.json
-# {"mnemonic": "...", "mining_address": "bc1q...", "provisioned": true, "seed_file": "/home/you/.config/oceanln/seed"}
+# Create the wallet (seed persisted to ~/.config/landfall/seed) + print address.
+landfall init --generate --json > wallet.json
+# {"mnemonic": "...", "mining_address": "bc1q...", "provisioned": true, "seed_file": "/home/you/.config/landfall/seed"}
 python3 -c 'import sys,json;print("mining address:", json.load(sys.stdin)["mining_address"])' < wallet.json
 
 # Create the offer, then sign the OCEAN message for it — no seed piping needed.
-OFFER=$(oceanln offer --json --description "OCEAN payout" \
+OFFER=$(landfall offer --json --description "OCEAN payout" \
           | python3 -c 'import sys,json;print(json.load(sys.stdin)["offer"])')
 # register the mining address + $OFFER on ocean.xyz -> copy the message it gives you
-oceanln payout --offer "$OFFER" --message "<exact OCEAN message>"
+landfall payout --offer "$OFFER" --message "<exact OCEAN message>"
 ```
 
 `init` is headless (no app, no Google Drive) — it registers with Lexe's backend
@@ -272,9 +294,9 @@ first that yields one:
 
 1. `--seed-file <path>` — an explicit override (read, and for `init` also the
    write target);
-2. **piped stdin** — `echo "$SEED" | oceanln …` or the test harness;
-3. the **persisted managed file** — `$XDG_CONFIG_HOME/oceanln/seed`, else
-   `~/.config/oceanln/seed`, if present;
+2. **piped stdin** — `echo "$SEED" | landfall …` or the test harness;
+3. the **persisted managed file** — `$XDG_CONFIG_HOME/landfall/seed`, else
+   `~/.config/landfall/seed`, if present;
 4. an interactive **hidden prompt** (TTY only).
 
 The seed file is plaintext but written `0600` (owner-only); a group/world-
@@ -283,19 +305,19 @@ overwrite a file holding a *different* seed unless you pass `--force` (an
 identical write is a no-op), and `--no-store` skips persistence entirely for a
 one-off provisioning.
 
-**Thin build:** `cargo build --no-default-features -p oceanln-common -p
-oceanln-cli` drops the SDK for a smaller dependency tree — only `generate` +
+**Thin build:** `cargo build --no-default-features -p landfall-common -p
+landfall-cli` drops the SDK for a smaller dependency tree — only `generate` +
 `payout` (the sidecar client). See issue #3 for the migration notes.
 
-## Local HTTP server (`oceanln-httpd`)
+## Local HTTP server (`landfall-httpd`)
 
-For a web app or desktop frontend, run `oceanln-httpd` instead of shelling out
-to the CLI. It's a thin loopback HTTP transport over the same `oceanln-common`
+For a web app or desktop frontend, run `landfall-httpd` instead of shelling out
+to the CLI. It's a thin loopback HTTP transport over the same `landfall-common`
 core, so a UI can drive `payout` / `offer` / `init` over `127.0.0.1`.
 
 ```sh
-oceanln-httpd --seed-file ./seed.txt --allow-origin http://localhost:5173
-# oceanln-httpd listening on http://127.0.0.1:7762
+landfall-httpd --seed-file ./seed.txt --allow-origin http://localhost:5173
+# landfall-httpd listening on http://127.0.0.1:7762
 # bearer token: <64 hex chars>      # printed once unless you pass --token
 ```
 
@@ -320,7 +342,7 @@ Point the server at a non-default sidecar with the server's own flags (these
 differ from the CLI's `--url` / `--credentials`):
 
 ```sh
-oceanln-httpd --seed-file ./seed.txt \
+landfall-httpd --seed-file ./seed.txt \
   --sidecar-url http://127.0.0.1:5393 --sidecar-credentials <token>
 ```
 
@@ -379,9 +401,9 @@ curl -s http://127.0.0.1:7762/payout \
   -d '{"message":"<exact OCEAN message embedding the offer>","offer":"lno1..."}'
 ```
 
-## Web wizard (`oceanln-web`)
+## Web wizard (`landfall-web`)
 
-`oceanln-web/` is the Svelte onboarding wizard that drives `oceanln-httpd` from a
+`landfall-web/` is the Svelte onboarding wizard that drives `landfall-httpd` from a
 browser: create/import a recovery phrase → back up → confirm → create wallet
 (description → BOLT12 offer) → BIP-322 sign → copy the three artifacts. It also
 has a profile (1→n payout addresses linked to offers, reveal phrase) and a
@@ -389,41 +411,41 @@ has a profile (1→n payout addresses linked to offers, reveal phrase) and a
 (`https://api.ocean.xyz/v1`, browser-direct via CORS) keyed by the user's payout
 address(es) — real hashrate, unpaid balance, and the on-chain payouts table (see
 `src/lib/ocean.ts`). The **MCP** panel shows how to run the local, read-only
-`oceanln-mcp` proxy (see below) — nothing hosted or exposed. It's a static
+`landfall-mcp` proxy (see below) — nothing hosted or exposed. It's a static
 SPA, bundled unchanged by the Tauri desktop shell (see below); the transport is
 chosen at runtime (`src/lib/api.ts` HTTP vs `src/lib/tauri.ts` IPC).
 
 Run both with the dev script:
 
 ```sh
-scripts/dev.sh          # builds + runs oceanln-httpd, then `npm run dev` in oceanln-web
+scripts/dev.sh          # builds + runs landfall-httpd, then `npm run dev` in landfall-web
 # open http://localhost:5173
 ```
 
 Or manually:
 
 ```sh
-oceanln-httpd --seed-file ./seed --token <tok> --allow-origin http://localhost:5173 &
-cd oceanln-web && npm install
-VITE_OCEANLN_BASE=http://127.0.0.1:7762 VITE_OCEANLN_TOKEN=<tok> npm run dev
+landfall-httpd --seed-file ./seed --token <tok> --allow-origin http://localhost:5173 &
+cd landfall-web && npm install
+VITE_LANDFALL_BASE=http://127.0.0.1:7762 VITE_LANDFALL_TOKEN=<tok> npm run dev
 ```
 
 The wizard reaches the server cross-origin, so the server's `--allow-origin`
 must include the Vite origin (`http://localhost:5173`); the bearer token is
-injected via `VITE_OCEANLN_TOKEN` (or pasted into the in-app settings panel).
+injected via `VITE_LANDFALL_TOKEN` (or pasted into the in-app settings panel).
 The phrase-generation and signing steps work offline; the wallet/offer steps
-need `oceanln-httpd` to reach a Lexe node. `npm run build` emits static assets.
+need `landfall-httpd` to reach a Lexe node. `npm run build` emits static assets.
 
-## MCP proxy (`oceanln-mcp`)
+## MCP proxy (`landfall-mcp`)
 
-`oceanln-mcp` is a **read-only** Model Context Protocol server for AI clients.
+`landfall-mcp` is a **read-only** Model Context Protocol server for AI clients.
 It is a separate process that proxies a handful of `GET` routes of a running
-`oceanln-httpd` (status, payouts, node, activity, the OCEAN public-API
+`landfall-httpd` (status, payouts, node, activity, the OCEAN public-API
 routes) over Streamable HTTP, and nothing else: it has no code path that can
 sign, spend, reveal or import a seed.
 
 ```sh
-oceanln-mcp --base http://127.0.0.1:7762 --httpd-token <httpd bearer> --bind 127.0.0.1:7763
+landfall-mcp --base http://127.0.0.1:7762 --httpd-token <httpd bearer> --bind 127.0.0.1:7763
 # MCP endpoint: http://127.0.0.1:7763/mcp
 ```
 
@@ -434,12 +456,12 @@ it only on a machine you trust, and keep the httpd token out of shell history
 
 ## Desktop app (`src-tauri`)
 
-`src-tauri/` wraps the same `oceanln-web` wizard in a [Tauri](https://tauri.app)
+`src-tauri/` wraps the same `landfall-web` wizard in a [Tauri](https://tauri.app)
 v2 window. There is **no** HTTP server, loopback port, or bearer token in the
 desktop build: the webview reaches the Rust backend over **native IPC**
 (`#[tauri::command]` ↔ `invoke`), and the seed lives in the OS app-data dir
-(e.g. `~/Library/Application Support/xyz.oceanln.desktop/seed`, `0600`). The
-commands are thin adapters over `oceanln_httpd::service`, so signing/seed logic
+(e.g. `~/Library/Application Support/xyz.landfall.desktop/seed`, `0600`). The
+commands are thin adapters over `landfall_httpd::service`, so signing/seed logic
 is identical to the HTTP path. The web app picks the transport at runtime via
 `isTauri()`, so the same SPA runs in a browser or the shell unchanged.
 
@@ -448,7 +470,7 @@ cargo install tauri-cli --version "^2.0" --locked   # one-time
 cargo tauri dev                                      # from the repo root (finds src-tauri/)
 ```
 
-`cargo tauri dev` builds `oceanln-web`, opens the window, and hot-reloads. It's
+`cargo tauri dev` builds `landfall-web`, opens the window, and hot-reloads. It's
 its own Cargo workspace (heavy native deps), excluded from the root so the core
 Rust CI is unaffected.
 
@@ -464,7 +486,7 @@ Tauri's Linux bundlers link `webkit2gtk`/GTK and shell out to `dpkg-deb`,
   or by pushing a version tag.
 - **Locally, on any host with Docker** — `scripts/build-linux-desktop.sh` builds
   the same three formats inside an `ubuntu:22.04` container and drops them in
-  `dist-linux/`. It reuses the static `oceanln-web/dist` and uses a
+  `dist-linux/`. It reuses the static `landfall-web/dist` and uses a
   container-internal Rust target, so it won't clobber your host build. (The
   container's native arch is what you get — run it on an `amd64` host, or with
   `--platform linux/amd64`, for x86_64 packages.)
@@ -477,7 +499,7 @@ installers are still not wired up.
 The CLI `payout` command talks to a
 [Lexe sidecar](https://github.com/lexe-app/lexe-public) running locally on
 `127.0.0.1:5393` (or pass `--url`). The flags below are the **CLI** flags; the
-`oceanln-httpd` server uses `--sidecar-url` / `--sidecar-credentials` instead
+`landfall-httpd` server uses `--sidecar-url` / `--sidecar-credentials` instead
 (see above). Launch the sidecar with the same seed `generate` produced:
 
 ```sh
@@ -497,17 +519,17 @@ The sidecar must be a version that serves `POST /v2/node/create_offer`.
 ## Testing and QA
 
 `cargo test --all-targets --all-features` runs the unit and integration
-suites (the BIP-322 known-answer vectors live in `oceanln-common/src/sign.rs`
+suites (the BIP-322 known-answer vectors live in `landfall-common/src/sign.rs`
 and `tests/bip322_vectors.rs`; the HTTP guard and `--no-auth` matrix in
-`oceanln-httpd/tests/server.rs`). On top of that, `scripts/qa/` is an agent
+`landfall-httpd/tests/server.rs`). On top of that, `scripts/qa/` is an agent
 QA harness that drives the compiled binaries and the wizard in a headless
 browser with no Lexe node:
 
 ```sh
-cargo build --release -p oceanln-cli -p oceanln-httpd --features oceanln-httpd/qa-mock
+cargo build --release -p landfall-cli -p landfall-httpd --features landfall-httpd/qa-mock
 scripts/qa/cli-smoke.sh      # QA-001…  generate, dry-run, offline sign, verify
 scripts/qa/httpd-smoke.sh    # QA-101…  auth, one-time reveal, guards, --no-auth gating
-scripts/qa/web-e2e.sh        # QA-201…  the wizard end to end, then `oceanln verify`
+scripts/qa/web-e2e.sh        # QA-201…  the wizard end to end, then `landfall verify`
 ```
 
 Every scenario id is described in [`docs/QA-SCENARIOS.md`](docs/QA-SCENARIOS.md);

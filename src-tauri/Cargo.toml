@@ -1,5 +1,5 @@
 [package]
-name = "oceanln-desktop"
+name = "landfall-desktop"
 version = "0.3.1"
 description = "OCEAN Lightning — Tauri desktop shell for the onboarding wizard"
 authors = ["Vincenzo Palazzo"]
@@ -9,7 +9,7 @@ edition = "2021"
 rust-version = "1.90"
 
 [lib]
-name = "oceanln_desktop_lib"
+name = "landfall_desktop_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
@@ -28,9 +28,9 @@ open = "5"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 # The shared backend: the desktop commands call straight into the service layer,
 # so they share the exact signing/seed logic the HTTP transport uses. `lexe-sdk`
-# rides in via oceanln-httpd's default features (real offer/init).
-oceanln-common = { path = "../oceanln-common" }
-oceanln-httpd = { path = "../oceanln-httpd" }
+# rides in via landfall-httpd's default features (real offer/init).
+landfall-common = { path = "../landfall-common" }
+landfall-httpd = { path = "../landfall-httpd" }
 
 # Own workspace + own Cargo.lock: Tauri pulls a large native dependency tree, so
 # this crate is detached from the root workspace (which also `exclude`s it). The

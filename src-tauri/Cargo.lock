@@ -2330,6 +2330,56 @@ dependencies = [
 ]
 
 [[package]]
+name = "landfall-common"
+version = "0.3.0"
+dependencies = [
+ "async-trait",
+ "bip322",
+ "bip39",
+ "bitcoin",
+ "lexe",
+ "lexe-api-core",
+ "lexe-common",
+ "reqwest 0.12.28",
+ "rpassword",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+ "zeroize",
+]
+
+[[package]]
+name = "landfall-desktop"
+version = "0.3.1"
+dependencies = [
+ "landfall-common",
+ "landfall-httpd",
+ "log",
+ "open",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-log",
+ "tokio",
+]
+
+[[package]]
+name = "landfall-httpd"
+version = "0.3.0"
+dependencies = [
+ "async-trait",
+ "axum 0.7.9",
+ "clap",
+ "landfall-common",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tower-http",
+ "zeroize",
+]
+
+[[package]]
 name = "lazy_static"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3285,56 +3335,6 @@ dependencies = [
  "objc2-app-kit",
  "objc2-core-foundation",
  "objc2-foundation",
-]
-
-[[package]]
-name = "oceanln-common"
-version = "0.3.0"
-dependencies = [
- "async-trait",
- "bip322",
- "bip39",
- "bitcoin",
- "lexe",
- "lexe-api-core",
- "lexe-common",
- "reqwest 0.12.28",
- "rpassword",
- "serde",
- "serde_json",
- "thiserror 1.0.69",
- "zeroize",
-]
-
-[[package]]
-name = "oceanln-desktop"
-version = "0.3.1"
-dependencies = [
- "log",
- "oceanln-common",
- "oceanln-httpd",
- "open",
- "serde",
- "serde_json",
- "tauri",
- "tauri-build",
- "tauri-plugin-log",
- "tokio",
-]
-
-[[package]]
-name = "oceanln-httpd"
-version = "0.3.0"
-dependencies = [
- "async-trait",
- "axum 0.7.9",
- "clap",
- "oceanln-common",
- "serde",
- "serde_json",
- "tokio",
- "tower-http",
- "zeroize",
 ]
 
 [[package]]

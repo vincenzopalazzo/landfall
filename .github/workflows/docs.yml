@@ -4,11 +4,11 @@ on:
   push:
     branches: [main]
     paths:
-      - "oceanln-docs/**"
+      - "landfall-docs/**"
       - ".github/workflows/docs.yml"
   pull_request:
     paths:
-      - "oceanln-docs/**"
+      - "landfall-docs/**"
       - ".github/workflows/docs.yml"
   workflow_dispatch:
 
@@ -25,7 +25,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: oceanln-docs
+        working-directory: landfall-docs
     steps:
       - uses: actions/checkout@v4
 
@@ -33,7 +33,7 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: oceanln-docs/package-lock.json
+          cache-dependency-path: landfall-docs/package-lock.json
 
       - run: npm ci
       - run: npm run check
@@ -47,7 +47,7 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          workingDirectory: oceanln-docs
+          workingDirectory: landfall-docs
           # Create the project on first run (no-op if it already exists),
           # then publish the prerendered output.
           preCommands: |

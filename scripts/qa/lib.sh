@@ -2,8 +2,8 @@
 # lib.sh — shared helpers for the scripts/qa/*.sh runners. Source it.
 #
 #   QA_HOME     scratch dir (seed files, logs, artefacts). Default: <repo>/.qa
-#   OCEANLN     path to the `oceanln` binary (default: target/release, else build)
-#   OCEANLN_HTTPD  path to `oceanln-httpd` (same resolution; QA needs the
+#   LANDFALL     path to the `landfall` binary (default: target/release, else build)
+#   LANDFALL_HTTPD  path to `landfall-httpd` (same resolution; QA needs the
 #               `qa-mock` feature for --mock-wallet)
 #
 # Every scenario reports one line, `PASS QA-NNN …` or `FAIL QA-NNN …`, so a

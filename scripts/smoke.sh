@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 #
-# smoke.sh — end-to-end smoke test for the oceanln CLI.
+# smoke.sh — end-to-end smoke test for the landfall CLI.
 #
-# Resolves the oceanln binary, spins up a mock Lexe sidecar (inline python3
+# Resolves the landfall binary, spins up a mock Lexe sidecar (inline python3
 # HTTP server), and exercises the `generate` and `payout` subcommands,
 # printing a PASS/FAIL line per check and a final summary.
 #
@@ -44,21 +44,21 @@ fail() { FAIL=$((FAIL + 1)); echo "FAIL: $*"; }
 # 1. Resolve the binary.
 # ----------------------------------------------------------------------------
 BIN=""
-if [[ -n "${OCEANLN:-}" ]]; then
-  if [[ -x "${OCEANLN}" ]]; then
-    BIN="${OCEANLN}"
-    echo "binary: using \$OCEANLN -> ${BIN}"
+if [[ -n "${LANDFALL:-}" ]]; then
+  if [[ -x "${LANDFALL}" ]]; then
+    BIN="${LANDFALL}"
+    echo "binary: using \$LANDFALL -> ${BIN}"
   else
-    echo "error: \$OCEANLN is set to '${OCEANLN}' but it is not an executable file" >&2
+    echo "error: \$LANDFALL is set to '${LANDFALL}' but it is not an executable file" >&2
     exit 1
   fi
-elif [[ -x "${ROOT_DIR}/target/release/oceanln" ]]; then
-  BIN="${ROOT_DIR}/target/release/oceanln"
+elif [[ -x "${ROOT_DIR}/target/release/landfall" ]]; then
+  BIN="${ROOT_DIR}/target/release/landfall"
   echo "binary: using prebuilt ${BIN}"
 else
   echo "binary: not found, building with 'cargo build --release'..."
   cargo build --release
-  BIN="${ROOT_DIR}/target/release/oceanln"
+  BIN="${ROOT_DIR}/target/release/landfall"
   if [[ ! -x "${BIN}" ]]; then
     echo "error: build did not produce ${BIN}" >&2
     exit 1
