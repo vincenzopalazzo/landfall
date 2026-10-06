@@ -412,6 +412,27 @@ error: could not reach sidecar at http://127.0.0.1:5393 — is `lexe-sidecar` ru
 
 The sidecar must be a version that serves `POST /v2/node/create_offer`.
 
+## Testing and QA
+
+`cargo test --all-targets --all-features` runs the unit and integration
+suites (the BIP-322 known-answer vectors live in `oceanln-common/src/sign.rs`
+and `tests/bip322_vectors.rs`; the HTTP guard and `--no-auth` matrix in
+`oceanln-httpd/tests/server.rs`). On top of that, `scripts/qa/` is an agent
+QA harness that drives the compiled binaries and the wizard in a headless
+browser with no Lexe node:
+
+```sh
+cargo build --release -p oceanln-cli -p oceanln-httpd --features oceanln-httpd/qa-mock
+scripts/qa/cli-smoke.sh      # QA-001…  generate, dry-run, offline sign, verify
+scripts/qa/httpd-smoke.sh    # QA-101…  auth, one-time reveal, guards, --no-auth gating
+scripts/qa/web-e2e.sh        # QA-201…  the wizard end to end, then `oceanln verify`
+```
+
+Every scenario id is described in [`docs/QA-SCENARIOS.md`](docs/QA-SCENARIOS.md);
+the `qa-pass` and `qa-run` skills under `.claude/skills/` tell an agent how
+to run a pass and how to report one. `qa-mock` is a QA-only cargo feature:
+the release binary has no `--mock-wallet` flag.
+
 ## License
 
 AGPL-3.0-or-later. See [LICENSE](LICENSE) for the full text.

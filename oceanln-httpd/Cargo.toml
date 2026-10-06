@@ -11,6 +11,13 @@ rust-version.workspace = true
 name = "oceanln-httpd"
 path = "src/main.rs"
 
+[features]
+# QA-only: compiles the `--mock-wallet` flag, which swaps the Lexe-backed
+# provider for an in-memory stub so the whole HTTP + web-wizard flow can be
+# driven headlessly without a Lexe node (scripts/qa/*). Never enabled in the
+# release build, so the production binary has no such flag.
+qa-mock = []
+
 [dependencies]
 # Default features on → in-process Lexe wallet (`/offer`, `/init`) available.
 oceanln-common = { path = "../oceanln-common" }

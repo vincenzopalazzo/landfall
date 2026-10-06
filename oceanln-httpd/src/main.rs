@@ -66,6 +66,13 @@ struct Cli {
     /// a request body.
     #[arg(long)]
     sidecar_credentials: Option<String>,
+
+    /// QA ONLY (feature `qa-mock`): replace the Lexe wallet with an in-memory
+    /// stub so `/init`, `/offer`, `/node`, … answer without a node. Seed
+    /// handling and BIP-322 signing stay real. Absent from release builds.
+    #[cfg(feature = "qa-mock")]
+    #[arg(long, default_value_t = false)]
+    mock_wallet: bool,
 }
 
 #[tokio::main]
@@ -132,6 +139,20 @@ async fn main() {
         eprintln!("allowed origins: {}", cli.allow_origin.join(", "));
     }
 
+    let wallet: Arc<dyn oceanln_httpd::WalletProvider> = {
+        #[cfg(feature = "qa-mock")]
+        if cli.mock_wallet {
+            eprintln!(
+                "MOCK WALLET (--mock-wallet): Lexe is NOT contacted; offers/balances are stubs. QA only."
+            );
+            Arc::new(oceanln_httpd::qa_mock::MockWalletProvider)
+        } else {
+            Arc::new(LexeWalletProvider)
+        }
+        #[cfg(not(feature = "qa-mock"))]
+        Arc::new(LexeWalletProvider)
+    };
+
     let state = Arc::new(AppState::new(
         ServerConfig {
             seed,
@@ -141,7 +162,7 @@ async fn main() {
             sidecar_credentials: cli.sidecar_credentials,
             default_path: cli.path,
         },
-        Arc::new(LexeWalletProvider),
+        wallet,
     ));
 
     let app = build_app(state);
