@@ -11,7 +11,7 @@ exclude = ["src-tauri"]
 version = "0.3.0"
 edition = "2021"
 license = "AGPL-3.0-or-later"
-repository = "https://github.com/vincenzopalazzo/oceanln-cli"
+repository = "https://github.com/vincenzopalazzo/landfall"
 rust-version = "1.90"
 
 # Single source of truth for third-party versions across the workspace.

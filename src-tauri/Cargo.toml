@@ -4,7 +4,7 @@ version = "0.3.1"
 description = "OCEAN Lightning — Tauri desktop shell for the onboarding wizard"
 authors = ["Vincenzo Palazzo"]
 license = "AGPL-3.0-or-later"
-repository = "https://github.com/vincenzopalazzo/oceanln-cli"
+repository = "https://github.com/vincenzopalazzo/landfall"
 edition = "2021"
 rust-version = "1.90"
 
