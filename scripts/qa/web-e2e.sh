@@ -4,7 +4,7 @@
 # then verify the signature the wizard showed with `oceanln verify`.
 #
 #   scripts/qa/web-e2e.sh                 # build dist-qa, run every spec
-#   scripts/qa/web-e2e.sh create          # one spec (create | import)
+#   scripts/qa/web-e2e.sh create          # one spec (create | import | recover)
 #
 # Requirements: node 22 + `npm ci` in oceanln-web, a Chromium Playwright can
 # use (`npx playwright install chromium`, or OCEANLN_QA_CHROMIUM=/path/to/chrome
@@ -29,8 +29,8 @@ HTTPD_PORT="$(qa_free_port)"
 HTTPD_BASE="http://127.0.0.1:$HTTPD_PORT"
 WEB_PORT="${OCEANLN_QA_WEB_PORT:-4173}"
 WEB_ORIGIN="http://localhost:$WEB_PORT"
-SPECS=("${@:-create import}")
-[[ $# -eq 0 ]] && SPECS=(create import)
+SPECS=("${@:-create import recover}")
+[[ $# -eq 0 ]] && SPECS=(create import recover)
 
 # Pre-installed Chromium (e.g. /opt/pw-browsers) when the caller did not say.
 if [[ -z "${OCEANLN_QA_CHROMIUM:-}" && -n "${PLAYWRIGHT_BROWSERS_PATH:-}" && -x "$PLAYWRIGHT_BROWSERS_PATH/chromium" ]]; then
@@ -54,6 +54,9 @@ qa_wait_http "$WEB_ORIGIN/" 30
 FAILS=0
 for spec in "${SPECS[@]}"; do
   seed="$W/seed-$spec"; rm -f "$seed" "$seed.offer"
+  # `recover` (QA-210) starts from a server that already holds a seed but
+  # never reached the offer step: a closed tab before the backup.
+  if [[ "$spec" == recover ]]; then printf '%s\n' "$QA_TEST_MNEMONIC" >"$seed"; chmod 600 "$seed"; fi
   "$HTTPD" --bind "127.0.0.1:$HTTPD_PORT" --seed-file "$seed" --token "$TOKEN" --allow-origin "$WEB_ORIGIN" --mock-wallet >"$W/httpd-$spec.log" 2>&1 &
   hp=$!; PIDS+=($hp)
   qa_wait_http "$HTTPD_BASE/health" 30

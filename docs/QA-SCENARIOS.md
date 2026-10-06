@@ -151,10 +151,11 @@ fund it. "The wizard" is `oceanln-web` served from a QA bundle against
 - **Expect:** Continue disabled until the blur is tapped AND the checkbox ticked.
 - **How:** `e2e/create.e2e.ts` · Guard: `App.test.ts "gates Continue until the phrase is revealed and backed up"`
 
-### QA-203 — a wrong quiz pick is flagged and blocks
-- **Expect:** a wrong word shows "not the right word" and Continue stays disabled; the right word clears it.
-- **How:** `e2e/create.e2e.ts`
-- **Note:** four-option multiple choice is brute-forceable (review U3). Open: free-text entry.
+### QA-203 — the backup check is typed and judged only on Continue
+- **Steps:** type a wrong word in one of the three positions and the right words in the others; Continue; then type all three correctly; Continue.
+- **Expect:** no option buttons; Continue is enabled as soon as all three boxes are filled (its state leaks nothing); the wrong set is rejected with "don't match your recovery phrase", all three boxes are cleared and the step stays; the right set advances. Case and surrounding whitespace are ignored.
+- **How:** `e2e/create.e2e.ts` · Guard: `store.test.ts "QA-203: typed backup check"`, `App.test.ts "QA-203"`
+- **Origin:** review U3 — four-option multiple choice with instant colouring was brute-forceable in three clicks per word. Fixed 2026-10-06.
 
 ### QA-204 — Sign is gated on the message embedding the offer
 - **Expect:** *Sign message* disabled while the textarea is empty or names another offer; the "doesn't contain your offer" hint shows; enabled once the real offer is in the text.
@@ -175,25 +176,32 @@ fund it. "The wizard" is `oceanln-web` served from a QA bundle against
 - **Expect:** an error mentioning the mnemonic/checksum; the 24 boxes stay editable.
 - **How:** `e2e/import.e2e.ts`
 
-### QA-210 — close the tab before backing up (open)
-- **Surfaces:** wizard (manual)
+### QA-210 — close the tab before backing up
+- **Surfaces:** wizard (automated; the server is pre-seeded with the fixture phrase and no offer)
 - **Steps:** *Create a new wallet*, do NOT reveal, close the tab, reopen.
-- **Expect (desired):** an offer to reveal and back up the stored phrase. **Today:** the Import step demanding words the user never saw (`store.svelte.ts` bootstrap, "configured, no offer" branch).
-- **Origin:** review U1. Open.
+- **Expect:** a card saying a wallet is already set up but unfinished, with *Reveal and back up* (reads `/seed/reveal`, shows the 24 words behind the blur, then the normal tick-box and typed check) and *I already backed it up — continue*; never the 24 empty import boxes. A refused reveal (`--no-auth`) shows the error on the card and leaves the continue path.
+- **How:** `e2e/recover.e2e.ts` (`web-e2e.sh recover`) · Guard: `store.test.ts "QA-210"` (both outcomes)
+- **Origin:** review U1 — the "configured, no offer" bootstrap branch forced Import. Fixed 2026-10-06.
 
-### QA-211 — import over an existing wallet (open)
-- **Steps:** Create → Back → *I already have a phrase* → a different phrase → Continue.
-- **Expect (desired):** a confirmed "replace the wallet on this server?" that retries with `force`. **Today:** a 409 error with no way forward.
-- **Origin:** review U1. Open.
+### QA-211 — import over an existing wallet
+- **Surfaces:** wizard (automated); HTTP (QA-119/120)
+- **Steps:** on a configured server, *Re-run setup* → *I already have a phrase* → a different phrase → Continue.
+- **Expect:** a card "a different wallet is already stored" with *Replace it with this phrase* and *Keep the existing wallet*; nothing is replaced until the first is pressed (the server sees `force: false` then `force: true`); *Keep* returns to the editable boxes; *Replace* lands on "Your wallet is ready" with the new address.
+- **How:** `e2e/import.e2e.ts` · Guard: `store.test.ts "QA-211"`
+- **Origin:** review U1 — a 409 with no way forward. Fixed 2026-10-06.
 
-### QA-212 — typing the token in Settings must not reset an un-backed-up phrase (open)
-- **Steps:** on the Phrase step, open Settings, type one character into the token field.
-- **Expect (desired):** nothing changes until the field is committed. **Today:** every keystroke re-bootstraps and clears the phrase.
-- **Origin:** review U1. Open.
+### QA-212 — typing the token in Settings must not reset an un-backed-up phrase
+- **Surfaces:** wizard (automated, component test)
+- **Steps:** on the Phrase step, open Settings, type several characters into the token field, then leave the field.
+- **Expect:** no `/status` request and no change to the phrase while typing; the value is applied on blur or Enter. A re-bootstrap that fails against the same base URL (a wrong token) keeps the wizard; only a change of base resets it.
+- **How:** Guard: `App.test.ts "QA-212"`, `store.test.ts "QA-212"`
+- **Origin:** review U1 — `bind:value` re-ran bootstrap per keystroke and reset the wizard. Fixed 2026-10-06.
 
-### QA-213 — the sign step shows what was signed (open)
-- **Expect (desired):** after signing, the exact message and the signing address are shown together and a "sign a different message" reset exists. **Today:** the textarea is disabled and the message is never echoed.
-- **Origin:** review U2. Open.
+### QA-213 — the sign step shows what was signed
+- **Surfaces:** wizard (automated)
+- **Expect:** after signing, "You signed exactly this text" shows the verbatim message and the signing address next to the signature; *Sign a different message* clears the signature and the textarea and re-enables signing without "Re-run setup"; re-signing the same text yields the same signature.
+- **How:** `e2e/create.e2e.ts` · Guard: `store.test.ts "QA-213"`
+- **Origin:** review U2. Fixed 2026-10-06.
 
 ## MCP proxy
 

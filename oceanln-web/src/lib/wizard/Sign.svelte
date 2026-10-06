@@ -4,7 +4,7 @@
   import Callout from "../ui/Callout.svelte";
   import Button from "../ui/Button.svelte";
   import CopyField from "../ui/CopyField.svelte";
-  import { app, guided, canSign, signForOcean } from "../store.svelte";
+  import { app, guided, canSign, signForOcean, resetSignature } from "../store.svelte";
 
   // The Sign button is gated on the pasted message embedding the offer.
   const offerMissing = $derived(app.oceanMessage.trim().length > 0 && !app.oceanMessage.includes(app.offer));
@@ -74,6 +74,19 @@
       <Callout kind="ok" icon="check">
         {#snippet children()}<b>Signed.</b> Paste this signature back into OCEAN — it'll check it against your payout address.{/snippet}
       </Callout>
+      <!-- What a BIP-322 signature actually commits to: this exact text, by the
+           key behind this address. Shown verbatim so the user can see there is
+           nothing hidden in what they are about to hand to OCEAN (QA-213). -->
+      <p class="wz-section-label">You signed exactly this text</p>
+      <pre
+        data-testid="signed-message"
+        style="margin:0 0 8px;padding:10px 12px;border:1px solid rgba(255,255,255,0.08);border-radius:8px;background:rgba(0,0,0,0.25);font-family:var(--font-mono);font-size:12px;line-height:1.5;white-space:pre-wrap;word-break:break-all"
+      >{app.message}</pre>
+      <p style="font-size:12px;color:#a1a1aa;margin:0 0 16px;line-height:1.6">
+        with the key behind <code data-testid="signed-address">{app.miningAddress}</code>. OCEAN checks the
+        signature below against that address and this exact text — nothing else is signed, and the
+        signature cannot move funds.
+      </p>
       <CopyField label="Your signature" chip="BIP-322" value={app.signature}>
         {#snippet tip()}
           <Tooltip enabled={guided()}>
@@ -84,6 +97,9 @@
           </Tooltip>
         {/snippet}
       </CopyField>
+      <div class="wz-verify-row">
+        <Button variant="ghost" icon="refresh" onclick={resetSignature}>{#snippet children()}Sign a different message{/snippet}</Button>
+      </div>
     </div>
   {/if}
 </div>

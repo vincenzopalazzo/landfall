@@ -5,13 +5,6 @@
 // renders the actual endpoint URL from `app.base`, this object holds only
 // the human-facing tool list + capability copy.
 
-export const WORD_POOL = [
-  "anchor", "tide", "copper", "signal", "forest", "cabin", "jacket", "puzzle",
-  "meadow", "walnut", "rocket", "candle", "pigeon", "saddle", "quartz", "echo",
-  "marble", "ginger", "pottery", "silver", "tunnel", "cobalt", "beacon", "lantern",
-  "harvest", "drift", "ember", "glacier", "thistle", "cargo", "ladder", "orbit",
-];
-
 export const OFFER_SUGGESTIONS = [
   "OCEAN mining payouts",
   "Rig 01 · Lightning rewards",

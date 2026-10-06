@@ -62,7 +62,7 @@ describe("App (UI)", () => {
     routeFetch({ "/generate": () => new Response(JSON.stringify({ error: "seed exists" }), { status: 409 }) });
     render(App);
     await fireEvent.click(screen.getByText("Create a new wallet"));
-    expect(await screen.findByText("Use existing wallet")).toBeInTheDocument();
+    expect(await screen.findByText(/I already backed it up/)).toBeInTheDocument();
   });
 
   it("does not loop /generate on a 409 (regression: request-storm guard)", async () => {
@@ -75,10 +75,43 @@ describe("App (UI)", () => {
     });
     render(App);
     await fireEvent.click(screen.getByText("Create a new wallet"));
-    await screen.findByText("Use existing wallet");
+    await screen.findByText(/I already backed it up/);
     // Let any stray effect re-runs flush; the guard must keep this at exactly one call.
     await new Promise((r) => setTimeout(r, 60));
     expect(genCalls).toBe(1);
+  });
+
+  it("QA-212: typing in Settings neither re-bootstraps per keystroke nor wipes the phrase", async () => {
+    render(App);
+    await fireEvent.click(screen.getByText("Create a new wallet"));
+    await screen.findByText("ocean");
+    const statusCalls = () =>
+      (globalThis.fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls.filter((c) =>
+        String(c[0]).endsWith("/status"),
+      ).length;
+    const before = statusCalls();
+    await fireEvent.click(screen.getByLabelText("settings"));
+    const tokenInput = screen.getByPlaceholderText("bearer token") as HTMLInputElement;
+    await fireEvent.input(tokenInput, { target: { value: "t" } });
+    await fireEvent.input(tokenInput, { target: { value: "to" } });
+    await fireEvent.input(tokenInput, { target: { value: "tok2" } });
+    expect(S.app.token).toBe("tok"); // not committed yet
+    expect(statusCalls()).toBe(before); // no re-bootstrap per keystroke
+    expect(screen.getByText("ocean")).toBeInTheDocument(); // phrase intact
+    await fireEvent.change(tokenInput, { target: { value: "tok2" } }); // blur / Enter
+    expect(S.app.token).toBe("tok2");
+  });
+
+  it("QA-203: the backup check is typed, not multiple choice", async () => {
+    render(App);
+    await fireEvent.click(screen.getByText("Create a new wallet"));
+    await screen.findByText("ocean");
+    await fireEvent.click(screen.getByText(/Tap to reveal/i));
+    await fireEvent.click(await screen.findByRole("checkbox"));
+    await fireEvent.click(screen.getByRole("button", { name: /continue/i }));
+    expect(await screen.findByText("Confirm your backup")).toBeInTheDocument();
+    expect(screen.getAllByRole("textbox")).toHaveLength(3);
+    expect(screen.queryByText(/not the right word/)).not.toBeInTheDocument();
   });
 
   it("import flow renders 24 word inputs", async () => {
