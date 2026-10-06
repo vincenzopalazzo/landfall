@@ -93,6 +93,61 @@ flowchart LR
 Each of these is a scenario in [`docs/QA-SCENARIOS.md`](docs/QA-SCENARIOS.md),
 driven end to end in CI by [`scripts/qa`](scripts/qa/README.md).
 
+## How the onboarding works
+
+Six steps, one phrase, no jargon until the very end. These are the real wizard
+screens, captured by [`scripts/screenshots.sh`](scripts/screenshots.sh) against
+`landfall-httpd --mock-wallet` (Lexe stubbed, seed derivation and BIP-322 real),
+so the words, the address and the signature are genuine output of the code in
+this repository. Regenerate them after a UI change with the same script.
+
+**1. Welcome.** Create a new wallet, or import a phrase you already have.
+
+![Welcome: create a new wallet or import one](docs/screenshots/01-welcome.png)
+
+**2. Recovery phrase.** The 24 words are generated locally and shown blurred
+until you tap to reveal them, so a glance at the screen gives nothing away.
+
+![The phrase is hidden until you tap to reveal it](docs/screenshots/02-phrase-hidden.png)
+
+Reveal them, write them down, and tick the box that says you did.
+
+![The 24 words revealed, with the backup checkbox](docs/screenshots/03-phrase-revealed.png)
+
+**3. Confirm backup.** Three words at random positions, typed from what you
+wrote down and judged together when you press Continue (QA-203): nothing on
+the screen tells you which word is wrong.
+
+![Three words at random positions confirm the backup](docs/screenshots/04-confirm.png)
+
+**4. Create wallet.** The same phrase becomes the root seed of your Lexe node
+and the BIP-84 key of your payout address: the BOLT12 offer and the `bc1q…`
+address appear side by side, derived from one backup.
+
+![The wallet is ready: a BOLT12 offer and a payout address from one phrase](docs/screenshots/05-wallet-ready.png)
+
+**5. Sign for OCEAN.** Give OCEAN the address and the offer, paste the
+verification message it hands back, and sign.
+
+![Give OCEAN the address and the offer, then paste its verification message](docs/screenshots/06-sign-empty.png)
+
+The wizard shows the exact text that was signed and the address it was signed
+with, and lets you sign again if OCEAN issues a new message (QA-213).
+
+![The signed message, the signing address and the BIP-322 signature](docs/screenshots/07-signed.png)
+
+**6. Turn on payouts.** Three values to paste into your payout settings on
+ocean.xyz. Nothing is sent from the wizard; the hand-off happens on OCEAN's
+site.
+
+![Address, offer and signature ready to paste into ocean.xyz](docs/screenshots/08-handoff.png)
+
+![Setup complete: rewards go to the Lightning wallet from the next payout](docs/screenshots/09-done.png)
+
+Closing the tab halfway through is not a problem: the wizard resumes from the
+stored phrase instead of starting over (QA-210), and replacing a stored wallet
+is always an explicit choice (QA-211).
+
 ## Quick start
 
 | you want | use | start with |
