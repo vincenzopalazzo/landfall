@@ -32,6 +32,12 @@ on:
 permissions:
   contents: write
 
+# A new push to a pull request cancels its superseded run; runs on main and
+# tag builds always finish.
+concurrency:
+  group: desktop-linux-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   build:
     # 22.04 keeps the AppImage's glibc floor low so it runs on more distros.
