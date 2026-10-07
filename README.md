@@ -629,3 +629,11 @@ the release binary has no `--mock-wallet` flag.
 ## License
 
 AGPL-3.0-or-later. See [LICENSE](LICENSE) for the full text.
+
+The web wizard and the desktop app ship the Inter and Geist Mono fonts, which
+are under the SIL Open Font License 1.1: see
+[`OFL-Inter.txt`](landfall-web/public/fonts/OFL-Inter.txt) and
+[`OFL-GeistMono.txt`](landfall-web/public/fonts/OFL-GeistMono.txt). Dependencies
+are under their own licences.
+
+To report a security problem, see [SECURITY.md](SECURITY.md).
