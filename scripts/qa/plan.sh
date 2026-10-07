@@ -40,7 +40,7 @@ for f in $files; do
     landfall-mcp/*) mcp=1 ;;
     src-tauri/*) tauri=1 ;;
     scripts/qa/*|docs/QA-SCENARIOS.md) cli=1; httpd=1; web=1 ;;
-    README.md|docs/*|landfall-docs/*) docs=1 ;;
+    README.md|docs/*) docs=1 ;;
   esac
 done
 
