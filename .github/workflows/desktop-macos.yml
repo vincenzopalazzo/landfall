@@ -35,6 +35,12 @@ on:
 permissions:
   contents: write
 
+# A new push to a pull request cancels its superseded run; runs on main and
+# tag builds always finish.
+concurrency:
+  group: desktop-macos-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   build:
     # Apple-Silicon runner; cross-compiles the x86_64 slice for the universal

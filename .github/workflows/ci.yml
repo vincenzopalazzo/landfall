@@ -1,14 +1,45 @@
 name: CI
 on:
   push:
+    branches: [main]
   pull_request:
+
+permissions:
+  contents: read
+
+# A new push to a pull request cancels its superseded run; runs on main and
+# tag builds always finish.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: -D warnings
 
 jobs:
+  # Documentation-only changes (Markdown, docs/, LICENSE) skip the job
+  # below. A skipped job reports success, so it still satisfies a required
+  # status check. On a pull request the merge commit is compared with its
+  # first parent (the base), i.e. the whole PR; on main, the push range.
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.diff.outputs.code }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect code changes
+        id: diff
+        env:
+          BASE: ${{ github.event_name == 'pull_request' && 'HEAD^1' || github.event.before }}
+        run: echo "code=$(scripts/ci/code-changed.sh "$BASE" HEAD)" >> "$GITHUB_OUTPUT"
+
   check:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
