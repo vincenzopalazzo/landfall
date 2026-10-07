@@ -1,5 +1,7 @@
 # Landfall
 
+![Landfall: OCEAN payouts over Lightning, from one recovery phrase](docs/landfall-banner.png)
+
 Get your OCEAN mining rewards over Lightning, into a wallet you own, from a
 single recovery phrase.
 
