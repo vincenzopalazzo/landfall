@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.3.1",
   "type": "module",
-  "description": "OCEAN Lightning onboarding wizard \u2014 Svelte frontend for landfall-httpd",
+  "description": "Landfall onboarding wizard \u2014 Svelte frontend for landfall-httpd",
   "scripts": {
     "dev": "vite",
     "build": "svelte-check --tsconfig ./tsconfig.json && vite build",

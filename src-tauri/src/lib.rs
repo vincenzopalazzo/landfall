@@ -1,4 +1,4 @@
-//! OCEAN Lightning desktop shell (Tauri v2).
+//! Landfall desktop shell (Tauri v2).
 //!
 //! The webview runs the existing `landfall-web` wizard, but instead of talking to
 //! a loopback `landfall-httpd` server it reaches these `#[tauri::command]`s over

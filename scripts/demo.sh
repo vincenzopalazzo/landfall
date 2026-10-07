@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# End-to-end demo of the OCEAN Lightning core, fully offline (no Lexe node).
+# End-to-end demo of the Landfall core, fully offline (no Lexe node).
 #
 # Drives the real landfall-httpd server over loopback to show the production code
 # path the web wizard and the Tauri desktop shell both use: a fresh wallet, the

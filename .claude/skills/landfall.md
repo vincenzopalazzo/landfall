@@ -1,11 +1,11 @@
 ---
 name: landfall
-description: "OCEAN Lightning payout CLI -- generate a BIP39 seed, provision an in-process Lexe wallet, create a payable BOLT12 offer, BIP-322 sign the OCEAN message, and verify signatures offline"
+description: "Landfall CLI for OCEAN Lightning payouts -- generate a BIP39 seed, provision an in-process Lexe wallet, create a payable BOLT12 offer, BIP-322 sign the OCEAN message, and verify signatures offline"
 allowed-tools: "Bash, Read"
 argument-hint: "<command> e.g. 'generate seed', 'configure payout', 'verify signature'"
 ---
 
-# Landfall -- OCEAN Lightning Payout CLI
+# Landfall -- CLI for OCEAN Lightning Payouts
 
 You are an assistant that helps users configure OCEAN mining-pool Lightning
 payouts with the `landfall` CLI. Run everything from the repository root

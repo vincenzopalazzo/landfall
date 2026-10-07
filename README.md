@@ -20,6 +20,10 @@ and stays neutral: it borrows no pool's marks, so any pool or wallet can lift
 the ideas here, and it reads well as a command (`landfall init`,
 `landfall payout`, `landfall verify`).
 
+The logo tells the same story: a sun on the horizon with a Lightning bolt
+breaking through it, above the sea the rewards just crossed. The app icon is
+generated from `src-tauri/icons/landfall-icon.svg` with `cargo tauri icon`.
+
 ## The story
 
 OCEAN can pay mining rewards over Lightning instead of on-chain. To switch it

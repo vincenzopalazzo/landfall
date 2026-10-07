@@ -1,6 +1,6 @@
 [package]
 name = "landfall-common"
-description = "OCEAN Lightning payout — shared core: BIP-322 signing, Lexe wallet/client, seed sources"
+description = "Landfall — shared core for OCEAN Lightning payouts: BIP-322 signing, Lexe wallet/client, seed sources"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
