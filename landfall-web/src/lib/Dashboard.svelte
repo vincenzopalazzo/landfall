@@ -17,15 +17,17 @@
   // AI access. (PR B Dockerfile bundles both for hosted deploys.)
   const showMcp = !isTauri();
   const mcpClientUrl = MCP.clientUrl;
+  const HTTPD_TOKEN_PLACEHOLDER = "<httpd-token>";
   const mcpRunCmd = $derived(
     MCP.runCmd
       .replace("{httpdBase}", app.base.replace(/\/$/, ""))
       // Include `--httpd-token` only when httpd is in authed mode (we
       // see a bearer in `app.token`). Without the flag, `landfall-mcp`
       // proxies every tool unauthed, so anything except get_health
-      // would 401 against an authed httpd. The Codex review on PR E
-      // caught this: copy-paste must produce a working setup.
-      .replace("{authFlag}", app.token ? ` --httpd-token ${app.token}` : ""),
+      // would 401 against an authed httpd. The value is a placeholder:
+      // the bearer unlocks /seed/reveal and /pay, so it must not land in
+      // the DOM, the clipboard or the user's shell history.
+      .replace("{authFlag}", app.token ? ` --httpd-token ${HTTPD_TOKEN_PLACEHOLDER}` : ""),
   );
 
   // Tauri build: health is in-process (always reachable). Browser build:
@@ -128,6 +130,12 @@
               <Icon name={copiedRun ? "check" : "copy"} size={13} />{copiedRun ? "Copied" : "Copy"}
             </button>
           </div>
+          {#if app.token}
+            <p class="db-mcp-intro">
+              Replace <code>{HTTPD_TOKEN_PLACEHOLDER}</code> with the bearer token
+              <code>landfall-httpd</code> printed when it started.
+            </p>
+          {/if}
 
           <p class="db-cap-h">Step 2 — add this URL to your MCP client</p>
           <div class="db-code">

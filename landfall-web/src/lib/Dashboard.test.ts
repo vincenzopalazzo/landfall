@@ -149,6 +149,14 @@ describe("Lightning dashboard — Node wallet", () => {
     expect(screen.getByText("lno1testoffer")).toBeInTheDocument();
   });
 
+  it("never renders the httpd bearer token in the MCP run command", async () => {
+    S.app.token = "secret-bearer-do-not-show";
+    const { container } = render(Dashboard);
+    expect(await screen.findByText("AI access · MCP")).toBeInTheDocument();
+    expect(container.textContent).not.toContain("secret-bearer-do-not-show");
+    expect(container.textContent).toContain("--httpd-token <httpd-token>");
+  });
+
   it("reads 'Node unreachable' when the backend health probe is down", async () => {
     globalThis.fetch = vi.fn(async (url: string | URL | Request) => {
       const u = String(url);
