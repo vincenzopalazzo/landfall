@@ -48,9 +48,13 @@ names a different offer, and the signature is rejected after all that work.
 Landfall collapses all of it into the one thing a miner has to keep safe: a
 24-word recovery phrase.
 
-- The **payout address** is derived from the phrase (BIP-84,
+- The **payout address** is derived from the phrase on your machine (BIP-84,
   `m/84'/0'/0'/0/0`), so the key that signs is provably the key that owns the
-  address.
+  address. Landfall derives it locally because OCEAN needs a BIP-322
+  signature from that key, and the Lexe SDK cannot sign a message. It is also
+  the first receive address of your Lexe wallet's on-chain side: one phrase,
+  one wallet. (A phrase from a Lexe wallet created before Lexe node v0.9.1 is
+  the exception: Lexe used an older derivation for those on-chain wallets.)
 - The same phrase is the root seed of a [Lexe](https://lexe.app) Lightning
   node, which creates a **payable** BOLT12 offer. The node runs in a secure
   enclave and the miner keeps the keys.
@@ -64,14 +68,27 @@ repository is published: a worked example of hiding a signing standard behind a
 flow a miner can finish in a few minutes.
 
 ```mermaid
-flowchart LR
-  P["24-word recovery phrase"] --> A["payout address<br/>bc1q… (BIP-84)"]
-  P --> N["Lexe Lightning node"] --> O["BOLT12 offer<br/>lno1…"]
-  A --> R["register on ocean.xyz"]
+flowchart TD
+  P["24-word recovery phrase"]
+
+  subgraph device["derived on your machine"]
+    K["BIP-84 key<br/>m/84'/0'/0'/0/0"] --> A["payout address<br/>bc1q…"]
+  end
+
+  subgraph lexe["your Lexe wallet, same phrase"]
+    N["Lightning node"] --> O["BOLT12 offer<br/>lno1…"]
+    W["on-chain wallet<br/>first address = payout address"]
+  end
+
+  P --> K
+  P --> N
+  P --> W
+  A --> R["register address and offer on ocean.xyz"]
   O --> R
   R --> M["OCEAN's verification message"]
-  M --> S["BIP-322 signature<br/>by the address's key"]
-  S --> V["OCEAN verifies it<br/>and pays over Lightning"]
+  M --> S["BIP-322 signature,<br/>made on your machine"]
+  K -. "signs with" .-> S
+  S --> V["OCEAN verifies it<br/>and pays the offer over Lightning"]
 ```
 
 ### What the signature proves, and what it does not
