@@ -11,7 +11,7 @@ use std::path::PathBuf;
 #[command(
     name = "landfall",
     version,
-    about = "OCEAN Lightning payout CLI — create a Lexe wallet + BOLT12 offer and BIP-322 sign for OCEAN",
+    about = "Landfall: Lightning payouts for OCEAN miners — create a Lexe wallet + BOLT12 offer and BIP-322 sign for OCEAN",
     after_help = AFTER_HELP,
 )]
 pub struct Cli {

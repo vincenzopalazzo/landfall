@@ -1,6 +1,6 @@
 [package]
 name = "landfall-httpd"
-description = "OCEAN Lightning payout — local loopback HTTP server for web/desktop frontends"
+description = "Landfall — local loopback HTTP server for web/desktop frontends"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

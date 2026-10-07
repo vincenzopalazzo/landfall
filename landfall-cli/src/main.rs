@@ -1,4 +1,4 @@
-//! landfall — OCEAN Lightning payout CLI.
+//! landfall — CLI for OCEAN Lightning payouts.
 
 mod cli;
 

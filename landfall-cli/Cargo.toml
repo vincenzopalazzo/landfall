@@ -1,6 +1,6 @@
 [package]
 name = "landfall-cli"
-description = "OCEAN Lightning payout CLI — BIP-322 message signing + Lexe wallet/sidecar client"
+description = "Landfall CLI for OCEAN Lightning payouts — BIP-322 message signing + Lexe wallet/sidecar client"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

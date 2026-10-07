@@ -78,7 +78,7 @@
     {#if app.surface === "profile" || app.surface === "dashboard"}
       <div style="flex:1;display:flex;flex-direction:column;min-width:0">
         <div class="app-nav">
-          <div class="brand"><img src="/assets/OCEAN-logo-white.svg" alt="OCEAN" /></div>
+          <div class="brand"><img src="/assets/landfall-mark.svg" alt="" /><span class="name">Landfall</span></div>
           <button class="pill {app.surface === 'profile' ? 'active' : ''}" onclick={() => go("profile")}><Icon name="key" size={14} /> Profile</button>
           <button class="pill {app.surface === 'dashboard' ? 'active' : ''}" onclick={() => go("dashboard")}><Icon name="bolt" size={14} /> Lightning</button>
           <span class="spacer"></span>
@@ -89,7 +89,7 @@
     {:else}
       <!-- rail -->
       <div class="wz-rail">
-        <div class="wz-rail-brand"><img src="/assets/OCEAN-logo-white.svg" alt="OCEAN" /><span class="tag">Lightning</span></div>
+        <div class="wz-rail-brand"><img src="/assets/landfall-mark.svg" alt="" /><span class="name">Landfall</span></div>
         {#each STEPS as s, i}
           {@const st = stepState(i)}
           <div

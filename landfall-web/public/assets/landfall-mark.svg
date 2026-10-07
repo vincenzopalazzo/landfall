@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="10 22 80 68">
+  <title>Landfall</title>
+  <defs><mask id="lf-bolt" maskUnits="userSpaceOnUse"><rect width="100" height="100" fill="#fff"/><path d="M58 27 L37 51 H49.5 L43.5 65 L64 41 H52 Z" fill="#000"/></mask></defs>
+  <path d="M17 54 A33 33 0 0 1 83 54 Z" fill="#F7931A" mask="url(#lf-bolt)"/>
+  <path d="M14 69 q9 -6.5 18 0 t18 0 t18 0 t18 0" fill="none" stroke="#F4F4F5" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M29 83 q7 -5.5 14 0 t14 0 t14 0" fill="none" stroke="#F4F4F5" stroke-opacity=".45" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

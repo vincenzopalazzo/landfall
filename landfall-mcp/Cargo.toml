@@ -1,6 +1,6 @@
 [package]
 name = "landfall-mcp"
-description = "OCEAN Lightning — read-only MCP proxy in front of landfall-httpd"
+description = "Landfall — read-only MCP proxy in front of landfall-httpd"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
