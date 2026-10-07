@@ -1,0 +1,62 @@
+name: Audit
+
+# Known-vulnerability check for every lockfile the project ships: the root
+# Rust workspace, the Tauri desktop workspace (src-tauri/, its own
+# Cargo.lock) and the web wizard (npm). Runs on lockfile changes, on main,
+# and weekly so a new advisory against an unchanged lockfile still surfaces.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - "**/Cargo.toml"
+      - "**/Cargo.lock"
+      - "landfall-web/package.json"
+      - "landfall-web/package-lock.json"
+      - ".github/workflows/audit.yml"
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  cargo:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+
+      # Unmaintained/unsound crates are warnings (reported, not fatal);
+      # a vulnerability advisory fails the job.
+      - name: Audit root workspace
+        run: cargo audit
+
+      - name: Audit desktop workspace (src-tauri)
+        working-directory: src-tauri
+        run: cargo audit
+
+  npm:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: landfall-web
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Audit web wizard (all dependencies)
+        run: npm audit --audit-level=low
