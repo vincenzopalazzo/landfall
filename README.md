@@ -4,7 +4,9 @@ Get your OCEAN mining rewards over Lightning, into a wallet you own, from a
 single recovery phrase.
 
 > **Landfall is a showcase, not a production wallet.** It exists to show
-> wallet developers that the OCEAN Lightning setup can be simple. Use it to
+> wallet developers that the OCEAN Lightning setup can be simple. It runs on
+> Bitcoin **mainnet** only, and it keeps your recovery phrase in a
+> **plaintext** file (owner-only, `0600`) on the machine that runs it. Use it to
 > receive your OCEAN payouts and spend them. Do **not** park a large balance in
 > it, and do **not** restore the recovery phrase of a wallet you care about
 > into it: a showcase gets no security audit, no release schedule and no
@@ -78,8 +80,8 @@ flowchart LR
 - It does not move funds, reveal the key, or authorize anything else. It cannot
   be reused for another offer, because the offer is inside the signed text.
 - That is why Landfall refuses to sign for an address the key does not control,
-  refuses an offer that is missing from the message, and shows the signed text
-  before you hand it over.
+  refuses an offer that is missing from the message (`payout --offer`), and
+  shows the signed text before you hand it over.
 
 ### The UX choices this repository demonstrates
 
@@ -160,6 +162,11 @@ is always an explicit choice (QA-211).
 | a desktop app | the Tauri shell | `cargo tauri dev` (see [Desktop app](#desktop-app-src-tauri)) |
 | scripts or an AI agent | the `landfall` CLI | `landfall init --generate`, `landfall offer`, `landfall payout --offer … --message …`, `landfall verify …` |
 
+Each of these creates a real Lexe wallet on Bitcoin mainnet as soon as you
+create or import a phrase. `scripts/dev.sh` keeps that wallet's phrase in
+`./.dev/seed`; the CLI in `~/.config/landfall/seed`; the desktop app in its
+app-data folder (see [Desktop app](#desktop-app-src-tauri)).
+
 The rest of this README is the reference for each piece.
 
 ## Upgrading from oceanln
@@ -231,89 +238,14 @@ landfall generate
 Generates a fresh 24-word BIP39 mnemonic (256 bits of entropy from the OS
 CSPRNG) and prints it **once**. This single seed does double duty:
 
-- feed it to `landfall payout` to derive your mining address and sign, and
-- feed it to the Lexe sidecar as its root seed
-  (`LEXE_ROOT_SEED_PATH=<file with these words> lexe-sidecar`), so the same
-  wallet runs your Lightning node.
+- it is the root seed of your Lexe wallet (`landfall init` provisions it; an
+  external sidecar takes it as `LEXE_ROOT_SEED_PATH=<file with these words>
+  lexe-sidecar`), and
+- `landfall payout` derives your mining address from it and signs with it.
 
 The mnemonic goes to **stdout**; the warning and usage hint go to stderr, so
 `landfall generate --json` / piping yields a clean `{"mnemonic": "..."}` (or the
 bare words). It is never written to disk — write it down yourself.
-
-### Configure an OCEAN payout (end-to-end)
-
-```sh
-landfall payout \
-  --message "Configure OCEAN payout to lno1... at block 840000" \
-  --description "my pool payout" \
-  --min-amount 1000
-```
-
-One command does the whole setup. It resolves your seed (see
-[Seed resolution](#seed-resolution) — a persisted seed file, a pipe, or an
-interactive hidden prompt), then:
-
-1. derives your BIP84 mining address (`m/84'/0'/0'/0/0`) — the address you
-   register with OCEAN, provably controlled by the same seed it signs with;
-2. asks the **node** to create a payable BOLT12 offer with your `--description`
-   (via the sidecar's `POST /v2/node/create_offer`), so the offer has real
-   blinded paths back to your node and can actually receive rewards;
-3. BIP-322 signs the OCEAN `--message` **verbatim** with the derived key;
-4. prints the address, the offer, and the base64 signature (add `--json` for a
-   machine-readable object).
-
-Order matters: the offer is created before signing, so if the sidecar is down
-the flow aborts without using your mnemonic on a message you couldn't submit.
-
-> The offer must come from a running node — a BOLT12 offer built offline from a
-> key is structurally valid but **unpayable** (no node answers invoice requests
-> for it), so `payout` deliberately uses the node's `create_offer` instead.
-
-`--min-amount` is in satoshis; omit it for a variable-amount offer. `--path`
-overrides the default derivation path.
-
-#### Already have an offer? Sign for it directly (`--offer`)
-
-OCEAN's flow is offer-first: you give it an offer, it generates the message
-embedding that offer, then you sign. Pass `--offer <lno1...>` and `payout`
-**skips offer creation entirely** — no sidecar is contacted, it just derives
-the address and BIP-322 signs the message (fully offline):
-
-```sh
-landfall payout --offer lno1... --message "<exact OCEAN message>"
-```
-
-So the real OCEAN sequence is: create/register the offer (your node, the Lexe
-app, or a `payout` run without `--offer`), paste it into OCEAN to get the
-message, then sign that message here with `--offer`. `--offer` is mutually
-exclusive with `--description`/`--min-amount`.
-
-`payout` refuses to sign for an address the derived key does not control, so
-a wrong `--path` or seed surfaces as an error here rather than as "invalid
-signature" on the OCEAN side.
-
-### Verify a signature offline (`verify`)
-
-```sh
-landfall verify --address bc1q... --message "<exact OCEAN message>" --signature "<base64>"
-```
-
-The same check OCEAN runs on submission, with no seed and no network: exit
-status 0 if the base64 witness is a valid BIP-322 signature over the exact
-message by the key controlling the address, 1 otherwise (`--json` adds a
-`reason`). Run it on the three values `payout` printed before pasting them,
-or to check a signature produced by any other BIP-322 wallet.
-
-### List received payouts (`payouts`)
-
-```sh
-landfall payouts --limit 50 --json
-```
-
-Reads the wallet's inbound BOLT12 payments straight from the Lexe node and
-keeps the ones whose payer note matches OCEAN's per-block payout format,
-newest first. Same data the dashboard's payouts table and `GET /payouts`
-show.
 
 ### In-process Lexe wallet (no sidecar) — default
 
@@ -348,10 +280,9 @@ Full OCEAN flow, sidecar-free — `init` persists the seed, so the later steps
 read it automatically (no piping):
 
 ```sh
-# Create the wallet (seed persisted to ~/.config/landfall/seed) + print address.
-landfall init --generate --json > wallet.json
-# {"mnemonic": "...", "mining_address": "bc1q...", "provisioned": true, "seed_file": "/home/you/.config/landfall/seed"}
-python3 -c 'import sys,json;print("mining address:", json.load(sys.stdin)["mining_address"])' < wallet.json
+# Create the wallet: prints the phrase once (write it down), persists it to
+# ~/.config/landfall/seed (0600) and prints the mining address.
+landfall init --generate
 
 # Create the offer, then sign the OCEAN message for it — no seed piping needed.
 OFFER=$(landfall offer --json --description "OCEAN payout" \
@@ -359,6 +290,9 @@ OFFER=$(landfall offer --json --description "OCEAN payout" \
 # register the mining address + $OFFER on ocean.xyz -> copy the message it gives you
 landfall payout --offer "$OFFER" --message "<exact OCEAN message>"
 ```
+
+`init --json` includes the phrase in its output object when it generates one,
+so don't redirect that output into a file.
 
 `init` is headless (no app, no Google Drive) — it registers with Lexe's backend
 and provisions, exactly like `lexe init` (verified end-to-end on mainnet).
@@ -382,8 +316,84 @@ identical write is a no-op), and `--no-store` skips persistence entirely for a
 one-off provisioning.
 
 **Thin build:** `cargo build --no-default-features -p landfall-common -p
-landfall-cli` drops the SDK for a smaller dependency tree — only `generate` +
-`payout` (the sidecar client). See issue #3 for the migration notes.
+landfall-cli` drops the SDK for a smaller dependency tree — only `generate`,
+`payout` (through a sidecar) and `verify`.
+
+### Sign OCEAN's message for your offer (`payout --offer`)
+
+OCEAN's flow is offer-first: you give it your mining address and an offer, it
+generates a message that embeds that offer, and you sign the message. With
+`--offer`, `payout` does exactly that and nothing else: no sidecar or node is
+contacted, it derives the address and BIP-322 signs the message offline.
+
+```sh
+landfall payout --offer lno1... --message "<exact OCEAN message>"
+```
+
+It prints the address, the offer and the base64 signature (add `--json` for a
+machine-readable object). It refuses a message that does not contain
+`--offer` (a stale message or the wrong offer), and it refuses to sign for an
+address the derived key does not control, so a wrong `--path` or seed
+surfaces here rather than as "invalid signature" on the OCEAN side. `--path`
+overrides the default derivation path (`m/84'/0'/0'/0/0`).
+
+Create the offer with `landfall offer` (above), the Lexe app, or any BOLT12
+node; register it on ocean.xyz, then sign the message OCEAN gives you.
+`--offer` is mutually exclusive with `--description`/`--min-amount`.
+
+### Verify a signature offline (`verify`)
+
+```sh
+landfall verify --address bc1q... --message "<exact OCEAN message>" --signature "<base64>"
+```
+
+The same check OCEAN runs on submission, with no seed and no network: exit
+status 0 if the base64 witness is a valid BIP-322 signature over the exact
+message by the key controlling the address, 1 otherwise (`--json` adds a
+`reason`). Run it on the three values `payout` printed before pasting them,
+or to check a signature produced by any other BIP-322 wallet.
+
+### List received payouts (`payouts`)
+
+```sh
+landfall payouts --limit 50 --json
+```
+
+Reads the wallet's inbound BOLT12 payments straight from the Lexe node and
+keeps the ones whose payer note matches OCEAN's per-block payout format,
+newest first. Same data the dashboard's payouts table and `GET /payouts`
+show.
+
+### Create the offer through a Lexe sidecar (`payout` without `--offer`)
+
+Without `--offer`, `payout` asks a running [Lexe sidecar](#the-lexe-sidecar)
+(`127.0.0.1:5393` by default, `--url` to change it) to create a payable BOLT12
+offer, then signs `--message`. The default build does not start a sidecar,
+so without one this stops with "could not reach sidecar".
+
+```sh
+landfall payout \
+  --message "<message to sign>" \
+  --description "my pool payout" \
+  --min-amount 1000
+```
+
+Order matters: the offer is created first, and only then is your seed
+resolved (see [Seed resolution](#seed-resolution)), so a sidecar failure
+aborts before your mnemonic is touched. It then derives your BIP84 mining
+address, BIP-322 signs `--message` **verbatim**, and prints the address, the
+new offer and the signature.
+
+> The message you pass here cannot contain an offer that did not exist yet,
+> so OCEAN will not accept this signature for the new offer. Use this path to
+> create the offer, register it on ocean.xyz, then sign the message OCEAN gives
+> you with `payout --offer`.
+
+> The offer must come from a running node — a BOLT12 offer built offline from a
+> key is structurally valid but **unpayable** (no node answers invoice requests
+> for it), so `payout` deliberately uses the node's `create_offer` instead.
+
+`--min-amount` is in satoshis; omit it for a variable-amount offer.
 
 ## Local HTTP server (`landfall-httpd`)
 
@@ -516,8 +526,8 @@ need `landfall-httpd` to reach a Lexe node. `npm run build` emits static assets.
 
 `landfall-mcp` is a **read-only** Model Context Protocol server for AI clients.
 It is a separate process that proxies a handful of `GET` routes of a running
-`landfall-httpd` (status, payouts, node, activity, the OCEAN public-API
-routes) over Streamable HTTP, and nothing else: it has no code path that can
+`landfall-httpd` (health, status, payouts and the OCEAN public-API routes)
+over Streamable HTTP, and nothing else: it has no code path that can
 sign, spend, reveal or import a seed.
 
 ```sh
@@ -536,7 +546,10 @@ it only on a machine you trust, and keep the httpd token out of shell history
 v2 window. There is **no** HTTP server, loopback port, or bearer token in the
 desktop build: the webview reaches the Rust backend over **native IPC**
 (`#[tauri::command]` ↔ `invoke`), and the seed lives in the OS app-data dir
-(e.g. `~/Library/Application Support/xyz.landfall.desktop/seed`, `0600`). The
+as a `0600` file: `~/Library/Application Support/io.github.vincenzopalazzo.landfall/seed`
+on macOS, `~/.local/share/io.github.vincenzopalazzo.landfall/seed` on Linux. A
+wallet created before the rename stays under `xyz.oceanln.desktop/seed` in the
+same parent folder until one exists under the new identifier. The
 commands are thin adapters over `landfall_httpd::service`, so signing/seed logic
 is identical to the HTTP path. The web app picks the transport at runtime via
 `isTauri()`, so the same SPA runs in a browser or the shell unchanged.
