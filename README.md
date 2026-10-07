@@ -198,13 +198,13 @@ UI talks to.
 
 Two more frontends sit alongside the workspace: `landfall-web/` (the Svelte
 wizard) and `src-tauri/` (a Tauri desktop shell — its own workspace/Cargo.lock,
-excluded from the root so the core CI stays fast). `landfall-docs/` is the
-SvelteKit documentation site. An experimental native iOS/Android prototype
-over the same core lives on the `mobile-experimental` branch, out of `main`
-until it is production-hardened. The wizard and the desktop shell share one
-orchestration core: `landfall_common::service` holds the actual flow (resolve
-offer → load seed → derive → BIP-322 sign → provision), and the HTTP handlers
-and the desktop IPC commands are thin adapters over it.
+excluded from the root so the core CI stays fast). An experimental native
+iOS/Android prototype over the same core lives on the `mobile-experimental`
+branch, out of `main` until it is production-hardened. The wizard and the
+desktop shell share one orchestration core: `landfall_common::service`
+holds the actual flow (resolve offer → load seed → derive → BIP-322 sign →
+provision), and the HTTP handlers and the desktop IPC commands are thin
+adapters over it.
 
 ## Build
 
