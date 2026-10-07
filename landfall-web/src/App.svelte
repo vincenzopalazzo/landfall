@@ -36,20 +36,6 @@
     return () => document.removeEventListener("click", onClick);
   });
 
-  const ACCENTS = {
-    orange: { c: "#f7931a", dim: "rgba(247,147,26,0.10)", line: "rgba(247,147,26,0.28)" },
-    blue: { c: "#4D6BFF", dim: "rgba(77,107,255,0.12)", line: "rgba(77,107,255,0.32)" },
-  };
-
-  // Apply the accent globally whenever it changes.
-  $effect(() => {
-    const a = ACCENTS[app.accent];
-    const r = document.documentElement.style;
-    r.setProperty("--wiz-accent", a.c);
-    r.setProperty("--wiz-accent-dim", a.dim);
-    r.setProperty("--wiz-accent-line", a.line);
-  });
-
   // Health check on load + whenever the base URL changes.
   $effect(() => {
     void app.base;

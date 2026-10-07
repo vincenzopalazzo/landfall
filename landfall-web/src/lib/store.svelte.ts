@@ -38,7 +38,6 @@ export const app = $state({
 
   // tweaks
   density: "guided" as "guided" | "concise",
-  accent: "blue" as "orange" | "blue", // OCEAN blue is the fixed default
 
   // navigation
   surface: "wizard" as Surface,
@@ -314,7 +313,7 @@ export async function bootstrap() {
 // Inlined rather than delegating to `restart()` because `restart()`
 // unconditionally resets `app.mode` / `app.stepIndex`, which is too
 // aggressive for the in-app "wallet exists" recovery test paths.
-// Settings (base, token, accent, density) are NOT touched.
+// Settings (base, token, density) are NOT touched.
 function resetWalletIdentity(rewindWizard: boolean = false) {
   // Rewind the wizard back to Welcome ONLY when the caller asks
   // (re-bootstrap path). A prior bootstrap that landed on the no-offer
