@@ -1311,7 +1311,7 @@ dependencies = [
 
 [[package]]
 name = "landfall-cli"
-version = "0.3.0"
+version = "0.3.2"
 dependencies = [
  "assert_cmd",
  "clap",
@@ -1324,7 +1324,7 @@ dependencies = [
 
 [[package]]
 name = "landfall-common"
-version = "0.3.0"
+version = "0.3.2"
 dependencies = [
  "async-trait",
  "axum 0.7.9",
@@ -1346,7 +1346,7 @@ dependencies = [
 
 [[package]]
 name = "landfall-httpd"
-version = "0.3.0"
+version = "0.3.2"
 dependencies = [
  "async-trait",
  "axum 0.7.9",
@@ -1362,7 +1362,7 @@ dependencies = [
 
 [[package]]
 name = "landfall-mcp"
-version = "0.3.0"
+version = "0.3.2"
 dependencies = [
  "async-trait",
  "axum 0.7.9",

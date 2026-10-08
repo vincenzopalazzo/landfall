@@ -1,6 +1,6 @@
 [package]
 name = "landfall-desktop"
-version = "0.3.1"
+version = "0.3.2"
 description = "Landfall — Tauri desktop shell for the onboarding wizard"
 authors = ["Vincenzo Palazzo"]
 license = "AGPL-3.0-or-later"
