@@ -29,6 +29,37 @@ fn bin() -> Command {
     Command::cargo_bin("landfall").expect("binary `landfall` should build")
 }
 
+/// Golden vector: the signature `payout` must print for `TEST_MNEMONIC` over
+/// `payout_message()`. Signing is RFC6979-deterministic, so this is stable.
+/// Pinned byte-for-byte because the `bip322` 0.0.12 bump once changed the
+/// output to `smp<base64>` (the crate's own variant prefix) and OCEAN
+/// rejected every signature with "signature check failed" while our tests
+/// stayed green. The same vector is pinned in
+/// `landfall-common/tests/ocean_wire_format.rs` against a simulated OCEAN
+/// verifier; if both move, re-check against OCEAN before updating either.
+const GOLDEN_PAYOUT_SIGNATURE: &str = "AkgwRQIhAK2yBDMcJWwaQKhgSahJXnIhwLMqwnZtynGbWlBicYRyAiBji9sXlanDzE4GI05z6sx5SL2kARxu+J0aB6DX0glhLAEhA5NU2HFyEoSFuz7l3dKjX5f8dIOpaJqL+8FYBEofx8Sq";
+
+fn payout_message() -> String {
+    format!("Configure OCEAN payout to {MOCK_OFFER} at block 840000")
+}
+
+/// The wire format OCEAN pastes into its verifier: bare standard base64 of a
+/// two-item P2WPKH witness. Such a witness always encodes to `Ak…`; a crate
+/// variant prefix (`smp…`), a URL-safe alphabet, or missing padding would all
+/// be rejected by OCEAN, so they are rejected here.
+fn assert_bare_base64_witness(sig: &str) {
+    assert!(
+        sig.starts_with("Ak"),
+        "signature is not a bare base64 2-item witness (OCEAN would reject it): {sig}"
+    );
+    assert!(
+        sig.bytes()
+            .all(|c| c.is_ascii_alphanumeric() || c == b'+' || c == b'/' || c == b'='),
+        "non-standard base64 alphabet: {sig}"
+    );
+    assert_eq!(sig.len() % 4, 0, "unpadded base64: {sig}");
+}
+
 /// A localhost URL whose connect is refused deterministically. Port 1 (tcpmux)
 /// is never bound by a normal process, so this avoids the ephemeral-port-reuse
 /// race that a `bind(0)`-then-`drop` helper hits under parallel test runs.
@@ -365,10 +396,7 @@ fn payout_with_existing_offer_signs_offline() {
         .get("address")
         .and_then(|a| a.as_str())
         .is_some_and(|a| a.starts_with("bc1q")));
-    assert!(v
-        .get("signature")
-        .and_then(|s| s.as_str())
-        .is_some_and(|s| !s.is_empty()));
+    assert_bare_base64_witness(v["signature"].as_str().expect("signature string"));
 }
 
 /// `verify` is the offline counterpart of `payout`: the signature `payout`
@@ -466,6 +494,69 @@ fn verify_round_trips_payout_signature_and_rejects_tampering() {
         .code(1);
 }
 
+/// Regression for "signature check failed" on OCEAN: the signature `payout`
+/// prints is byte-for-byte the golden vector — the bare base64 witness, with
+/// no `smp` variant prefix from the `bip322` crate — in both the JSON and the
+/// human-readable output.
+#[test]
+fn payout_prints_the_bare_witness_ocean_accepts() {
+    let message = payout_message();
+    let args = |json: bool| {
+        let mut a = vec!["payout", "--url", REFUSED_URL];
+        if json {
+            a.push("--json");
+        }
+        a.extend(["--offer", MOCK_OFFER, "--message", &message]);
+        a.into_iter().map(String::from).collect::<Vec<_>>()
+    };
+
+    // JSON: the field is exactly the golden vector.
+    let out = bin()
+        .args(args(true))
+        .write_stdin(TEST_MNEMONIC)
+        .assert()
+        .success();
+    let v: serde_json::Value = serde_json::from_slice(&out.get_output().stdout).unwrap();
+    assert_eq!(v["address"], "bc1qpstw48j7j9gjugw25jmjvd96jlwgdnedk5pr6r");
+    assert_eq!(v["signature"], GOLDEN_PAYOUT_SIGNATURE);
+    assert_bare_base64_witness(GOLDEN_PAYOUT_SIGNATURE);
+
+    // Human output: the same string appears verbatim, and never with the
+    // crate's prefix glued on (what a user copies is what OCEAN gets).
+    bin()
+        .args(args(false))
+        .write_stdin(TEST_MNEMONIC)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(GOLDEN_PAYOUT_SIGNATURE))
+        .stdout(predicate::str::contains(format!("smp{GOLDEN_PAYOUT_SIGNATURE}")).not());
+}
+
+/// `verify` must accept exactly what OCEAN accepts (a bare witness pasted
+/// from any BIP-322 wallet), so it stays a faithful offline preview of
+/// OCEAN's check. Note it also tolerates the crate's `smp` prefix (the
+/// `bip322` verifier strips it), which is precisely why the bug hid behind
+/// green round-trip tests — hence the golden vector above, not `verify`,
+/// is what pins the wire format.
+#[test]
+fn verify_accepts_the_bare_golden_signature() {
+    let out = bin()
+        .args([
+            "verify",
+            "--json",
+            "--address",
+            "bc1qpstw48j7j9gjugw25jmjvd96jlwgdnedk5pr6r",
+            "--message",
+            &payout_message(),
+            "--signature",
+            GOLDEN_PAYOUT_SIGNATURE,
+        ])
+        .assert()
+        .success();
+    let v: serde_json::Value = serde_json::from_slice(&out.get_output().stdout).unwrap();
+    assert_eq!(v["valid"], true);
+}
+
 /// QA-011: a seed piped with one word per line (`cat seedfile | landfall …`)
 /// must be read whole, exactly like a seed file is — not just its first line.
 #[test]
@@ -524,10 +615,7 @@ fn payout_signs_ocean_json_message() {
         "the OCEAN JSON message must round-trip unchanged"
     );
     assert_eq!(v.get("offer").and_then(|o| o.as_str()), Some(OCEAN_OFFER));
-    assert!(v
-        .get("signature")
-        .and_then(|s| s.as_str())
-        .is_some_and(|s| !s.is_empty()));
+    assert_bare_base64_witness(v["signature"].as_str().expect("signature string"));
     assert!(v
         .get("address")
         .and_then(|a| a.as_str())
