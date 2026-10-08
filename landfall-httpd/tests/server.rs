@@ -274,7 +274,21 @@ async fn payout_with_offer_signs_offline_and_hides_seed() {
     assert_eq!(v["offer"], MOCK_OFFER);
     assert_eq!(v["message"], message);
     assert!(v["address"].as_str().unwrap().starts_with("bc1q"));
-    assert!(!v["signature"].as_str().unwrap().is_empty());
+    // The wire format OCEAN accepts: bare standard base64 of a 2-item P2WPKH
+    // witness (always `Ak…`). The `bip322` 0.0.12 bump once turned this into
+    // `smp…` and OCEAN rejected it with "signature check failed"; the web UI
+    // hands this exact string to the user to paste, so pin it at the route.
+    let sig = v["signature"].as_str().unwrap();
+    assert!(
+        sig.starts_with("Ak"),
+        "signature is not a bare base64 witness (OCEAN would reject it): {sig}"
+    );
+    assert!(
+        sig.bytes()
+            .all(|c| c.is_ascii_alphanumeric() || c == b'+' || c == b'/' || c == b'='),
+        "non-standard base64 alphabet: {sig}"
+    );
+    assert_eq!(sig.len() % 4, 0, "unpadded base64: {sig}");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
