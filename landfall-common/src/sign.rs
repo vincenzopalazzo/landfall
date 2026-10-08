@@ -5,7 +5,7 @@
 //! exactly what the OCEAN web interface expects.
 
 use crate::error::{Error, Result};
-use bip322::{sign_simple_encoded, verify_simple_encoded, Verification};
+use bip322::{sign_simple_encoded, verify_simple_encoded, Verification, SIMPLE_SIGNATURE_PREFIX};
 use bip39::Mnemonic;
 use bitcoin::bip32::{ChildNumber, DerivationPath, Xpriv};
 use bitcoin::secp256k1::Secp256k1;
@@ -457,8 +457,17 @@ pub fn sign_bip322(key: &PrivateKey, address: &str, message: &str) -> Result<Str
     // `WIF` is a base58check serialization of the secret key. Wrap in
     // `Zeroizing` so the heap bytes are wiped once signing returns.
     let wif: Zeroizing<String> = Zeroizing::new(key.to_wif());
-    sign_simple_encoded(address, message, &[wif.as_str()], None)
-        .map_err(|e| Error::SigningFailed(format!("{e:?}")))
+    let encoded = sign_simple_encoded(address, message, &[wif.as_str()], None)
+        .map_err(|e| Error::SigningFailed(format!("{e:?}")))?;
+    // Since 0.0.12 the `bip322` crate tags its output with a variant prefix
+    // (`smp` for simple mode). That prefix is the crate's own convention, not
+    // part of BIP-322: OCEAN, Bitcoin Core and every other verifier expect
+    // the bare base64 witness and reject `smp…` with "signature check
+    // failed". Strip it so the wire format stays what it was before the bump.
+    Ok(encoded
+        .strip_prefix(SIMPLE_SIGNATURE_PREFIX)
+        .map(str::to_owned)
+        .unwrap_or(encoded))
 }
 
 /// Verify a BIP-322 simple-mode signature for a P2WPKH mainnet address.
@@ -623,6 +632,67 @@ mod tests {
         let sig = sign_bip322(&key, CORE_ADDR, "Hello World").unwrap();
         verify_bip322(CORE_ADDR, "Hello World", &sig).unwrap();
         assert!(verify_bip322(CORE_ADDR, "Hello Mars", &sig).is_err());
+    }
+
+    /// The wire format OCEAN accepts is the bare base64 consensus encoding
+    /// of the witness, nothing else. `bip322` 0.0.12 started prefixing its
+    /// encoded output with `smp`, and shipping that verbatim made OCEAN
+    /// reject every Landfall signature with "signature check failed", while
+    /// our own `verify_bip322` (which tolerates the prefix) kept passing.
+    /// Pin the format independently of the crate: decode the string as
+    /// plain base64 and parse a two-item P2WPKH witness out of it.
+    #[test]
+    fn signature_is_bare_base64_witness_without_variant_prefix() {
+        use bitcoin::consensus::Decodable;
+
+        let key = PrivateKey::from_wif(CORE_WIF).unwrap();
+        let sig = sign_bip322(&key, CORE_ADDR, "Hello World").unwrap();
+
+        assert!(
+            !sig.starts_with(SIMPLE_SIGNATURE_PREFIX),
+            "signature carries the crate's `{SIMPLE_SIGNATURE_PREFIX}` prefix: {sig}"
+        );
+        // Same shape as the BIP-322 reference signature: a 2-item witness
+        // always encodes to a string starting with `Ak` (0x02 count byte).
+        assert!(sig.starts_with("Ak"), "unexpected encoding: {sig}");
+
+        // Decode the way a third-party verifier would: standard base64 →
+        // consensus witness, no prefix handling at all.
+        let bytes = base64_decode_standard(&sig).expect("plain base64");
+        let witness = bitcoin::Witness::consensus_decode(&mut bytes.as_slice())
+            .expect("consensus-encoded witness");
+        assert_eq!(witness.len(), 2, "P2WPKH witness is <sig> <pubkey>");
+        assert_eq!(
+            witness.last().unwrap(),
+            key.public_key(&Secp256k1::new()).to_bytes()
+        );
+    }
+
+    /// Minimal strict standard-base64 decoder so the test does not depend on
+    /// the same crate whose behaviour it pins.
+    fn base64_decode_standard(s: &str) -> Option<Vec<u8>> {
+        const ALPHABET: &[u8; 64] =
+            b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        let s = s.as_bytes();
+        if !s.len().is_multiple_of(4) {
+            return None;
+        }
+        let mut out = Vec::with_capacity(s.len() / 4 * 3);
+        for chunk in s.chunks(4) {
+            let mut acc: u32 = 0;
+            let mut pad = 0;
+            for &c in chunk {
+                acc <<= 6;
+                if c == b'=' {
+                    pad += 1;
+                } else {
+                    acc |= ALPHABET.iter().position(|&a| a == c)? as u32;
+                }
+            }
+            let bytes = acc.to_be_bytes();
+            out.extend_from_slice(&bytes[1..4 - pad]);
+        }
+        Some(out)
     }
 
     /// The key/address binding: signing for an address the key does not
