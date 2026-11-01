@@ -520,7 +520,7 @@
     </table>
   {:else if !loading && !payoutsError}
     <div class="db-panel-b" style="color:#71717a;font-size:13px">
-      No payouts yet. OCEAN pays your earnings over Lightning {PAYOUT_DELAY_BLOCKS} blocks after it finds a block.
+      No payouts yet. OCEAN pays what you earned from a block over Lightning, {PAYOUT_DELAY_BLOCKS} blocks after finding it.
     </div>
   {/if}
 </div>
