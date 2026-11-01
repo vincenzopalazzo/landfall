@@ -7,7 +7,8 @@
   // see ocean.ts) — no mock data.
   import Icon from "./ui/Icon.svelte";
   import { app } from "./store.svelte";
-  import { ocean, btcToSats, num, type Payout, type PoolStat } from "./ocean";
+  import { ocean, btcToSats, num, type Payout, type PoolBlock, type PoolStat } from "./ocean";
+  import { PAYOUT_DELAY_BLOCKS, payoutEta, poolBlockShare, tipHeight } from "./payoutEta";
   import type { OceanPayout } from "./api";
   import { client } from "./store.svelte";
 
@@ -42,6 +43,8 @@
   let lightningPayouts = $state<OceanPayout[]>([]);
   // pool context
   let pool = $state<PoolStat | null>(null);
+  // next Lightning payout, in network blocks from now (see payoutEta.ts)
+  let nextPayout = $state<{ median: number; p90: number; since: number; lastBlock: PoolBlock } | null>(null);
   let active = $state(false);
 
   // Derived totals (read-only views over the raw fields above).
@@ -79,6 +82,7 @@
     loading = true;
     netError = "";
     payoutsError = false;
+    loadNextPayout(myId);
     try {
       const [snaps, eps, hrs] = await Promise.all([
         Promise.allSettled(addrs.map((a) => ocean.statsnap(a))),
@@ -214,6 +218,24 @@
     }
   }
 
+  // The next-payout estimate is optional, so it loads beside `load()` rather
+  // than inside it: a slow input never holds the grid in "Loading", and any
+  // failure (an empty block list included) only hides the estimate.
+  async function loadNextPayout(myId: number) {
+    let next: typeof nextPayout = null;
+    try {
+      const [hr, recent, tip] = await Promise.all([ocean.poolHashrate(), ocean.blocks(), tipHeight()]);
+      const last = recent.blocks[0];
+      // mempool.space can trail OCEAN's newest block by a few seconds.
+      const since = Math.max(0, tip - last.height);
+      const eta = payoutEta(poolBlockShare(num(hr.pool_300s), num(last.network_difficulty)), since);
+      if (eta) next = { ...eta, since, lastBlock: last };
+    } catch {
+      /* no estimate */
+    }
+    if (myId === reqId) nextPayout = next;
+  }
+
   // Load on mount and whenever the address set changes.
   let lastKey = "";
   $effect(() => {
@@ -286,6 +308,13 @@
     if (d < 5400) return `${Math.round(d / 60)}m ago`;
     if (d < 129600) return `${Math.round(d / 3600)}h ago`;
     return `${Math.round(d / 86400)}d ago`;
+  }
+  // A wait in network blocks, at ~10 minutes each.
+  function fmtBlocks(blocks: number): string {
+    const min = blocks * 10;
+    if (min < 90) return `~${min} min`;
+    if (min < 2880) return `~${Math.round(min / 60)} h`;
+    return `~${Math.round(min / 1440)} days`;
   }
   // Merged payouts view: /v1/earnpay payouts (onchain) + scraped CSV
   // Lightning payouts, normalized to a single row shape so the panel can
@@ -440,6 +469,21 @@
   <span class="ss"><span class="ss-l">Last share</span><span class="ss-v">{relTime(lastShareTs)}</span></span>
 </div>
 
+{#if nextPayout}
+  <div class="wz-callout info">
+    <Icon name="bolt" size={17} />
+    <div class="ct">
+      <b>Next Lightning payout: usually within {fmtBlocks(nextPayout.median)}, 9 times in 10 within {fmtBlocks(nextPayout.p90)}.</b>
+      OCEAN's last block, #{nextPayout.lastBlock.height.toLocaleString("en-US")}, was {relTime(earnpayTs(nextPayout.lastBlock.ts) / 1000)}.
+      {#if nextPayout.since < PAYOUT_DELAY_BLOCKS}
+        The payout runs {PAYOUT_DELAY_BLOCKS} blocks after it ({nextPayout.since} so far), unless OCEAN finds another block first.
+      {:else}
+        Its payout has run; the next one runs {PAYOUT_DELAY_BLOCKS} blocks after OCEAN's next block.
+      {/if}
+    </div>
+  </div>
+{/if}
+
 <div class="db-panel">
   <div class="db-panel-h">
     <h3><Icon name="bolt" size={15} /> Recent payouts</h3>
@@ -476,7 +520,7 @@
     </table>
   {:else if !loading && !payoutsError}
     <div class="db-panel-b" style="color:#71717a;font-size:13px">
-      No payouts yet. OCEAN sends a Lightning payout once your unpaid balance clears the minimum threshold.
+      No payouts yet. OCEAN pays your earnings over Lightning {PAYOUT_DELAY_BLOCKS} blocks after it finds a block.
     </div>
   {/if}
 </div>
