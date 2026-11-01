@@ -24,8 +24,8 @@ export function poolBlockShare(poolHashrate: number, networkDifficulty: number):
  */
 export function payoutEta(share: number, sinceOceanBlock: number): { median: number; p90: number } | null {
   if (!(share > 0 && share < 1) || !Number.isInteger(sinceOceanBlock) || sinceOceanBlock < 0) return null;
-  // run[j]: chance the count stands at j. The rest of the unpaid chance waits
-  // for OCEAN's next block, which is where an already-run payout starts.
+  // run[j]: chance the count stands at j. Whatever is in neither `run` nor
+  // `paid` has no payout pending yet (the last one already ran).
   const run = new Array<number>(PAYOUT_DELAY_BLOCKS).fill(0);
   if (sinceOceanBlock < PAYOUT_DELAY_BLOCKS) run[sinceOceanBlock] = 1;
   let paid = 0;
