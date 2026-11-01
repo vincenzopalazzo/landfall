@@ -45,11 +45,11 @@ describe("Profile — stats + profile in one view", () => {
 describe("Profile — next Lightning payout estimate", () => {
   const TIP_URL = "https://mempool.space/api/blocks/tip/height";
   // OCEAN's pool hashrate and two recent blocks (newest first), plus the chain tip.
-  function mockPayoutInputs(tip: Response) {
+  function mockPayoutInputs(tip: () => Response) {
     const statsFetch = globalThis.fetch;
-    const f = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+    globalThis.fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
       const u = String(url);
-      if (u === TIP_URL) return tip;
+      if (u === TIP_URL) return tip();
       if (u.endsWith("/v1/pool_hashrate")) return res({ result: { snap_ts: 1, pool_60s: "0", pool_300s: "44800000000000000000" } });
       if (u.endsWith("/v1/blocks"))
         return res({
@@ -61,13 +61,11 @@ describe("Profile — next Lightning payout estimate", () => {
           },
         });
       return statsFetch(url as never, init as never);
-    });
-    globalThis.fetch = f as typeof fetch;
-    return f;
+    }) as typeof fetch;
   }
 
   it("counts the blocks since OCEAN's latest one and shows the expected wait", async () => {
-    mockPayoutInputs(new Response("974009"));
+    mockPayoutInputs(() => new Response("974009"));
     render(Profile);
     // 6 blocks into the 30-block count at OCEAN's ~4.2% share: median 43 blocks, 90% within 109.
     expect(
@@ -76,13 +74,16 @@ describe("Profile — next Lightning payout estimate", () => {
     expect(screen.getByText(/#974,003.*30 blocks after it \(6 so far\)/)).toBeInTheDocument();
   });
 
-  it("hides the estimate, without an error banner, when one input fails", async () => {
-    const f = mockPayoutInputs(new Response("unavailable", { status: 503 }));
+  it("hides the estimate, without an error banner, once an input starts failing", async () => {
+    let tipUp = true;
+    mockPayoutInputs(() => (tipUp ? new Response("974009") : new Response("unavailable", { status: 503 })));
     render(Profile);
-    expect(await screen.findByText("100,000")).toBeInTheDocument();
-    await waitFor(() => expect(f.mock.calls.map((c) => String(c[0]))).toContain(TIP_URL));
-    await new Promise((r) => setTimeout(r, 0)); // let the failed estimate settle
-    expect(screen.queryByText(/Next Lightning payout/)).not.toBeInTheDocument();
+    expect(await screen.findByText(/Next Lightning payout/)).toBeInTheDocument();
+    tipUp = false;
+    const refresh = screen.getByRole("button", { name: /Refresh/ });
+    await waitFor(() => expect(refresh).not.toBeDisabled());
+    await fireEvent.click(refresh);
+    await waitFor(() => expect(screen.queryByText(/Next Lightning payout/)).not.toBeInTheDocument());
     expect(screen.queryByText(/Couldn't load OCEAN data/)).not.toBeInTheDocument();
   });
 });
