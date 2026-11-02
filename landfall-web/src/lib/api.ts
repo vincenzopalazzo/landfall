@@ -118,6 +118,61 @@ export interface PaySummary {
   created_at_ms: number;
 }
 
+/// The configured DATUM Gateway. Mirrors `service::DatumSettingsResp`.
+/// `url: null` = none, and the DATUM tab stays hidden.
+export interface DatumSettings {
+  url: string | null;
+}
+
+/// Live snapshot of the user's DATUM Gateway. Wire-shape mirrors
+/// `landfall_common::datum::DatumOverview`; the Rust side translates the
+/// gateway's mixed camelCase/snake_case into snake_case.
+export interface DatumOverview {
+  /// The gateway this snapshot came from (normalized URL).
+  url: string;
+  stats: {
+    accepted_shares: number;
+    accepted_shares_diff: number;
+    rejected_shares: number;
+    rejected_shares_diff: number;
+    /// "Ready", "Not Ready", "Non-Pooled Mode and Ready", …
+    ready: string;
+    /// `host:port` of the DATUM pool, or "N/A" when not pooled.
+    pool_host: string;
+    pool_tag: string;
+    miner_tag: string;
+    pool_min_diff: number;
+    pool_pub_key: string;
+    /// Seconds since the gateway started.
+    uptime: number;
+  };
+  server: {
+    active_thread: number;
+    total_connections: number;
+    total_work_subscriptions: number;
+    /// TH/s.
+    estimated_hashrate: number;
+  };
+  /// `null` until the gateway has its first block template.
+  job: {
+    block_height: number;
+    /// Coinbase value (subsidy + fees), sats.
+    block_value: number;
+    previous_block: string;
+    block_difficulty: number;
+    limits: { size: number; weight: number; sigops: number };
+    size: number;
+    weight: number;
+    sigops: number;
+    tx_count: number;
+    time: { current: number; minimum: number };
+  } | null;
+  /// Current coinbase outputs, largest first.
+  coinbase: { address: string; sats: number }[];
+  /// Stratum threads with live connections, by id. Hashrate in TH/s.
+  threads: { id: number; connection_count: number; subscription_count: number; approx_hashrate: number }[];
+}
+
 /// The operations the wizard needs, independent of transport. The browser uses
 /// `LandfallClient` (HTTP → landfall-httpd); the Tauri desktop shell uses
 /// `TauriClient` (native IPC). `store.svelte.ts#client()` picks one at runtime.
@@ -143,6 +198,14 @@ export interface Backend {
   createInvoice(amountSats?: number, description?: string): Promise<string>;
   /// Send a payment to any payable string (Send flow). Moves real funds.
   pay(payable: string, amountSats?: number, note?: string): Promise<PaySummary>;
+  /// The configured DATUM Gateway URL, if any.
+  datumSettings(): Promise<DatumSettings>;
+  /// Set (or with `null` clear) the DATUM Gateway URL. The backend validates
+  /// and normalizes it; over HTTP this always needs the bearer token.
+  setDatumSettings(url: string | null): Promise<DatumSettings>;
+  /// Live snapshot of the configured gateway (fetched by the Rust side: the
+  /// gateway sends no CORS headers).
+  datumOverview(): Promise<DatumOverview>;
 }
 
 export class LandfallClient implements Backend {
@@ -252,5 +315,14 @@ export class LandfallClient implements Backend {
       amount_sats: amountSats,
       note: note || undefined,
     });
+  }
+  datumSettings(): Promise<DatumSettings> {
+    return this.get<DatumSettings>("/datum/settings");
+  }
+  setDatumSettings(url: string | null): Promise<DatumSettings> {
+    return this.post<DatumSettings>("/datum/settings", { url });
+  }
+  datumOverview(): Promise<DatumOverview> {
+    return this.get<DatumOverview>("/datum/overview");
   }
 }

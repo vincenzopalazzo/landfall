@@ -30,6 +30,9 @@ thiserror.workspace = true
 # means the trait macro expansion compiles even in thin-build configs
 # where the trait body itself is feature-gated out.
 async-trait.workspace = true
+# `tokio::try_join!` fetches the DATUM Gateway endpoints concurrently
+# (`datum::DatumClient::overview`).
+tokio.workspace = true
 lexe = { workspace = true, optional = true }
 lexe-api-core = { workspace = true, optional = true }
 lexe-common = { workspace = true, optional = true }

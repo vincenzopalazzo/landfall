@@ -81,4 +81,18 @@ describe("TauriClient (desktop IPC transport)", () => {
     await new TauriClient().pay("lnbc1dst", 9, "n");
     expect(invokeMock).toHaveBeenCalledWith("pay", { payable: "lnbc1dst", amountSats: 9, note: "n" });
   });
+
+  it("DATUM commands: datum_settings, set_datum_settings { url }, datum_overview", async () => {
+    invokeMock.mockResolvedValue({ url: "http://10.0.0.5:7152" });
+    const c = new TauriClient();
+    await c.datumSettings();
+    await c.setDatumSettings("10.0.0.5:7152");
+    await c.datumOverview();
+    expect(invokeMock.mock.calls.map((call) => call[0])).toEqual([
+      "datum_settings",
+      "set_datum_settings",
+      "datum_overview",
+    ]);
+    expect(invokeMock.mock.calls[1][1]).toEqual({ url: "10.0.0.5:7152" });
+  });
 });

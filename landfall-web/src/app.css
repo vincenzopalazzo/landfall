@@ -214,6 +214,7 @@ body{
 .db-chip.ok{color:#22c55e;background:rgba(34,197,94,0.10)}
 .db-chip.live{color:var(--wiz-accent);background:var(--wiz-accent-dim)}
 .db-chip.muted{color:#71717a;background:#18181c}
+.db-chip.warn{color:#FFB300;background:rgba(255,179,0,0.10)}
 .db-dot{width:7px;height:7px;border-radius:50%;background:currentColor}
 @media (prefers-reduced-motion: no-preference){.db-dot.pulse{animation:ocean-pulse 2s ease-in-out infinite}@keyframes ocean-pulse{0%,100%{opacity:1}50%{opacity:.35}}}
 /* Adaptive grid: cards reflow so the 7-card stat panel doesn't leave an
@@ -502,3 +503,11 @@ textarea.nw-input{min-height:82px;line-height:1.5}
 .tx-explorer{display:inline-flex;align-items:center;gap:7px;margin-top:16px;font-size:12px;color:var(--wiz-accent);text-decoration:none;font-weight:500}
 .tx-explorer:hover{filter:brightness(1.15)}
 .tx-explorer .ext{font-family:var(--font-mono)}
+
+/* DATUM tab (Datum.svelte): key/value panels on the dashboard language. */
+.dt-url{font-family:var(--font-mono);color:#a1a1aa;word-break:break-all}
+.dt-kv{display:grid;grid-template-columns:auto 1fr;gap:10px 18px;margin:0}
+.dt-kv dt{font-size:12px;color:#71717a}
+.dt-kv dd{margin:0;font-family:var(--font-mono);font-size:12.5px;color:#fafafa;text-align:right;word-break:break-all}
+.dt-empty{font-size:13px;color:#71717a;margin:0}
+table.db-table td.dt-addr{word-break:break-all}

@@ -7,11 +7,13 @@
 //! adapter over `landfall_httpd::service`, so the signing/seed security logic is
 //! the exact same audited code path the HTTP transport uses.
 
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use serde::Serialize;
 use tauri::Manager;
 
+use landfall_common::datum::{DatumClient, DatumOverview};
 use landfall_common::error::Error;
 use landfall_common::seed::SeedSource;
 use landfall_common::sign::DEFAULT_BIP32_PATH;
@@ -71,10 +73,15 @@ struct DesktopState {
     wallet: Arc<dyn WalletProvider>,
     sidecar_url: String,
     sidecar_credentials: Option<String>,
+    /// DATUM Gateway settings (its URL), in the app-data dir next to the seed.
+    datum_config: PathBuf,
+    datum: DatumClient,
 }
 
 #[tauri::command]
-fn wallet_status(state: tauri::State<'_, DesktopState>) -> Result<service::StatusResp, CommandError> {
+fn wallet_status(
+    state: tauri::State<'_, DesktopState>,
+) -> Result<service::StatusResp, CommandError> {
     service::status(&state.seed, &state.default_path).map_err(Into::into)
 }
 
@@ -214,6 +221,37 @@ async fn pay(
     .map_err(Into::into)
 }
 
+/// The configured DATUM Gateway URL, if any. The DATUM tab stays hidden
+/// until one is set.
+#[tauri::command]
+fn datum_settings(
+    state: tauri::State<'_, DesktopState>,
+) -> Result<service::DatumSettingsResp, CommandError> {
+    service::datum_settings(&state.datum_config).map_err(Into::into)
+}
+
+/// Set, or with `null` clear, the DATUM Gateway URL (validated and normalized
+/// by the service layer).
+#[tauri::command]
+fn set_datum_settings(
+    state: tauri::State<'_, DesktopState>,
+    url: Option<String>,
+) -> Result<service::DatumSettingsResp, CommandError> {
+    service::set_datum_settings(&state.datum_config, url.as_deref()).map_err(Into::into)
+}
+
+/// Live snapshot of the configured DATUM Gateway. The webview can't fetch the
+/// gateway itself (no CORS headers, and the CSP allows no such host), so the
+/// request is made here.
+#[tauri::command]
+async fn datum_overview(
+    state: tauri::State<'_, DesktopState>,
+) -> Result<DatumOverview, CommandError> {
+    service::datum_overview(&state.datum_config, &state.datum)
+        .await
+        .map_err(Into::into)
+}
+
 /// Open an external URL in the user's default browser.
 ///
 /// The desktop webview can't follow external links itself: WKWebView (macOS)
@@ -280,12 +318,15 @@ pub fn run() {
                 .map(|p| p.join(LEGACY_IDENTIFIER))
                 .unwrap_or_else(|| dir.clone());
             let seed_path = landfall_common::sign::seed_path_preferring_existing(&dir, &legacy_dir);
+            let datum_config = dir.join("datum.json");
             app.manage(DesktopState {
                 seed: SeedSource::File(seed_path),
                 default_path: DEFAULT_BIP32_PATH.to_string(),
                 wallet: Arc::new(LexeWalletProvider),
                 sidecar_url: landfall_common::client::DEFAULT_BASE_URL.to_string(),
                 sidecar_credentials: None,
+                datum_config,
+                datum: DatumClient::default(),
             });
             Ok(())
         })
@@ -302,6 +343,9 @@ pub fn run() {
             list_payments,
             create_invoice,
             pay,
+            datum_settings,
+            set_datum_settings,
+            datum_overview,
             open_external,
         ])
         .run(tauri::generate_context!())

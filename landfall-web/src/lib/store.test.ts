@@ -372,3 +372,59 @@ describe("rename to Landfall: pre-rename browser state still counts", () => {
     expect(app.submitted).toBe(true);
   });
 });
+
+describe("DATUM Gateway settings", () => {
+  beforeEach(() => {
+    app.base = "http://x";
+    app.token = "tok";
+    app.datumUrl = "";
+  });
+
+  it("loads the saved URL, and reads a failed load as 'no gateway'", async () => {
+    routeFetch({ "/settings": () => json({ url: "http://192.168.1.10:7152" }) });
+    await S.refreshDatumSettings();
+    expect(app.datumUrl).toBe("http://192.168.1.10:7152");
+
+    routeFetch({ "/settings": () => new Response('{"error":"missing or invalid bearer token"}', { status: 401 }) });
+    await S.refreshDatumSettings();
+    expect(app.datumUrl).toBe("");
+  });
+
+  it("keeps the backend's normalized URL after a save", async () => {
+    routeFetch({ "/settings": () => json({ url: "http://umbrel.local:7152" }) });
+    await S.saveDatumUrl("umbrel.local:7152/");
+    expect(app.datumUrl).toBe("http://umbrel.local:7152");
+  });
+
+  it("a refused URL throws and leaves the saved one in place", async () => {
+    app.datumUrl = "http://10.0.0.5:7152";
+    routeFetch({
+      "/settings": () => new Response('{"error":"invalid DATUM Gateway URL: ftp://x"}', { status: 400 }),
+    });
+    await expect(S.saveDatumUrl("ftp://x")).rejects.toMatchObject({ status: 400 });
+    expect(app.datumUrl).toBe("http://10.0.0.5:7152");
+  });
+
+  it("a stale read landing after a save can't undo it", async () => {
+    let releaseRead!: (r: Response) => void;
+    globalThis.fetch = vi.fn((_url: string | URL | Request, init?: RequestInit) =>
+      init?.method === "POST"
+        ? Promise.resolve(json({ url: "http://10.0.0.5:7152" }))
+        : new Promise<Response>((resolve) => (releaseRead = resolve)),
+    ) as typeof fetch;
+    const read = S.refreshDatumSettings(); // in flight
+    await S.saveDatumUrl("10.0.0.5:7152");
+    releaseRead(json({ url: null })); // the old answer arrives late
+    await read;
+    expect(app.datumUrl).toBe("http://10.0.0.5:7152");
+  });
+
+  it("removing the gateway while on its tab goes back to the Lightning dashboard", async () => {
+    app.datumUrl = "http://10.0.0.5:7152";
+    app.surface = "datum";
+    routeFetch({ "/settings": () => json({ url: null }) });
+    await S.saveDatumUrl(null);
+    expect(app.datumUrl).toBe("");
+    expect(app.surface).toBe("dashboard");
+  });
+});

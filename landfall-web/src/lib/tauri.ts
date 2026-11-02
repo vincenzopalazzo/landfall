@@ -7,6 +7,8 @@ import {
   ApiError,
   type Activity,
   type Backend,
+  type DatumOverview,
+  type DatumSettings,
   type GenerateResp,
   type ImportResp,
   type NodeStatus,
@@ -118,5 +120,14 @@ export class TauriClient implements Backend {
       amountSats: amountSats ?? null,
       note: note ?? null,
     });
+  }
+  datumSettings(): Promise<DatumSettings> {
+    return call<DatumSettings>("datum_settings");
+  }
+  setDatumSettings(url: string | null): Promise<DatumSettings> {
+    return call<DatumSettings>("set_datum_settings", { url });
+  }
+  datumOverview(): Promise<DatumOverview> {
+    return call<DatumOverview>("datum_overview");
   }
 }

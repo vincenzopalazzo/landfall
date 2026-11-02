@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# httpd-smoke.sh — registry scenarios QA-101…QA-121 against the compiled
+# httpd-smoke.sh — registry scenarios QA-101…QA-128 against the compiled
 # `landfall-httpd` binary over real HTTP (curl), offline. Needs the binary
 # built with `--features qa-mock` for the wallet-touching scenarios
 # (QA-111); without it those are SKIPped, everything else still runs.
@@ -28,7 +28,7 @@ trap cleanup EXIT INT TERM
 start_httpd() { # <name> <seed-path> <extra args...> → prints base URL
   local name="$1" seed="$2"; shift 2
   local port; port="$(qa_free_port)"
-  "$HTTPD" --bind "127.0.0.1:$port" --seed-file "$seed" --allow-origin "$ORIGIN" "${MOCK[@]}" "$@" >"$W/$name.log" 2>&1 &
+  "$HTTPD" --bind "127.0.0.1:$port" --seed-file "$seed" --datum-config "$W/$name-datum.json" --allow-origin "$ORIGIN" "${MOCK[@]}" "$@" >"$W/$name.log" 2>&1 &
   PIDS+=($!)
   qa_wait_http "http://127.0.0.1:$port/health" >&2
   echo "http://127.0.0.1:$port"
@@ -98,16 +98,27 @@ req POST "$BASE/import" "{\"mnemonic\":\"$QA_TEST_MNEMONIC\",\"force\":true}" "$
 qa_check QA-120 "/import with force replaces the wallet; /status shows the imported address" bash -c '
   [[ "$1" == 200 && "$(qa_json mining_address <<<"$2")" == "$3" ]] && [[ "$(curl -sS "$4/status" -H "Authorization: Bearer $5" | python3 -c "import sys,json;print(json.load(sys.stdin)[\"mining_address\"])")" == "$3" ]]' _ "$CODE" "$body" "$QA_TEST_ADDRESS" "$BASE" "$TOKEN"
 
+# ── DATUM Gateway proxy ──
+req POST "$BASE/datum/settings" '{"url":"http://127.0.0.1:1"}' ; qa_check QA-125 "POST /datum/settings without a token is 401" test "$CODE" = 401
+req POST "$BASE/datum/settings" '{"url":"file:///etc/passwd"}' "${auth[@]}" ; qa_check QA-126 "a non-http(s) DATUM Gateway URL is refused with 400" test "$CODE" = 400
+DOWN_PORT="$(qa_free_port)" # nothing listens here
+req POST "$BASE/datum/settings" "{\"url\":\" 127.0.0.1:$DOWN_PORT/ \"}" "${auth[@]}"; body="$BODY"
+qa_check QA-127 "the DATUM Gateway URL is stored normalized, in a 0600 file" bash -c '
+  [[ "$1" == 200 && "$(qa_json url <<<"$2")" == "http://127.0.0.1:$3" ]] && [[ "$(stat -c %a "$4" 2>/dev/null || stat -f %Lp "$4")" == 600 ]]' _ "$CODE" "$body" "$DOWN_PORT" "$W/token-datum.json"
+req GET "$BASE/datum/overview" "" "${auth[@]}"; body="$BODY"
+qa_check QA-128 "/datum/overview of a gateway that isn't listening is 502 naming api.listen_port" bash -c '[[ "$1" == 502 ]] && grep -q "api.listen_port" <<<"$2"' _ "$CODE" "$body"
+
 # ════════════════════ --no-auth mode ════════════════════
 echo "$QA_TEST_MNEMONIC" >"$W/na-seed"; chmod 600 "$W/na-seed"
 NA="$(start_httpd no-auth "$W/na-seed" --no-auth)"
 req GET "$NA/status" "" ; qa_check QA-121 "--no-auth: GET /status answers 200 without a token" test "$CODE" = 200
 fails=""
-for route in /generate /import /payout /offer /init /invoice /pay /seed/reveal; do
+for route in /generate /import /payout /offer /init /invoice /pay /seed/reveal /datum/settings; do
   case $route in
     /import) b="{\"mnemonic\":\"$QA_OTHER_MNEMONIC\",\"force\":true}" ;;
     /payout) b="{\"message\":\"Configure OCEAN payout to $QA_MOCK_OFFER\",\"offer\":\"$QA_MOCK_OFFER\"}" ;;
     /pay) b='{"payable":"lnbc1x"}' ;;
+    /datum/settings) b='{"url":"http://127.0.0.1:1"}' ;;
     *) b='{}' ;;
   esac
   req POST "$NA$route" "$b"
