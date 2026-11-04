@@ -1,0 +1,16 @@
+# Read by `cargo audit` from the directory it is run in (see the Audit workflow:
+# the repo root, then src-tauri/). src-tauri/.cargo/audit.toml is a symlink to
+# this file so the two workspaces share one config.
+
+[advisories]
+ignore = [
+    # RUSTSEC-2025-0134: rustls-pemfile is unmaintained, with no patched
+    # release. The maintained replacement is rustls-pki-types' PemObject API
+    # (rustls-pemfile 2.2 is a thin wrapper over that code). Landfall does not
+    # depend on rustls-pemfile and has no PEM call site to migrate. The only
+    # lockfile edge is lexe-api 0.1.25 -> axum-server ^0.7 (resolved 0.7.3,
+    # feature tls-rustls-no-provider), which parses certificates inside that
+    # crate. axum-server 0.8.0 switched to rustls-pki-types, but 0.8 is outside
+    # lexe-api's ^0.7 requirement, so `cargo update` cannot select it.
+    "RUSTSEC-2025-0134",
+]
