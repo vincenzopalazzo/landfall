@@ -72,6 +72,21 @@ export interface PoolStat {
   current_estimated_block_reward: string; // BTC
 }
 
+// Pool-wide hashrate and the pool's recent blocks. Neither is in OCEAN's
+// public docs; they feed the next-payout estimate, so callers treat a failure
+// as "no estimate" rather than an error.
+export interface PoolHashrate {
+  snap_ts: number;
+  pool_60s: string; // hashes/sec
+  pool_300s: string; // hashes/sec
+}
+export interface PoolBlock {
+  height: number;
+  ts: string; // ISO-8601 UTC without a timezone marker
+  block_hash: string;
+  network_difficulty: number;
+}
+
 async function get<T>(path: string): Promise<T> {
   const resp = await fetch(`${BASE}${path}`);
   const body = await resp.json().catch(() => ({}));
@@ -92,6 +107,8 @@ export const ocean = {
   earnpay: (address: string) => get<EarnPay>(`/earnpay/${encodeURIComponent(address)}`),
   userHashrate: (address: string) => get<UserHashrate>(`/user_hashrate/${encodeURIComponent(address)}`),
   poolStat: () => get<PoolStat>(`/pool_stat`),
+  poolHashrate: () => get<PoolHashrate>(`/pool_hashrate`),
+  blocks: () => get<{ blocks: PoolBlock[] }>(`/blocks`), // newest first
 };
 
 // ── helpers ──
