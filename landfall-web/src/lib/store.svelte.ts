@@ -2,7 +2,7 @@ import { LandfallClient, ApiError, type Backend } from "./api";
 import { TauriClient, isTauri } from "./tauri";
 import { DEFAULT_BASE, DEFAULT_TOKEN } from "./config";
 
-export type Surface = "wizard" | "profile" | "dashboard";
+export type Surface = "wizard" | "profile" | "dashboard" | "datum";
 export type Mode = "create" | "import";
 
 export const STEPS = [
@@ -38,6 +38,9 @@ export const app = $state({
 
   // tweaks
   density: "guided" as "guided" | "concise",
+
+  // DATUM Gateway URL saved on the backend ("" = none: the DATUM tab is hidden)
+  datumUrl: "",
 
   // navigation
   surface: "wizard" as Surface,
@@ -327,7 +330,7 @@ function resetWalletIdentity(rewindWizard: boolean = false) {
     app.stepIndex = 0;
     app.mode = "create";
   }
-  if (app.surface === "profile" || app.surface === "dashboard") {
+  if (app.surface === "profile" || app.surface === "dashboard" || app.surface === "datum") {
     // Profile derefs `app.profile!.addresses`; clearing identity
     // while still mounted crashes mid-render.
     app.surface = "wizard";
@@ -547,6 +550,38 @@ export function seedProfile() {
     ],
   };
 }
+// ── DATUM Gateway ──
+// The URL lives on the backend (next to the seed), not in the browser, so the
+// browser and desktop builds agree and the httpd proxy only ever contacts the
+// stored host. `datumReqId` drops a stale read that lands after a newer
+// read or a save (Settings changed mid-flight), like `bootstrapReqId`.
+let datumReqId = 0;
+
+function applyDatumUrl(url: string | null | undefined) {
+  app.datumUrl = url ?? "";
+  // The tab is gone: don't leave the user on it.
+  if (!app.datumUrl && app.surface === "datum") go("dashboard");
+}
+
+export async function refreshDatumSettings() {
+  const myId = ++datumReqId;
+  let url: string | null = null;
+  try {
+    url = (await client().datumSettings()).url;
+  } catch {
+    /* unreachable / no token / older backend → no gateway, tab hidden */
+  }
+  if (myId === datumReqId) applyDatumUrl(url);
+}
+
+/// Save (or with `null` remove) the gateway URL. Throws the backend's
+/// `ApiError` (400 for a URL it refuses) so Settings can show it.
+export async function saveDatumUrl(url: string | null) {
+  const myId = ++datumReqId;
+  const saved = await client().setDatumSettings(url);
+  if (myId === datumReqId) applyDatumUrl(saved.url);
+}
+
 export function go(s: Surface) {
   if (s === "profile") seedProfile();
   app.surface = s;

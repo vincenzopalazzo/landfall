@@ -67,6 +67,11 @@ struct Cli {
     #[arg(long)]
     sidecar_credentials: Option<String>,
 
+    /// File holding the DATUM Gateway settings (its URL), written `0600` by
+    /// `POST /datum/settings`. Defaults to `datum.json` next to `--seed-file`.
+    #[arg(long)]
+    datum_config: Option<PathBuf>,
+
     /// QA ONLY (feature `qa-mock`): replace the Lexe wallet with an in-memory
     /// stub so `/init`, `/offer`, `/node`, … answer without a node. Seed
     /// handling and BIP-322 signing stay real. Absent from release builds.
@@ -139,6 +144,10 @@ async fn main() {
         eprintln!("allowed origins: {}", cli.allow_origin.join(", "));
     }
 
+    let datum_config = cli
+        .datum_config
+        .unwrap_or_else(|| cli.seed_file.with_file_name("datum.json"));
+
     let wallet: Arc<dyn landfall_httpd::WalletProvider> = {
         #[cfg(feature = "qa-mock")]
         if cli.mock_wallet {
@@ -161,6 +170,7 @@ async fn main() {
             sidecar_url: cli.sidecar_url,
             sidecar_credentials: cli.sidecar_credentials,
             default_path: cli.path,
+            datum_config,
         },
         wallet,
     ));

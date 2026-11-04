@@ -7,9 +7,11 @@
 //!   without it ever crossing a transport boundary,
 //! - [`client`] — the Lexe sidecar HTTP client,
 //! - [`lexe_wallet`] — in-process Lexe wallet ops (feature `lexe-sdk`),
+//! - [`datum`] — read-only client for the miner's own DATUM Gateway,
 //! - [`error`] — the shared error/result types.
 
 pub mod client;
+pub mod datum;
 pub mod error;
 #[cfg(feature = "lexe-sdk")]
 pub mod lexe_wallet;
