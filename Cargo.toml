@@ -15,6 +15,7 @@ repository = "https://github.com/vincenzopalazzo/landfall"
 rust-version = "1.90"
 
 # Single source of truth for third-party versions across the workspace.
+# rmcp >= 3.9.0 clears RUSTSEC-2026-0462 (streamable HTTP body buffering).
 [workspace.dependencies]
 clap = { version = "4.5", features = ["derive"] }
 tokio = { version = "1.40", features = ["macros", "rt-multi-thread"] }
@@ -44,10 +45,10 @@ async-trait = "0.1"
 # MCP server (landfall-mcp). `transport-streamable-http-server` ships
 # `rmcp::transport::streamable_http_server::StreamableHttpService`, which
 # impls `tower::Service` and mounts into axum via `Router::route_service`.
-rmcp = { version = "1.7", features = ["server", "macros", "schemars", "transport-streamable-http-server"] }
+rmcp = { version = "3.9", features = ["server", "macros", "schemars", "transport-streamable-http-server"] }
 # The MCP `#[tool]` macro emits `schemars`-derived JSON schemas for every
 # tool's argument struct. Pin alongside rmcp to keep schema generation in
-# sync. v1 is the version rmcp 1.7's `schemars` feature pulls in.
+# sync with the version rmcp's `schemars` feature pulls in.
 schemars = "1"
 # Dev/test only.
 assert_cmd = "2.0"
