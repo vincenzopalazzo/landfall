@@ -38,7 +38,7 @@ use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::handler::server::ServerHandler;
 use rmcp::model::{
-    CallToolResult, Content, ErrorData, Implementation, ServerCapabilities, ServerInfo,
+    CallToolResult, ContentBlock, ErrorData, Implementation, ServerCapabilities, ServerConfig,
 };
 use rmcp::{tool, tool_handler, tool_router};
 use schemars::JsonSchema;
@@ -367,35 +367,28 @@ impl OceanMcpService {
             .health()
             .await
             .map_err(|e| internal(format!("health: {e}")))?;
-        Ok(CallToolResult::success(vec![Content::text(resp)]))
+        Ok(CallToolResult::success(vec![ContentBlock::text(resp)]))
     }
 }
 
 #[tool_handler(router = self.tool_router)]
 impl ServerHandler for OceanMcpService {
-    fn get_info(&self) -> ServerInfo {
-        // `ServerInfo` and `Implementation` are both `#[non_exhaustive]`,
-        // so struct-expression syntax is rejected. Mutate the default in
-        // place, overriding the fields that matter: tools capability +
-        // a clear server identity for MCP clients to render.
-        let mut info = ServerInfo::default();
-        let mut me = Implementation::default();
-        me.name = env!("CARGO_PKG_NAME").to_string();
-        me.version = env!("CARGO_PKG_VERSION").to_string();
-        info.server_info = me;
-        info.capabilities = ServerCapabilities::builder().enable_tools().build();
-        info.instructions = Some(
-            "Read-only MCP proxy for OCEAN Lightning payouts. Every tool \
-             is a thin wrapper over a REST endpoint on landfall-httpd; the \
-             server itself touches no keys and signs nothing. Use \
-             get_health first to confirm both this server AND the \
-             upstream landfall-httpd are reachable, then get_status to \
-             see the configured mining address, then any of the \
-             get_ocean_* tools for public OCEAN data, or list_payouts \
-             for confirmed Lightning payouts."
-                .to_string(),
-        );
-        info
+    fn get_info(&self) -> ServerConfig {
+        ServerConfig::new(ServerCapabilities::builder().enable_tools().build())
+            .with_server_info(Implementation::new(
+                env!("CARGO_PKG_NAME"),
+                env!("CARGO_PKG_VERSION"),
+            ))
+            .with_instructions(
+                "Read-only MCP proxy for OCEAN Lightning payouts. Every tool \
+                 is a thin wrapper over a REST endpoint on landfall-httpd; the \
+                 server itself touches no keys and signs nothing. Use \
+                 get_health first to confirm both this server AND the \
+                 upstream landfall-httpd are reachable, then get_status to \
+                 see the configured mining address, then any of the \
+                 get_ocean_* tools for public OCEAN data, or list_payouts \
+                 for confirmed Lightning payouts.",
+            )
     }
 }
 
@@ -404,7 +397,7 @@ impl ServerHandler for OceanMcpService {
 fn json_result<T: Serialize>(value: &T) -> std::result::Result<CallToolResult, ErrorData> {
     let json =
         serde_json::to_string_pretty(value).map_err(|e| internal(format!("serialize: {e}")))?;
-    Ok(CallToolResult::success(vec![Content::text(json)]))
+    Ok(CallToolResult::success(vec![ContentBlock::text(json)]))
 }
 
 fn internal(message: String) -> ErrorData {
