@@ -121,3 +121,75 @@ describe("App (UI)", () => {
     expect(inputs).toHaveLength(24);
   });
 });
+
+describe("QA-214: the DATUM tab is hidden until a gateway is saved", () => {
+  // A configured wallet (lands on Profile) and a backend that stores the
+  // DATUM URL. Normalization is the backend's job; mimic it for the UI.
+  let saved: string | null;
+  beforeEach(() => {
+    saved = null;
+    S.app.datumUrl = "";
+    globalThis.fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      const u = String(url);
+      if (u.endsWith("/health")) return new Response("{}", { status: 200 });
+      if (u.endsWith("/status")) return json({ configured: true, mining_address: ADDR, offer: "lno1x" });
+      if (u.endsWith("/datum/settings")) {
+        if (init?.method === "POST") {
+          const raw = JSON.parse(init.body as string).url as string | null;
+          saved = raw ? `http://${raw.replace(/^https?:\/\//, "").replace(/\/$/, "")}` : null;
+        }
+        return json({ url: saved });
+      }
+      if (u.endsWith("/datum/overview")) {
+        return new Response(JSON.stringify({ error: "DATUM Gateway: could not reach the gateway" }), { status: 502 });
+      }
+      return new Response("not found", { status: 404 });
+    }) as typeof fetch;
+  });
+
+  const pill = () => screen.queryByRole("button", { name: "DATUM" });
+
+  it("no pill without a gateway; Save in Settings adds it, and it opens the tab", async () => {
+    render(App);
+    await screen.findByRole("button", { name: "Lightning" });
+    expect(pill()).toBeNull();
+
+    await fireEvent.click(screen.getByLabelText("settings"));
+    await fireEvent.input(screen.getByLabelText("DATUM Gateway URL"), { target: { value: "192.168.1.10:7152/" } });
+    await fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    const p = await screen.findByRole("button", { name: "DATUM" });
+    expect(S.app.datumUrl).toBe("http://192.168.1.10:7152");
+    await fireEvent.click(p);
+    expect(await screen.findByRole("heading", { level: 1, name: "DATUM Gateway" })).toBeInTheDocument();
+    expect(await screen.findByText("Unreachable")).toBeInTheDocument();
+  });
+
+  it("Enter in an empty field doesn't clear the saved gateway", async () => {
+    saved = "http://10.0.0.5:7152";
+    render(App);
+    await screen.findByRole("button", { name: "DATUM" });
+    await fireEvent.click(screen.getByLabelText("settings"));
+    const input = screen.getByLabelText("DATUM Gateway URL");
+    await fireEvent.input(input, { target: { value: "  " } });
+    await fireEvent.keyDown(input, { key: "Enter" });
+    const posts = (globalThis.fetch as unknown as { mock: { calls: [string, RequestInit?][] } }).mock.calls.filter(
+      ([u, init]) => String(u).endsWith("/datum/settings") && init?.method === "POST",
+    );
+    expect(posts).toHaveLength(0);
+    expect(S.app.datumUrl).toBe("http://10.0.0.5:7152");
+  });
+
+  it("a gateway saved earlier shows the pill on launch; Remove takes it away", async () => {
+    saved = "http://10.0.0.5:7152";
+    render(App);
+    await fireEvent.click(await screen.findByRole("button", { name: "DATUM" }));
+    await screen.findByRole("heading", { level: 1, name: "DATUM Gateway" });
+
+    await fireEvent.click(screen.getByLabelText("settings"));
+    await fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+
+    expect(await screen.findByText("Lightning payouts")).toBeInTheDocument();
+    expect(pill()).toBeNull();
+  });
+});

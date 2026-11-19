@@ -472,14 +472,32 @@ Endpoints (all JSON; all but `/health` need the bearer token):
 | `GET /ocean/earnpay/:address` | — | OCEAN public API proxy: earnings + on-chain payouts |
 | `GET /ocean/user_hashrate/:address` | — | OCEAN public API proxy: hashrate |
 | `GET /ocean/pool_stat` | — | OCEAN public API proxy: pool-wide stats |
+| `GET /datum/settings` | — | `{url}`: the DATUM Gateway URL, or `null` |
+| `POST /datum/settings` | `{url}` (`null` clears) | `{url}`, validated and normalized |
+| `GET /datum/overview` | — | live snapshot of that gateway (see below) |
 
 **`--no-auth` mode** (loopback single-host deploys) skips the bearer check
-for the read-only routes only: `/status`, `/payouts`, `/node`, `/activity`
-and `/ocean/*`. Every route that touches the seed, the signing key or wallet
-state (`/generate`, `/import`, `/payout`, `/offer`, `/init`, `/invoice`,
-`/pay`, `/seed/reveal`) always requires a token and answers `403` without
-one, so no unauthenticated local process can replace the wallet, mint a
-BIP-322 authorization, or spend.
+for the read-only routes only: `/status`, `/payouts`, `/node`, `/activity`,
+`/ocean/*` and `GET /datum/*`. Every route that touches the seed, the signing
+key or wallet state (`/generate`, `/import`, `/payout`, `/offer`, `/init`,
+`/invoice`, `/pay`, `/seed/reveal`), and `POST /datum/settings`, which picks
+the host this server talks to, always requires a token and answers `403`
+without one, so no unauthenticated local process can replace the wallet, mint
+a BIP-322 authorization, spend, or repoint the DATUM proxy.
+
+**DATUM Gateway.** If you mine through your own
+[DATUM Gateway](https://github.com/OCEAN-xyz/datum_gateway) (0.5.0 or newer),
+save its API address in the app's Settings and a **DATUM** tab appears after
+**Lightning**: readiness, pool, hashrate, shares, workers, the current block
+template and its coinbase outputs, refreshed every 15 s. The gateway's API is
+off by default; set `api.listen_port` (e.g. `7152`) in its config and keep
+`api.json_api` on. The gateway sends no CORS headers, so the browser never
+calls it: `/datum/overview` fetches its public `/v1/*` endpoints server-side,
+only from the URL stored in `--datum-config` (default `datum.json` next to
+`--seed-file`, written `0600`), never from a URL in a request. The desktop app
+does the same over IPC and keeps the file in its app-data dir. A plain
+`http://` gateway outside your LAN gets an "unencrypted" warning; reach it over
+a VPN or a TLS reverse proxy.
 
 `/generate`, `/import`, and `/seed/reveal` exist for the onboarding wizard and
 are the deliberate exceptions to "the seed stays server-side": `/generate`

@@ -10,9 +10,11 @@
   import Done from "./lib/wizard/Done.svelte";
   import Profile from "./lib/Profile.svelte";
   import Dashboard from "./lib/Dashboard.svelte";
+  import Datum from "./lib/Datum.svelte";
   import {
     app, STEPS, stepKey, canContinue, continueStep, goBack, railClick,
     stepState, restart, go, visibleSteps, humanIndex, refreshHealth, bootstrap,
+    refreshDatumSettings,
   } from "./lib/store.svelte";
   import { isTauri, openExternal } from "./lib/tauri";
 
@@ -55,22 +57,31 @@
     void app.token;
     void app.base;
     void bootstrap();
+    // Same trigger: the DATUM URL lives on the backend, and a 401 before the
+    // token is pasted reads as "no gateway" (tab hidden) until then.
+    void refreshDatumSettings();
   });
 </script>
 
 <!-- Full-frame app surface (no OS window chrome); branding lives in the rail / top nav. -->
 <div class="wz-window">
   <div class="wz-body">
-    {#if app.surface === "profile" || app.surface === "dashboard"}
+    {#if app.surface === "profile" || app.surface === "dashboard" || app.surface === "datum"}
       <div style="flex:1;display:flex;flex-direction:column;min-width:0">
         <div class="app-nav">
           <div class="brand"><img src="/assets/landfall-mark.svg" alt="" /><span class="name">Landfall</span></div>
           <button class="pill {app.surface === 'profile' ? 'active' : ''}" onclick={() => go("profile")}><Icon name="key" size={14} /> Profile</button>
           <button class="pill {app.surface === 'dashboard' ? 'active' : ''}" onclick={() => go("dashboard")}><Icon name="bolt" size={14} /> Lightning</button>
+          <!-- Hidden until a gateway URL is saved in Settings. -->
+          {#if app.datumUrl}
+            <button class="pill {app.surface === 'datum' ? 'active' : ''}" onclick={() => go("datum")}><Icon name="enclave" size={14} /> DATUM</button>
+          {/if}
           <span class="spacer"></span>
           <span class="acct"><span class="av">O</span> My wallet</span>
         </div>
-        {#if app.surface === "profile"}<Profile />{:else}<Dashboard />{/if}
+        {#if app.surface === "profile"}<Profile />
+        {:else if app.surface === "datum"}<Datum />
+        {:else}<Dashboard />{/if}
       </div>
     {:else}
       <!-- rail -->

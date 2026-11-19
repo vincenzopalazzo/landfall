@@ -119,6 +119,9 @@ async fn spawn_with(seed: SeedSource, allowed_origins: &[&str]) -> String {
 /// Like [`spawn_with`], but with an explicit bearer token. An empty token
 /// mimics what `landfall-httpd --no-auth` builds.
 async fn spawn_with_token(seed: SeedSource, allowed_origins: &[&str], token: &str) -> String {
+    // Per-test DATUM settings file next to the per-test seed; start clean.
+    let datum_config = seed.path().with_extension("datum.json");
+    let _ = std::fs::remove_file(&datum_config);
     let state = Arc::new(AppState::new(
         ServerConfig {
             seed,
@@ -127,6 +130,7 @@ async fn spawn_with_token(seed: SeedSource, allowed_origins: &[&str], token: &st
             sidecar_url: landfall_common::client::DEFAULT_BASE_URL.to_string(),
             sidecar_credentials: None,
             default_path: DEFAULT_BIP32_PATH.to_string(),
+            datum_config,
         },
         Arc::new(MockWallet),
     ));
@@ -635,6 +639,187 @@ async fn ocean_statsnap_requires_bearer() {
     assert_eq!(resp.status(), 401);
 }
 
+// ── /datum/* (the user's own DATUM Gateway) ──────────────────────
+//
+// Content parsing is covered by landfall-common::datum::tests; these pin the
+// transport contract: who may set the URL, that the proxy only talks to the
+// stored URL, and how gateway failures surface.
+
+/// A DATUM Gateway stand-in answering every public `/v1/*` endpoint.
+async fn spawn_gateway() -> String {
+    use axum::routing::get;
+    fn json(body: &'static str) -> axum::routing::MethodRouter {
+        get(move || async move { ([("content-type", "application/json")], body) })
+    }
+    let app = axum::Router::new()
+        .route(
+            "/v1/decentralized_client_stats",
+            json(r#"{"acceptedShares":7,"ready":"Ready","poolHost":"datum.example:28915","uptime":60}"#),
+        )
+        .route(
+            "/v1/stratum_server_info",
+            json(r#"{"totalConnections":2,"estimatedHashrate":12.5}"#),
+        )
+        .route("/v1/current_stratum_job", json(r#"{"error":"No stratum job"}"#))
+        .route("/v1/coinbaser", json(r#"{}"#))
+        .route("/v1/thread_stats", json(r#"{}"#));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        let _ = axum::serve(listener, app).await;
+    });
+    format!("http://{addr}")
+}
+
+async fn set_datum_url(base: &str, url: serde_json::Value) -> reqwest::Response {
+    client()
+        .post(format!("{base}/datum/settings"))
+        .bearer_auth(TOKEN)
+        .json(&serde_json::json!({ "url": url }))
+        .send()
+        .await
+        .unwrap()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn datum_settings_round_trip_normalized_and_owner_only() {
+    let base = spawn("datum-settings", &[]).await;
+    let get_url = || async {
+        let v: serde_json::Value = client()
+            .get(format!("{base}/datum/settings"))
+            .bearer_auth(TOKEN)
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        v["url"].clone()
+    };
+    assert!(get_url().await.is_null(), "no gateway until one is set");
+
+    let resp = set_datum_url(&base, " 192.168.1.10:7152/ ".into()).await;
+    assert_eq!(resp.status(), 200);
+    let v: serde_json::Value = resp.json().await.unwrap();
+    assert_eq!(v["url"], "http://192.168.1.10:7152");
+    assert_eq!(get_url().await, "http://192.168.1.10:7152");
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let path = seed_path("datum-settings").with_extension("datum.json");
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600, "datum settings must be owner-only");
+    }
+
+    // null clears it.
+    let resp = set_datum_url(&base, serde_json::Value::Null).await;
+    assert_eq!(resp.status(), 200);
+    assert!(get_url().await.is_null());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn datum_settings_write_requires_bearer() {
+    let base = spawn("datum-settings-unauthed", &[]).await;
+    let resp = client()
+        .post(format!("{base}/datum/settings"))
+        .json(&serde_json::json!({ "url": "http://127.0.0.1:1" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 401);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn datum_settings_refuse_a_bad_url_and_keep_the_old_one() {
+    let base = spawn("datum-settings-bad", &[]).await;
+    assert_eq!(
+        set_datum_url(&base, "http://10.0.0.5:7152".into())
+            .await
+            .status(),
+        200
+    );
+    for bad in [
+        "file:///etc/passwd",
+        "http://admin:pw@10.0.0.5:7152",
+        "ftp://x",
+    ] {
+        let resp = set_datum_url(&base, bad.into()).await;
+        assert_eq!(resp.status(), 400, "{bad} must be refused");
+    }
+    let v: serde_json::Value = client()
+        .get(format!("{base}/datum/settings"))
+        .bearer_auth(TOKEN)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(v["url"], "http://10.0.0.5:7152");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn datum_overview_without_a_gateway_is_not_found() {
+    let base = spawn("datum-overview-unset", &[]).await;
+    let resp = client()
+        .get(format!("{base}/datum/overview"))
+        .bearer_auth(TOKEN)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 404);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn datum_overview_proxies_the_configured_gateway() {
+    let base = spawn("datum-overview", &[]).await;
+    let gateway = spawn_gateway().await;
+    assert_eq!(
+        set_datum_url(&base, gateway.clone().into()).await.status(),
+        200
+    );
+
+    let resp = client()
+        .get(format!("{base}/datum/overview"))
+        .bearer_auth(TOKEN)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let v: serde_json::Value = resp.json().await.unwrap();
+    assert_eq!(v["url"], gateway);
+    assert_eq!(v["stats"]["ready"], "Ready");
+    assert_eq!(v["stats"]["accepted_shares"], 7);
+    assert_eq!(v["server"]["total_connections"], 2);
+    assert!(v["job"].is_null(), "no template yet → job is null");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn datum_overview_of_an_unreachable_gateway_is_bad_gateway() {
+    let base = spawn("datum-overview-down", &[]).await;
+    let port = std::net::TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port(); // listener dropped: nothing serves this port
+    let url = format!("http://127.0.0.1:{port}");
+    assert_eq!(set_datum_url(&base, url.into()).await.status(), 200);
+
+    let resp = client()
+        .get(format!("{base}/datum/overview"))
+        .bearer_auth(TOKEN)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 502);
+    let v: serde_json::Value = resp.json().await.unwrap();
+    assert!(
+        v["error"].as_str().unwrap().contains("api.listen_port"),
+        "{v}"
+    );
+}
+
 // ── --no-auth mode (loopback-only v1 deploy) ─────────────────────
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -694,6 +879,10 @@ async fn no_auth_mode_refuses_every_seed_and_key_touching_route() {
         ("/invoice", serde_json::json!({ "amount_sats": 1 })),
         ("/pay", serde_json::json!({ "payable": "lnbc1xyz" })),
         ("/seed/reveal", serde_json::json!({})),
+        (
+            "/datum/settings",
+            serde_json::json!({ "url": "http://127.0.0.1:1" }),
+        ),
     ];
     for (path, body) in gated {
         let resp = client()
@@ -730,7 +919,13 @@ async fn no_auth_mode_refuses_every_seed_and_key_touching_route() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn no_auth_mode_serves_read_only_routes_without_bearer() {
     let base = spawn_no_auth("no-auth-readonly").await;
-    for path in ["/status", "/payouts", "/node", "/activity"] {
+    for path in [
+        "/status",
+        "/payouts",
+        "/node",
+        "/activity",
+        "/datum/settings",
+    ] {
         let resp = client().get(format!("{base}{path}")).send().await.unwrap();
         assert_eq!(
             resp.status(),

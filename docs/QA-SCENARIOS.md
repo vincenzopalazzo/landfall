@@ -136,7 +136,7 @@ fund it. "The wizard" is `landfall-web` served from a QA bundle against
 
 ### QA-121 — `--no-auth` is read-only without a token
 - **Surfaces:** HTTP (automated)
-- **Steps:** start with `--no-auth`; `GET /status`; `POST` each of `/generate`, `/import {force:true}`, `/payout`, `/offer`, `/init`, `/invoice`, `/pay`, `/seed/reveal` with no header; `GET /status` again.
+- **Steps:** start with `--no-auth`; `GET /status`; `POST` each of `/generate`, `/import {force:true}`, `/payout`, `/offer`, `/init`, `/invoice`, `/pay`, `/seed/reveal`, `/datum/settings` with no header; `GET /status` again.
 - **Expect:** the GET is 200; every POST is 403; the seed on disk is unchanged.
 - **How:** `httpd-smoke.sh` QA-121…123 · Guard: `server.rs::no_auth_mode_refuses_every_seed_and_key_touching_route`, `no_auth_mode_serves_read_only_routes_without_bearer`
 - **Origin:** pre-release review B2 — only `/pay` and `/seed/reveal` were gated; a local process could swap the seed or mint BIP-322 authorizations.
@@ -145,6 +145,11 @@ fund it. "The wizard" is `landfall-web` served from a QA bundle against
 - **Surfaces:** HTTP (automated)
 - **Expect:** `--bind 0.0.0.0:…` exits non-zero before serving.
 - **How:** `httpd-smoke.sh` QA-124
+
+### QA-125 — the DATUM Gateway URL is set only with a token, and stored validated
+- **Surfaces:** HTTP (automated); Tauri (manual, QA-402)
+- **Expect:** `POST /datum/settings` without a token is 401 (403 under `--no-auth`, QA-122); a `file://`, `ftp://` or credentialed URL is 400 and the stored one stays; a valid one is stored normalized (`http://` added, trailing `/` dropped) in a `0600` file; `GET /datum/overview` is 404 with no gateway set and 502 naming `api.listen_port` when nothing listens at the URL.
+- **How:** `httpd-smoke.sh` QA-125…128 · Guard: `server.rs::datum_*`, `landfall-common` `datum::tests`
 
 ## Web wizard (the BIP-322 UX)
 
@@ -204,6 +209,12 @@ fund it. "The wizard" is `landfall-web` served from a QA bundle against
 - **How:** Guard: `App.test.ts "QA-212"`, `store.test.ts "QA-212"`
 - **Origin:** review U1 — `bind:value` re-ran bootstrap per keystroke and reset the wizard. Fixed 2026-10-06.
 
+### QA-214 — the DATUM tab is hidden until a gateway is saved
+- **Surfaces:** wizard (automated, component tests); Tauri (manual, QA-402)
+- **Steps:** on a configured wallet, look at the top nav; open Settings, enter `192.168.1.10:7152/` under DATUM Gateway, Save; open the tab; Remove the URL in Settings.
+- **Expect:** no DATUM pill before saving; after Save the field reads `http://192.168.1.10:7152` and a DATUM pill sits after Lightning; the tab shows the gateway's state, or the backend's reason when it can't reach it (keeping the last numbers, marked stale); Remove takes the pill away and lands on Lightning. Plain `http://` to a host outside the LAN shows an "unencrypted" warning.
+- **How:** Guard: `App.test.ts "QA-214"`, `store.test.ts "DATUM Gateway settings"`, `Datum.test.ts`
+
 ### QA-213 — the sign step shows what was signed
 - **Surfaces:** wizard (automated)
 - **Expect:** after signing, "You signed exactly this text" shows the verbatim message and the signing address next to the signature; *Sign a different message* clears the signature and the textarea and re-enables signing without "Re-run setup"; re-signing the same text yields the same signature.
@@ -222,6 +233,11 @@ fund it. "The wizard" is `landfall-web` served from a QA bundle against
 ### QA-401 — QA-201 through the desktop shell
 - **Surfaces:** Tauri (manual)
 - **Expect:** identical flow over IPC; the seed lands in the app-data dir `0600`; `ocean.xyz`/`mempool.space` links open in the OS browser.
+
+### QA-402 — the DATUM tab through the desktop shell
+- **Surfaces:** Tauri (manual, needs a DATUM Gateway 0.5.0+ with `api.listen_port` set)
+- **Steps:** Settings → DATUM Gateway → its URL → Save; open the DATUM tab; stop the gateway; start it again.
+- **Expect:** `datum.json` lands in the app-data dir `0600`; the tab's ready state, hashrate, workers and current job match the gateway's own dashboard; with the gateway stopped the chip reads Unreachable within one refresh (15 s) and the last numbers stay, marked stale; they refresh once it is back.
 
 ## Mobile (experimental, on the `mobile-experimental` branch)
 

@@ -24,6 +24,7 @@
 //! [`WalletProvider`] trait so the transport is decoupled from the in-process
 //! Lexe SDK and can be exercised in tests with a mock.
 
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use axum::extract::{Path, Request, State};
@@ -36,6 +37,7 @@ use serde::Deserialize;
 use serde_json::json;
 use tower_http::cors::CorsLayer;
 
+use landfall_common::datum::{DatumClient, DatumOverview};
 use landfall_common::error::Error;
 use landfall_common::ocean::{EarnPay, OceanClient, PoolStat, StatSnap, UserHashrate};
 use landfall_common::seed::SeedSource;
@@ -73,6 +75,10 @@ pub struct ServerConfig {
     pub sidecar_credentials: Option<String>,
     /// Default BIP32 derivation path; a per-request `path` overrides it.
     pub default_path: String,
+    /// Where the DATUM Gateway settings (its URL) live. The `/datum/*`
+    /// proxy only ever contacts the URL stored here, never one from a
+    /// request.
+    pub datum_config: PathBuf,
 }
 
 /// Shared application state handed to every request.
@@ -82,6 +88,8 @@ pub struct AppState {
     /// Shared `reqwest::Client` for the `/ocean/*` proxy routes —
     /// pooled TCP/TLS across every proxied call to `api.ocean.xyz`.
     ocean: OceanClient,
+    /// Shared client for the `/datum/*` routes (the user's DATUM Gateway).
+    datum: DatumClient,
 }
 
 impl AppState {
@@ -90,6 +98,7 @@ impl AppState {
             cfg,
             wallet,
             ocean: OceanClient::default(),
+            datum: DatumClient::default(),
         }
     }
 
@@ -100,7 +109,12 @@ impl AppState {
         wallet: Arc<dyn WalletProvider>,
         ocean: OceanClient,
     ) -> Self {
-        Self { cfg, wallet, ocean }
+        Self {
+            cfg,
+            wallet,
+            ocean,
+            datum: DatumClient::default(),
+        }
     }
 }
 
@@ -404,6 +418,43 @@ async fn ocean_pool_stat(
     Ok(Json(state.ocean.pool_stat().await?))
 }
 
+// ── /datum/* — the miner's own DATUM Gateway ─────────────────────
+//
+// The gateway sends no CORS headers, so the browser build reaches it through
+// these routes. Reads sit behind the shared `guard` like `/ocean/*`; changing
+// which host the server talks to is a token-gated write (see `build_app`).
+
+async fn datum_settings(
+    State(state): State<Arc<AppState>>,
+) -> std::result::Result<Json<service::DatumSettingsResp>, ApiError> {
+    Ok(Json(service::datum_settings(&state.cfg.datum_config)?))
+}
+
+#[derive(Deserialize)]
+struct DatumSettingsReq {
+    /// Gateway URL; `null` or blank clears it.
+    #[serde(default)]
+    url: Option<String>,
+}
+
+async fn datum_set_settings(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<DatumSettingsReq>,
+) -> std::result::Result<Json<service::DatumSettingsResp>, ApiError> {
+    Ok(Json(service::set_datum_settings(
+        &state.cfg.datum_config,
+        req.url.as_deref(),
+    )?))
+}
+
+async fn datum_overview(
+    State(state): State<Arc<AppState>>,
+) -> std::result::Result<Json<DatumOverview>, ApiError> {
+    Ok(Json(
+        service::datum_overview(&state.cfg.datum_config, &state.datum).await?,
+    ))
+}
+
 // ── guard middleware ────────────────────────────────────────────
 
 fn deny(status: StatusCode, msg: &str) -> Response {
@@ -456,7 +507,8 @@ fn host_is_loopback(host: &str) -> bool {
 
 /// Extra gate for every endpoint that touches the seed, the signing key,
 /// or wallet state (`/generate`, `/import`, `/payout`, `/offer`, `/init`,
-/// `/invoice`, `/pay`, `/seed/reveal`): refuse when the server is in
+/// `/invoice`, `/pay`, `/seed/reveal`), or that picks the host this server
+/// sends requests to (`POST /datum/settings`): refuse when the server is in
 /// `--no-auth` mode (empty token). The shared [`guard`] deliberately skips
 /// the bearer check in that mode (loopback + Origin/Host are the only
 /// defenses), which is acceptable for read-only routes on a single-host
@@ -611,7 +663,8 @@ pub fn build_app(state: Arc<AppState>) -> Router {
     // wallet state, carries `require_token` on top of the shared `guard`:
     // it always needs a bearer token, even in `--no-auth` mode. `--no-auth`
     // therefore means "read-only without a token" (`/status`, `/payouts`,
-    // `/node`, `/activity`, `/ocean/*`) — never "any local process may
+    // `/node`, `/activity`, `/ocean/*`, `GET /datum/*`) — never "any local
+    // process may repoint the DATUM proxy (`POST /datum/settings`),
     // replace the seed (`/import` force), mint BIP-322 authorizations with
     // the mining key (`/payout`), or spend (`/pay`)". See `require_token`.
     let token_gate = || middleware::from_fn_with_state(state.clone(), require_token);
@@ -638,6 +691,14 @@ pub fn build_app(state: Arc<AppState>) -> Router {
         .route("/ocean/earnpay/:address", get(ocean_earnpay))
         .route("/ocean/user_hashrate/:address", get(ocean_user_hashrate))
         .route("/ocean/pool_stat", get(ocean_pool_stat))
+        // DATUM Gateway proxy. Reading is like `/ocean/*`; setting the URL
+        // decides which host this server sends requests to, so it is gated
+        // like the wallet writes.
+        .route(
+            "/datum/settings",
+            get(datum_settings).merge(post(datum_set_settings).layer(token_gate())),
+        )
+        .route("/datum/overview", get(datum_overview))
         .layer(middleware::from_fn_with_state(state.clone(), guard));
 
     Router::new()

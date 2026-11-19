@@ -9,7 +9,7 @@
 //! use, and the atomic `O_EXCL` seed create — live in exactly one audited place
 //! rather than being duplicated per transport.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 // `Zeroize` is only used by `import` (gated below). Keep the use under
@@ -18,6 +18,7 @@ use serde::{Deserialize, Serialize};
 use zeroize::Zeroize;
 
 use crate::client::{CreateOfferReq, SidecarClient};
+use crate::datum::{self, DatumClient, DatumOverview, DatumSettings};
 use crate::error::{Error, Result};
 use crate::seed::SeedSource;
 use crate::sign;
@@ -102,6 +103,14 @@ pub struct StatusResp {
     pub offer: Option<String>,
 }
 
+/// The DATUM Gateway settings a frontend may see. Deliberately not
+/// [`DatumSettings`] itself: secrets stored there later must never be echoed.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct DatumSettingsResp {
+    /// Normalized gateway URL; `None` = no gateway, DATUM tab hidden.
+    pub url: Option<String>,
+}
+
 /// Map a shared [`Error`] to an HTTP-style status code.
 ///
 /// Used by every transport — the axum error response, the Tauri command
@@ -116,6 +125,10 @@ pub fn http_status(err: &Error) -> u16 {
         | Error::InvalidBip32Path(_) => 400,
         Error::SeedExists { .. } => 409,
         Error::SidecarUnreachable { .. } => 502,
+        Error::InvalidDatumUrl(_) => 400,
+        Error::DatumNotConfigured => 404,
+        // The gateway is the upstream: unreachable, too old, or misbehaving.
+        Error::Datum(_) => 502,
         Error::Api { code, .. } => *code,
         _ => 500,
     }
@@ -461,4 +474,32 @@ fn seed_changed(seed: &SeedSource, new_phrase: &str) -> bool {
         Ok(existing) => existing.split_whitespace().collect::<Vec<_>>().join(" ") != new_phrase,
         Err(_) => false,
     }
+}
+
+// ── DATUM Gateway ──────────────────────────────────────────────────
+
+/// The configured DATUM Gateway, read from the settings file at `path`.
+pub fn datum_settings(path: &Path) -> Result<DatumSettingsResp> {
+    let settings = datum::load_settings(path)?;
+    Ok(DatumSettingsResp { url: settings.url })
+}
+
+/// Set (or, with `None` / blank, clear) the DATUM Gateway URL. The URL is
+/// validated and normalized before it is stored; the stored value is the only
+/// host the overview ever contacts.
+pub fn set_datum_settings(path: &Path, url: Option<&str>) -> Result<DatumSettingsResp> {
+    let url = match url.map(str::trim) {
+        None | Some("") => None,
+        Some(raw) => Some(datum::normalize_gateway_url(raw)?),
+    };
+    datum::save_settings(path, &DatumSettings { url: url.clone() })?;
+    Ok(DatumSettingsResp { url })
+}
+
+/// Live snapshot of the configured gateway (the DATUM tab).
+pub async fn datum_overview(path: &Path, client: &DatumClient) -> Result<DatumOverview> {
+    let url = datum::load_settings(path)?
+        .url
+        .ok_or(Error::DatumNotConfigured)?;
+    client.overview(&url).await
 }

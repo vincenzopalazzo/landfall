@@ -32,6 +32,15 @@ pub enum Error {
     #[error("lexe wallet: {0}")]
     Wallet(String),
 
+    #[error("invalid DATUM Gateway URL: {0}")]
+    InvalidDatumUrl(String),
+
+    #[error("no DATUM Gateway configured; add its URL in Settings")]
+    DatumNotConfigured,
+
+    #[error("DATUM Gateway: {0}")]
+    Datum(String),
+
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
 
