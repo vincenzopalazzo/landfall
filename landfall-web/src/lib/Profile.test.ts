@@ -1,4 +1,4 @@
-import { render, screen, fireEvent } from "@testing-library/svelte";
+import { render, screen, fireEvent, waitFor } from "@testing-library/svelte";
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import Profile from "./Profile.svelte";
 import * as S from "./store.svelte";
@@ -39,6 +39,52 @@ describe("Profile — stats + profile in one view", () => {
     expect(screen.getByText(/Recovery phrase/i)).toBeInTheDocument();
     // And a way to open the full Lightning dashboard (offer + MCP live there).
     expect(screen.getByText(/Open full Lightning dashboard/i)).toBeInTheDocument();
+  });
+});
+
+describe("Profile — next Lightning payout estimate", () => {
+  const TIP_URL = "https://mempool.space/api/blocks/tip/height";
+  // OCEAN's pool hashrate and two recent blocks (newest first), plus the chain tip.
+  function mockPayoutInputs(tip: () => Response) {
+    const statsFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      const u = String(url);
+      if (u === TIP_URL) return tip();
+      if (u.endsWith("/v1/pool_hashrate")) return res({ result: { snap_ts: 1, pool_60s: "0", pool_300s: "44800000000000000000" } });
+      if (u.endsWith("/v1/blocks"))
+        return res({
+          result: {
+            blocks: [
+              { height: 974003, ts: "2026-10-31T17:36:23.958200", block_hash: "00", network_difficulty: 148364561003867 },
+              { height: 973990, ts: "2026-10-31T15:10:05.331700", block_hash: "01", network_difficulty: 148364561003867 },
+            ],
+          },
+        });
+      return statsFetch(url as never, init as never);
+    }) as typeof fetch;
+  }
+
+  it("counts the blocks since OCEAN's latest one and shows the expected wait", async () => {
+    mockPayoutInputs(() => new Response("974009"));
+    render(Profile);
+    // 6 blocks into the 30-block count at OCEAN's ~4.2% share: median 43 blocks, 90% within 109.
+    expect(
+      await screen.findByText("Next Lightning payout: usually within ~7 h, 9 times in 10 within ~18 h."),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/#974,003.*30 blocks after it \(6 so far\)/)).toBeInTheDocument();
+  });
+
+  it("hides the estimate, without an error banner, once an input starts failing", async () => {
+    let tipUp = true;
+    mockPayoutInputs(() => (tipUp ? new Response("974009") : new Response("unavailable", { status: 503 })));
+    render(Profile);
+    expect(await screen.findByText(/Next Lightning payout/)).toBeInTheDocument();
+    tipUp = false;
+    const refresh = screen.getByRole("button", { name: /Refresh/ });
+    await waitFor(() => expect(refresh).not.toBeDisabled());
+    await fireEvent.click(refresh);
+    await waitFor(() => expect(screen.queryByText(/Next Lightning payout/)).not.toBeInTheDocument());
+    expect(screen.queryByText(/Couldn't load OCEAN data/)).not.toBeInTheDocument();
   });
 });
 
