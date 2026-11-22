@@ -106,4 +106,27 @@ describe("LandfallClient", () => {
     expect(body).toEqual({ payable: "lnbc1dest", amount_sats: 500, note: "coffee" });
     expect(r.id).toBe("pid");
   });
+
+  it("DATUM settings: reads with the bearer, writes { url } with it too", async () => {
+    const f = vi.fn(async () => jsonResponse(200, { url: "http://10.0.0.5:7152" }));
+    globalThis.fetch = f as unknown as typeof fetch;
+    const c = new LandfallClient("http://127.0.0.1:7762", "tok");
+    await c.datumSettings();
+    await c.setDatumSettings(null);
+    const [getUrl, getInit] = f.mock.calls[0] as unknown as [string, RequestInit];
+    expect(getUrl).toBe("http://127.0.0.1:7762/datum/settings");
+    expect((getInit.headers as Record<string, string>).Authorization).toBe("Bearer tok");
+    const [postUrl, postInit] = f.mock.calls[1] as unknown as [string, RequestInit];
+    expect(postUrl).toBe("http://127.0.0.1:7762/datum/settings");
+    expect(postInit.method).toBe("POST");
+    expect((postInit.headers as Record<string, string>).Authorization).toBe("Bearer tok");
+    expect(JSON.parse(postInit.body as string)).toEqual({ url: null });
+  });
+
+  it("DATUM overview goes to the httpd proxy, not to the gateway", async () => {
+    const f = vi.fn().mockResolvedValue(jsonResponse(200, { url: "http://10.0.0.5:7152" }));
+    globalThis.fetch = f;
+    await new LandfallClient("http://127.0.0.1:7762", "tok").datumOverview();
+    expect(f.mock.calls[0][0]).toBe("http://127.0.0.1:7762/datum/overview");
+  });
 });
